@@ -1,0 +1,15 @@
+-- tests-build-pass: interpolation with multiple types.
+-- @cmd — zo build interpolation_types.zo
+
+fun main() {
+  imu name: str = "zo";
+  imu version: int = 1;
+  imu pi: float = 3.14;
+  imu active: bool = true;
+  imu info: str = "name={name} v={version} pi={pi} ok={active}";
+
+  showln(info);
+}
+
+-- EXPECTED OUTPUT:
+-- name=zo v=1 pi=3.14 ok=true

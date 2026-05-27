@@ -125,6 +125,89 @@ pub unsafe extern "C-unwind" fn zo_int_to_str(n: i64) -> *const u8 {
   alloc_str(formatted.as_bytes())
 }
 
+/// Convert an `f64` to its string representation.
+///
+/// # Safety
+///
+/// No preconditions — `f` is a plain scalar.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_float_to_str(f: f64) -> *const u8 {
+  let formatted = format!("{f}");
+
+  alloc_str(formatted.as_bytes())
+}
+
+/// Convert a boolean (0 = false, nonzero = true) to `str`.
+///
+/// @note — returns pointers to leaked static buffers,
+/// no per-call allocation.
+///
+/// # Safety
+///
+/// No preconditions — `b` is a plain scalar.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_bool_to_str(b: i64) -> *const u8 {
+  static TRUE_STR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+  static FALSE_STR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+
+  let ptr = if b != 0 {
+    *TRUE_STR.get_or_init(|| alloc_str(b"true") as usize)
+  } else {
+    *FALSE_STR.get_or_init(|| alloc_str(b"false") as usize)
+  };
+
+  ptr as *const u8
+}
+
+/// Convert a unicode codepoint to a single-char `str`.
+///
+/// # Safety
+///
+/// `c` must be a valid unicode scalar value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_char_to_str(c: u32) -> *const u8 {
+  let ch = char::from_u32(c).unwrap_or('\u{FFFD}');
+  let mut buf = [0u8; 4];
+  let encoded = ch.encode_utf8(&mut buf);
+
+  alloc_str(encoded.as_bytes())
+}
+
+/// Concatenate N zo strs into a single heap-allocated str.
+///
+/// @note — single allocation regardless of segment count.
+/// Used by `Insn::StringFormat` for interpolated strings.
+///
+/// # Safety
+///
+/// `ptrs` must point at an array of `count` valid zo str
+/// header pointers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_str_multi_concat(
+  count: u64,
+  ptrs: *const *const u8,
+) -> *const u8 {
+  let count = count as usize;
+  let slices: &[*const u8] = unsafe { std::slice::from_raw_parts(ptrs, count) };
+
+  let mut total: usize = 0;
+
+  for &ptr in slices {
+    total += unsafe { str_len(ptr) };
+  }
+
+  alloc_str_with(total, |dst| {
+    let mut offset = 0;
+
+    for &ptr in slices {
+      let bytes = unsafe { str_bytes(ptr) };
+
+      dst[offset..offset + bytes.len()].copy_from_slice(bytes);
+      offset += bytes.len();
+    }
+  })
+}
+
 /// Concatenate two zo strs into a fresh heap zo str.
 ///
 /// Replaces an earlier inline AArch64 emitter that
@@ -428,5 +511,127 @@ mod tests {
       unsafe { zo_str_replace(src.as_ptr(), needle.as_ptr(), with.as_ptr()) };
 
     assert_eq!(out, src.as_ptr());
+  }
+
+  // -------------------------------------------------
+  // Property tests: interpolation runtime helpers.
+  // -------------------------------------------------
+
+  use proptest::prelude::*;
+  use proptest::test_runner::{Config, FileFailurePersistence};
+
+  proptest! {
+    #![proptest_config(Config {
+      failure_persistence: Some(Box::new(
+        FileFailurePersistence::Off,
+      )),
+      cases: 500,
+      ..Config::default()
+    })]
+
+    #[test]
+    fn multi_concat_equals_sequential_append(
+      parts in proptest::collection::vec(
+        "[a-zA-Z0-9 ]{0,30}",
+        1..8,
+      )
+    ) {
+      let expected: String = parts.concat();
+      let blobs: Vec<Box<[u8]>> =
+        parts.iter().map(|s| make_str(s.as_bytes())).collect();
+      let ptrs: Vec<*const u8> =
+        blobs.iter().map(|b| b.as_ptr()).collect();
+      let result = unsafe {
+        zo_str_multi_concat(
+          ptrs.len() as u64,
+          ptrs.as_ptr(),
+        )
+      };
+      let result_bytes = unsafe { str_bytes(result) };
+
+      prop_assert_eq!(
+        result_bytes,
+        expected.as_bytes(),
+        "multi_concat mismatch"
+      );
+    }
+
+    #[test]
+    fn int_to_str_matches_format(n in any::<i64>()) {
+      let result = unsafe { zo_int_to_str(n) };
+      let bytes = unsafe { str_bytes(result) };
+      let actual = std::str::from_utf8(bytes).unwrap();
+      let expected = format!("{n}");
+
+      prop_assert_eq!(actual, expected.as_str());
+    }
+
+    #[test]
+    fn float_to_str_matches_format(f in any::<f64>()) {
+      prop_assume!(!f.is_nan());
+
+      let result = unsafe { zo_float_to_str(f) };
+      let bytes = unsafe { str_bytes(result) };
+      let actual = std::str::from_utf8(bytes).unwrap();
+      let expected = format!("{f}");
+
+      prop_assert_eq!(actual, expected.as_str());
+    }
+
+    #[test]
+    fn bool_to_str_correct(b in any::<bool>()) {
+      let result = unsafe {
+        zo_bool_to_str(if b { 1 } else { 0 })
+      };
+      let bytes = unsafe { str_bytes(result) };
+      let actual = std::str::from_utf8(bytes).unwrap();
+
+      prop_assert_eq!(
+        actual,
+        if b { "true" } else { "false" }
+      );
+    }
+
+    #[test]
+    fn char_to_str_correct(c in any::<char>()) {
+      let result = unsafe { zo_char_to_str(c as u32) };
+      let bytes = unsafe { str_bytes(result) };
+      let actual = std::str::from_utf8(bytes).unwrap();
+      let expected = c.to_string();
+
+      prop_assert_eq!(actual, expected.as_str());
+    }
+  }
+
+  #[test]
+  fn multi_concat_single_element() {
+    let src = make_str(b"hello");
+    let ptrs = [src.as_ptr()];
+    let result = unsafe { zo_str_multi_concat(1, ptrs.as_ptr()) };
+    let bytes = unsafe { str_bytes(result) };
+
+    assert_eq!(bytes, b"hello");
+  }
+
+  #[test]
+  fn multi_concat_empty_strings() {
+    let a = make_str(b"");
+    let b = make_str(b"");
+    let ptrs = [a.as_ptr(), b.as_ptr()];
+    let result = unsafe { zo_str_multi_concat(2, ptrs.as_ptr()) };
+
+    assert_eq!(unsafe { str_len(result) }, 0);
+  }
+
+  #[test]
+  fn multi_concat_mixed_empty_and_content() {
+    let a = make_str(b"hello");
+    let b = make_str(b"");
+    let c = make_str(b"world");
+    let ptrs = [a.as_ptr(), b.as_ptr(), c.as_ptr()];
+    let result = unsafe { zo_str_multi_concat(3, ptrs.as_ptr()) };
+    let bytes = unsafe { str_bytes(result) };
+
+    assert_eq!(bytes, b"helloworld");
   }
 }

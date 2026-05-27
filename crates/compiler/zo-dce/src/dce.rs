@@ -387,6 +387,8 @@ fn is_impure(insn: &Insn) -> bool {
       | Insn::TaskCancelled { .. }
       | Insn::TaskCancel { .. }
       | Insn::StrSlice { .. }
+      | Insn::ToStr { .. }
+      | Insn::StringFormat { .. }
       // `CoerceToDyn` heap-allocates via `_zo_dyn_box`; the
       // call is the side effect that must outlive liveness
       // even if the resulting fat-pointer isn't immediately

@@ -1,28 +1,27 @@
 # concurrency
 
-zo avoids standard async/await architectures entirely, preventing language function coloring. It operates native
-runtime-managed green threads executing safely within structural lexical limits called a nursery . When tasks
-block on channels, the scheduler automatically shifts context execution frames.
+The zo runtime ignores standard state-machine `async`/`await` transforms entirely, eliminating function coloring bugs across your system. Execution runs inside native runtime-managed green threads tracking execution scope blocks called nurseries. Blocking a task triggers immediate context frame swaps inside the scheduler.
 
 ## nursery
 
-  ```zo
-  -! Continuous green-thread orchestration pipelines.
-  -! The nursery container guarantees structured tracking lifecycle limits.
+A `nursery` container sets strict lexical boundaries for concurrent task Lifecycles. The execution block cannot exit until every spawned green thread unwinds completely.
 
-  fun worker(id: int, ch: Tx<int>) {
-    showln("worker {id} spinning up");
+  ```zo
+  fun worker(id: int, tx: Tx<int>) {
+    showln("worker: {id}");
     tx.send(id * 10);
   }
 
   fun main() {
     imu (tx, rx) := channel();
   
-    -- Nursery block isolates processing scopes structurally.
+    -- The nursery handles concurrent task tracking
+    -- smechanics cleanly.
     nursery {
       spawn worker(1, tx);
       spawn worker(2, tx);
-    } -- Lexical exit point guarantees both operations have fully wound down.
+    } -- exical boundary block: execution holds here
+    --  until both tasks complete.
 
     imu res1 := rx.recv();
     imu res2 := rx.recv();
@@ -30,18 +29,9 @@ block on channels, the scheduler automatically shifts context execution frames.
   }
   ```
 
-- structured concurrency. `nursery { spawn a(); spawn b(); }` means both children must finish before the block exits.
-- `Channels` + `select` give you composition. The scheduler picks another task whenever one blocks on `chan.recv()`
-- There's no callback hell to escape from in the first place.
-
-description:
-  - green and os threads
-    - Real green threads. Each task has a stack; you can call deeply-nested code without a state-machine transform.
-    - No function coloring. Every function can spawn. No async fn / fn divide.
-    - Cancellation propagates structurally. The nursery is the cancellation scope; task.cancel() works because the runtime owns the green-thread stack.
-  - scheduler
-    - Single-runtime. zo has one scheduler
-    - `chan.recv()` blocks the task, the scheduler swaps.
+- **True Stackful Green Threads**: Every concurrent execution task allocates a lightweight runtime execution stack. Deep nested calls compile natively without restructuring code into complex async state loops.
+- **Unified Runtime Scheduler**: The internal task coordinator monitors state mutations directly. Invoking `rx.recv()` on an empty channel yields execution, swapping out active thread contexts immediately.
+- **Structural Cancellation**: Nurseries form distinct isolation islands. Triggering task cancellations propagates downstream through children stacks because the underlying runtime owns the stack handles.
 
 ## supervise
 
@@ -50,8 +40,9 @@ description:
 
 ## select
 
+Coordinate communication states across multiple channel references using the non-blocking select block format:
+
   ```zo
-  -- Coordinate channel state changes reactively.
   select {
     rx1 => fn(value: int) => showln("chan1: {value}"),
     rx2 => fn(value: int) => showln("chan2: {value}"),

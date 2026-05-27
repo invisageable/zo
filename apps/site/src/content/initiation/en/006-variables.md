@@ -1,7 +1,6 @@
 # variables
 
-Data needs a name. In zo, you have three ways to name a value:
-`val` for constants, `imu` for immutable locals, and `mut` when things change.
+Data bindings demand structured tracking. zo enforces variable clarity using three dedicated allocation keywords: `val` for global or local compile-time constants, `imu` for unalterable execution parameters, and `mut` for active stack transformations.
 
 ## constants
 
@@ -9,7 +8,6 @@ Data needs a name. In zo, you have three ways to name a value:
   -- Hi, I'm `val` — your compile-time constant.
   val VERSION: str = "1.0.0";
   val MAX_HEALTH: int = 100;
-  -- I work at the top level or inside a function.
   ```
 
 ## locals
@@ -20,20 +18,17 @@ Data needs a name. In zo, you have three ways to name a value:
   imu name: str = "johndoe";
 
   -- And me, I'm `mut` — your mutable local. I can be
-  -- reassigned. Reach for me only when something 
-  -- changes.
+  -- reassigned.
   mut health: int = 22;
-  health = 50; -- Reassignment.
+  health = 50; -- Legal modification mutation.
   ```
 
 ## shadowing
 
   ```zo
-  -- Call me `shadowing` — I let you re-declare a name
-  -- in the same scope. Each declaration creates a new
-  -- variable; the old one is untouched.
+  -- Variable shadowing isolates structural scopes.
+  -- Each statement allocates a fresh slot, shadowing
+  -- the predecessor safely.
   imu x: int = 40;
-  imu x: int = x + 2; -- shadows, new x is 42.
+  imu x: int = x + 2; -- x now safely evaluates to 42.
   ```
-
-In this lesson, we wrote every type explicitly (like `: int`). In practice, zo can almost always figure it out. We'll stay explicit for now to help you learn, but soon we'll let the compiler do the heavy lifting in `Inference`.

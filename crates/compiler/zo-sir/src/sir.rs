@@ -277,6 +277,8 @@ impl Sir {
       | Insn::TaskAwait { dst, .. }
       | Insn::TaskCancelled { dst, .. }
       | Insn::StrSlice { dst, .. }
+      | Insn::ToStr { dst, .. }
+      | Insn::StringFormat { dst, .. }
       | Insn::CoerceToDyn { dst, .. }
       | Insn::DynDispatch { dst, .. } => *dst,
       // Template uses `id` as its value.
@@ -488,6 +490,17 @@ impl Insn {
         f(lo);
         f(hi);
       }
+      Insn::ToStr { dst, src, .. } => {
+        f(dst);
+        f(src);
+      }
+      Insn::StringFormat { dst, segments, .. } => {
+        f(dst);
+
+        for seg in segments {
+          f(seg);
+        }
+      }
       Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
       Insn::CoerceToDyn { dst, src, .. } => {
         f(dst);
@@ -597,6 +610,8 @@ impl Insn {
       Insn::TaskCancelled { ty_id, .. } => f(ty_id),
       Insn::TaskCancel { .. } => {}
       Insn::StrSlice { ty_id, .. } => f(ty_id),
+      Insn::ToStr { src_ty, .. } => f(src_ty),
+      Insn::StringFormat { ty_id, .. } => f(ty_id),
       Insn::ChannelClose { .. }
       | Insn::ModuleLoad { .. }
       | Insn::PackDecl { .. }
@@ -1116,6 +1131,23 @@ pub enum Insn {
     src: ValueId,
     lo: ValueId,
     hi: ValueId,
+    ty_id: TyId,
+  },
+  /// Convert a typed value to its `str` representation.
+  /// Identity for `str`; codegen dispatches on `src_ty`
+  /// to the right runtime helper (`_zo_int_to_str`, etc.).
+  ToStr {
+    dst: ValueId,
+    src: ValueId,
+    src_ty: TyId,
+  },
+  /// Concatenate N already-str-typed segments into one
+  /// `str` via a single heap allocation. Codegen builds
+  /// a pointer array on the stack and calls
+  /// `_zo_str_multi_concat`.
+  StringFormat {
+    dst: ValueId,
+    segments: Vec<ValueId>,
     ty_id: TyId,
   },
   /// Runtime byte-wise `str` equality. Lowered to

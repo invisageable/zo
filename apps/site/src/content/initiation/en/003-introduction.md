@@ -4,11 +4,11 @@ order: 3
 
 # introduction
 
-This guide is your initiation to zo. Read in order on a first pass, jump around once you know the basics.
+This guide is your initiation to the zo programming language ecosystem. Read sequentially on your first pass, then skip around once you grasp the architectural patterns.
 
 ## how to use this guide
 
-Every lesson is a quick snapshot of a zo program. Read the doc-comments (`-!`), they provide explanation and describe all the concepts that you need.
+Every lesson delivers a high-fidelity snapshot of a functional zo program. Pay close attention to the comments: documents comments (`-!`) leverage raw Markdown formatting to establish systemic guidelines, while line (`--`) and block (`-* *-`) markers isolate execution mechanics.
 
   ```zo
   -! Sup? I'm a doc comment, I support markdown
@@ -22,13 +22,11 @@ Every lesson is a quick snapshot of a zo program. Read the doc-comments (`-!`), 
   ```zo
   -*
     From my side I'm a block comment, I'm happy to help
-    for details that matter
+    for details that matter.
   *-
   ```
 
-<!-- roadmap of the book -->
-
-In zo, each program has to contain an entry point:
+Every executable compilation unit inside zo must expose an explicit, non-colored entry block called `main`:
 
   ```zo
   -- Wassup?! I'm `main` a function.
@@ -39,7 +37,6 @@ In zo, each program has to contain an entry point:
 
   -! ## the capstone.
   -!
-  -!   - every programs must have a `main` function.
+  -!   - every programs must declare a `main` block
+  -!     to serve as the runtime launchpad.
   ```
-
-That's it. Turn the page.

@@ -1647,6 +1647,15 @@ impl<'a> Tokenizer<'a> {
         // interp_id stored via push_with_literal on a
         // parallel field. We pack interp_id into the high
         // 16 bits of the literal index.
+        debug_assert!(
+          str_id <= 0xFFFF,
+          "string_literals overflow: {str_id} > 65535"
+        );
+        debug_assert!(
+          interp_id <= 0xFFFF,
+          "interp_ranges overflow: {interp_id} > 65535"
+        );
+
         let packed = str_id | ((interp_id as u32) << 16);
 
         self.tokens.push_with_literal(
@@ -1715,11 +1724,26 @@ impl<'a> Tokenizer<'a> {
 
         if i < bytes.len() {
           let var_name = &content[var_start..i];
-          let sym = self.interner.intern(var_name);
 
-          segments.push(InterpSegment::Variable(sym));
+          if is_valid_ident(var_name) {
+            let sym = self.interner.intern(var_name);
+
+            segments.push(InterpSegment::Variable(sym));
+          } else {
+            let lit = &content[var_start - 1..=i];
+            let sym = self.interner.intern(lit);
+
+            segments.push(InterpSegment::Literal(sym));
+          }
 
           i += 1; // skip }
+        } else {
+          // Unmatched `{` — include it and everything
+          // after as literal text.
+          let lit = &content[var_start - 1..];
+          let sym = self.interner.intern(lit);
+
+          segments.push(InterpSegment::Literal(sym));
         }
 
         lit_start = i;
@@ -1976,6 +2000,16 @@ impl<'a> Tokenizer<'a> {
 /// still advances instead of looping — malformed UTF-8 is
 /// reported upstream as `UnexpectedCharacter` at its own
 /// site.
+pub(crate) fn is_valid_ident(s: &str) -> bool {
+  let bytes = s.as_bytes();
+
+  !bytes.is_empty()
+    && (bytes[0].is_ascii_alphabetic() || bytes[0] == b'_')
+    && bytes[1..]
+      .iter()
+      .all(|b| b.is_ascii_alphanumeric() || *b == b'_')
+}
+
 #[inline(always)]
 fn utf8_cp_len(b: u8) -> usize {
   if b < 0xC0 {

@@ -1,8 +1,7 @@
 # abstracts
 
-Abstracts are zo's form of **ad-hoc polymorphism** — one contract, many implementations. Each `apply Abstract for Type` block provides type-specific behavior dispatched on the
-receiver's type. The other form, **parametric polymorphism**,
-is covered by [generics](#019-generics).
+Abstracts establish zo's architecture for ad-hoc polymorphism. You define a structural contract once, then
+declare custom implementation tracks across varying types via explicit implementation mappings: `apply Abstract for TargetType`.
 
   ```zo
   abstract Display {
@@ -23,10 +22,9 @@ is covered by [generics](#019-generics).
 
 ## using abstracts as parameters.
 
-A function that accepts "any type implementing `Display`" has
-three forms. Each picks a different dispatch strategy.
+Functions that accept elements under abstract contract bounds choose between three compilation techniques balancing raw execution speed against binary sizing limits.
 
-### form 1 — implicit-mono `item: Abstract`.
+### form 1 — implicit-mono.
 
   ```zo
   fun render(item: Display) -> str {
@@ -34,15 +32,9 @@ three forms. Each picks a different dispatch strategy.
   }
   ```
 
-The parameter type names the abstract directly. The compiler
-synthesizes a fresh type parameter under the hood, infers it
-from the call site, and emits one **monomorphized** copy of
-`render` per concrete type. Each call dispatches statically
-— no vtable, no allocation. Calling `render` with a non-
-implementing type fires [E0347](#100-error-messages)
-(`BoundNotSatisfied`) at the call site.
+The compiler manages the heavy lifting under the hood: it automatically generates a hidden type variable, extracts parameters straight from the call site, and generates a dedicated, static monomorphized copy of the function block per unique type. Zero runtime cost, zero vtable tracking lookups. Violating limits triggers error diagnostics immediately.
 
-### form 2 — explicit-mono `<$T: Abstract>(item: $T)`.
+### form 2 — explicit-mono.
 
   ```zo
   fun render<$T: Display>(item: $T) -> str {
@@ -50,13 +42,9 @@ implementing type fires [E0347](#100-error-messages)
   }
   ```
 
-Same monomorphization model as form 1. Use this form when you
-need to reference `$T` elsewhere in the signature
-(`-> $T`, `(left: $T, right: $T)`) — the explicit name makes
-the same-type constraint visible. Multi-bound is supported:
-`<$T: Display + Eq>(item: $T)`.
+This follows the exact same performance-optimal static compilation track as Form 1. Use this explicit syntax strategy whenever you must reuse the type constraint identifier across signature bounds—such as enforcing matched input types or coordinating return paths.
 
-### form 3 — dynamic dispatch `item: any Abstract`.
+### form 3 — dynamic dispatch.
 
   ```zo
   fun render(item: any Display) -> str {
@@ -64,15 +52,10 @@ the same-type constraint visible. Multi-bound is supported:
   }
   ```
 
-The parameter type prefix `any` boxes the value behind a
-**vtable**. One copy of `render` ships in the binary; the
-method call resolves through the vtable at runtime. Slower
-per call than mono dispatch, but supports heterogeneous
-collections:
+Prepend the type parameter with any to box the instances safely behind a uniform vtable layout pointer. The compiler generates exactly one execution block in the final binary, executing code paths via runtime lookup addresses. This trade-off incurs slight call overhead but permits heterogeneous data grouping inside shared array vectors.
 
   ```zo
   mut widgets: []any Drawable = [];
-
   widgets.push(Button { label = "ok" });
   widgets.push(Slider { value = 42 });
 
@@ -81,25 +64,8 @@ collections:
   }
   ```
 
-Not every abstract is dyn-safe. An abstract that uses `Self`
-outside the receiver position — for example
-`fun merge(self, other: Self) -> Self` — cannot ride a
-vtable because the calling convention has no slot for
-"another instance of the same concrete type". The compiler
-reports [E0349](#100-error-messages) (`AbstractNotDynSafe`)
-at the `any Abstract` annotation site; switch to the implicit
-or explicit mono form, or drop the `Self`-using method.
-
-## choosing a form.
-
-| need | use |
-| :--- | :--- |
-| fastest dispatch, one type per call site | `item: Abstract` (form 1) |
-| same-type constraint across params or return | `<$T: Abstract>(item: $T)` (form 2) |
-| heterogeneous collection, one body in the binary | `item: any Abstract` (form 3) |
-
-Abstracts are flat single-level declarations. `abstract X : Y`
-inheritance is not supported — express the relationship as
-parallel `apply Parent for Type` blocks instead. The
-compiler raises [E0348](#100-error-messages)
-(`AbstractInheritanceUnsupported`) at the offending colon.
+| Engineering Requirement                                             | Optimal Architectural Choice        |
+| :------------------------------------------------------------------ | :---------------------------------- |
+| Maximum dispatch velocity; isolated single types per call site.     | `item: Abstract (Form 1)`           |
+| Shared type bounds enforcement across arguments or return paths.    | `<$T: Abstract>(item: $T) (Form 2)` |
+| Mixed collection handling; minimal compiled binary space footprint. | `item: any Abstract (Form 3)`       |

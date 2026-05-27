@@ -97,6 +97,11 @@ pub struct FunctionInfo {
   /// across every `SelectWait` in the function, aligned
   /// to 16. Zero when the function has no select.
   pub select_scratch_size: u32,
+  /// Scratch stack space for `StringFormat` — holds the
+  /// on-stack pointer array passed to `_zo_str_multi_concat`.
+  /// Sized at `max(segments.len()) * 8` across every
+  /// `StringFormat` in the function, aligned to 16.
+  pub string_format_scratch_size: u32,
 }
 
 /// A spill operation to emit during codegen.

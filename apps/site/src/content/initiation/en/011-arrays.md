@@ -1,44 +1,32 @@
 # arrays
 
-An ordered, **homogeneous** sequence of values — every element shares the same type. Two flavors: fixed-size when the length is part of the type, dynamic when it grows at runtime.
+Arrays host homogeneous components where every single block matches a identical data type. They come in static and dynamic variants.
 
 ## static array
 
+The notation format `[N]T` fuses the length constraint straight into the data classification layer. The memory block is determined at compile-time and guarantees safe bounds-checking verification parameters during constant array access tasks.
+
   ```zo
-  -- `[N]T`: length is part of the type. Layout is
-  -- known at compile time; bounds-checked when the
-  -- index is constant.
   imu nums: [3]int = [10, 20, 30];
   imu zeros: [5]int = [0...]; -- [0, 0, 0, 0, 0]
   imu grid: [2][3]int = [[1, 2, 3], [4, 5, 6]];
 
-  -- destructure by ordered position. Use `:=` —
-  -- types come from the rhs.
+  -- Unpack items instantly using assignment sequences.
   imu [a, b, c]: [int, int, int] = nums;
   ```
 
 ## dynamic array
 
+The designation `[]T` offloads length calculations to execution headers rather than structural types. Coupling
+arrays with a `mut` binding permits array extensions.
+
   ```zo
-  -- `[]T`: length lives in the runtime header, not in
-  -- the type. With `mut`, the array grows.
   mut arr: []int = [];
   arr.push(10);
 
-  imu last: int = arr.pop();
-  showln(last);          -- 10
+  imu last: int = arr.pop(); - Safely extracts 10
 
-  -- `[v...n]` is the explicit-count repeat — useful
-  -- with `[]T` since there's no annotation length.
+  -- The `[value...count]` expression triggers explicit
+  -- array expansion routines.
   imu sevens: []int = [7...4]; -- [7, 7, 7, 7]
-  ```
-
-  ```zo
-  -! ## the capstone.
-  -!
-  -!   - `[N]T` is fixed-size, `[]T` is dynamic.
-  -!   - `a[i]` reads, `a.len` counts (O(1)).
-  -!   - `[v...]` / `[v...n]` are repeat literals.
-  -!   - `imu [a, b, c] := arr` destructures.
-  -!   - `mut` enables `push` / `pop` / resize.
   ```

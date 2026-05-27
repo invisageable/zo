@@ -3705,30 +3705,88 @@ impl<'a> Executor<'a> {
       }
 
       Token::InterpString => {
-        // InterpString stores packed value:
-        // low 16 = string_literals idx,
-        // high 16 = interp_ranges idx.
         if let Some(NodeValue::Literal(packed)) = self.node_value(idx) {
-          let str_idx = (packed & 0xFFFF) as usize;
-          let symbol = self.literals.string_literals[str_idx];
-          let ty_id = self.ty_checker.str_type();
+          let interp_id = packed >> 16;
+          let str_ty = self.ty_checker.str_type();
+          let span = self.tree.spans[idx];
+          let segments = self.literals.interp_segs(interp_id).to_vec();
 
-          // Emit ConstString for the full format string
-          // (may become dead code after desugaring).
-          let dst = ValueId(self.sir.next_value_id);
-          self.sir.next_value_id += 1;
+          let mut seg_vids: Vec<ValueId> = Vec::new();
 
-          let sir_value =
-            self.sir.emit(Insn::ConstString { dst, symbol, ty_id });
-          let value_id = self.values.store_string(symbol);
+          for seg in &segments {
+            match seg {
+              InterpSegment::Literal(sym) => {
+                let dst = ValueId(self.sir.next_value_id);
+                self.sir.next_value_id += 1;
+
+                self.sir.emit(Insn::ConstString {
+                  dst,
+                  symbol: *sym,
+                  ty_id: str_ty,
+                });
+
+                seg_vids.push(dst);
+              }
+              InterpSegment::Variable(sym) => {
+                let local_info = self.lookup_local(*sym).map(|l| l.ty_id);
+
+                if let Some(var_ty) = local_info {
+                  let load_dst = ValueId(self.sir.next_value_id);
+                  self.sir.next_value_id += 1;
+
+                  self.sir.emit(Insn::Load {
+                    dst: load_dst,
+                    src: LoadSource::Local(*sym),
+                    ty_id: var_ty,
+                  });
+
+                  if var_ty == str_ty {
+                    seg_vids.push(load_dst);
+                  } else {
+                    let conv_dst = ValueId(self.sir.next_value_id);
+                    self.sir.next_value_id += 1;
+
+                    self.sir.emit(Insn::ToStr {
+                      dst: conv_dst,
+                      src: load_dst,
+                      src_ty: var_ty,
+                    });
+
+                    seg_vids.push(conv_dst);
+                  }
+                } else {
+                  report_error(Error::new(ErrorKind::UndefinedVariable, span));
+                }
+              }
+            }
+          }
+
+          let (result_vid, _sir_value) = if seg_vids.len() == 1 {
+            let vid = seg_vids[0];
+
+            (vid, vid)
+          } else {
+            let dst = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
+
+            let sir_val = self.sir.emit(Insn::StringFormat {
+              dst,
+              segments: seg_vids,
+              ty_id: str_ty,
+            });
+
+            (dst, sir_val)
+          };
+
+          let value_id = self.values.store_int(0);
 
           self.value_stack.push(value_id);
-          self.ty_stack.push(ty_id);
-          self.sir_values.push(sir_value);
+          self.ty_stack.push(str_ty);
+          self.sir_values.push(result_vid);
 
           self.annotations.push(Annotation {
             node_idx: idx,
-            ty_id,
+            ty_id: str_ty,
           });
         }
       }
@@ -20148,7 +20206,7 @@ impl<'a> Executor<'a> {
     // Single arg: exactly one non-comma token between parens.
     let arg_idx = lparen_idx + 1;
 
-    arg_idx < rparen_idx
+    arg_idx + 1 == rparen_idx
       && self.tree.nodes[arg_idx].token == Token::InterpString
   }
 
