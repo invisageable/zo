@@ -20,6 +20,12 @@ pub ffi zo_mem_alloc(size: int) -> s64;
 
 pub ffi zo_mem_free(ptr: s64);
 
+pub ffi zo_mem_write_u8(dst: s64, value: int);
+
+pub ffi zo_mem_read_u8(src: s64) -> int;
+
+pub ffi zo_mem_realloc(ptr: s64, size: int) -> s64;
+
 
 -! Copy `len` bytes from `src` to `dst` (non-overlapping).
 pub fun copy(dst: s64, src: s64, len: int) {
@@ -44,4 +50,19 @@ pub fun alloc(size: int) -> s64 {
 -! Free a pointer previously returned by `alloc`.
 pub fun free(ptr: s64) {
   zo_mem_free(ptr);
+}
+
+-! Write one byte at `dst`.
+pub fun write_u8(dst: s64, value: int) {
+  zo_mem_write_u8(dst, value);
+}
+
+-! Read one byte at `src`.
+pub fun read_u8(src: s64) -> int {
+  zo_mem_read_u8(src)
+}
+
+-! Resize a heap allocation. Returns the new pointer.
+pub fun realloc(ptr: s64, size: int) -> s64 {
+  zo_mem_realloc(ptr, size)
 }

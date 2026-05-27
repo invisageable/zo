@@ -1,0 +1,90 @@
+-! Growable UTF-8 string buffer.
+-!
+-! `str` is immutable — fixed bytes in the data section or
+-! heap. `String` owns a resizable heap buffer for
+-! incremental construction.
+
+load core::c::*;
+load core::mem;
+
+pub struct String {
+  buf: s64,
+  len: int,
+  cap: int,
+}
+
+apply String {
+  -! Empty string with 16 bytes of initial capacity.
+  pub fun new() -> String {
+    String::with_capacity(16)
+  }
+
+  -! Empty string with `cap` bytes pre-allocated.
+  pub fun with_capacity(cap: int) -> String {
+    imu buf: s64 = mem::alloc(cap);
+
+    String { buf = buf, len = 0, cap = cap }
+  }
+
+  -! Copy an immutable `str` into a growable buffer.
+  pub fun from_str(source: str) -> String {
+    imu source_len: int = source.len;
+    imu cap: int = source_len + 16;
+    imu buf: s64 = mem::alloc(cap);
+
+    mem::copy(buf, source.data_ptr, source_len);
+
+    String { buf = buf, len = source_len, cap = cap }
+  }
+
+  -! Append one byte.
+  pub fun push_byte(mut self, value: int) {
+    if self.len >= self.cap {
+      self.grow();
+    }
+
+    imu dst: s64 = self.buf + (self.len as s64);
+
+    mem::write_u8(dst, value);
+
+    self.len += 1;
+  }
+
+  -! Append an entire `str`.
+  pub fun push_str(mut self, source: str) {
+    imu source_len: int = source.len;
+
+    while self.len + source_len > self.cap {
+      self.grow();
+    }
+
+    imu dst: s64 = self.buf + (self.len as s64);
+
+    mem::copy(dst, source.data_ptr, source_len);
+
+    self.len += source_len;
+  }
+
+  -! Snapshot the buffer as an immutable `str`.
+  pub fun to_str(self) -> str {
+    imu length: s64 = self.len as s64;
+
+    zo_str_alloc(self.buf, length)
+  }
+
+  -! Release the heap buffer.
+  pub fun free(mut self) {
+    mem::free(self.buf);
+  }
+
+  fun grow(mut self) {
+    imu new_cap: int = self.cap * 2;
+    imu new_buf: s64 = mem::alloc(new_cap);
+
+    mem::copy(new_buf, self.buf, self.len);
+    mem::free(self.buf);
+
+    self.buf = new_buf;
+    self.cap = new_cap;
+  }
+}

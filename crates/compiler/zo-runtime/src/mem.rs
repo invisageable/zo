@@ -91,6 +91,46 @@ pub unsafe extern "C-unwind" fn zo_mem_free(ptr: *mut u8) {
   unsafe { libc::free(ptr.cast()) };
 }
 
+/// Write one byte at `dst`.
+///
+/// # Safety
+///
+/// `dst` must point at one writable byte.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_mem_write_u8(dst: *mut u8, value: u8) {
+  if !dst.is_null() {
+    unsafe { *dst = value };
+  }
+}
+
+/// Read one byte at `src`.
+///
+/// # Safety
+///
+/// `src` must point at one readable byte.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_mem_read_u8(src: *const u8) -> u8 {
+  if src.is_null() { 0 } else { unsafe { *src } }
+}
+
+/// Resize a heap allocation. Returns the new pointer.
+///
+/// # Safety
+///
+/// `ptr` must have been returned by `zo_mem_alloc`
+/// (or be null, which acts as `alloc`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_mem_realloc(
+  ptr: *mut u8,
+  new_size: usize,
+) -> *mut u8 {
+  if new_size == 0 {
+    return std::ptr::null_mut();
+  }
+
+  unsafe { libc::realloc(ptr.cast(), new_size).cast() }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -148,6 +188,56 @@ mod tests {
       assert_eq!(zo_mem_compare(std::ptr::null(), std::ptr::null(), 10), 0);
       assert!(zo_mem_alloc(0).is_null());
       zo_mem_free(std::ptr::null_mut());
+    }
+  }
+
+  #[test]
+  fn write_read_u8() {
+    unsafe {
+      let buf = zo_mem_alloc(4);
+
+      zo_mem_write_u8(buf, 0xAB);
+      zo_mem_write_u8(buf.add(1), 0xCD);
+
+      assert_eq!(zo_mem_read_u8(buf), 0xAB);
+      assert_eq!(zo_mem_read_u8(buf.add(1)), 0xCD);
+
+      zo_mem_free(buf);
+    }
+  }
+
+  #[test]
+  fn read_u8_null_returns_zero() {
+    unsafe {
+      assert_eq!(zo_mem_read_u8(std::ptr::null()), 0);
+    }
+  }
+
+  #[test]
+  fn realloc_preserves_content() {
+    unsafe {
+      let buf = zo_mem_alloc(8);
+
+      for i in 0..8u8 {
+        *buf.add(i as usize) = i + 1;
+      }
+
+      let grown = zo_mem_realloc(buf, 32);
+
+      assert!(!grown.is_null());
+
+      for i in 0..8u8 {
+        assert_eq!(*grown.add(i as usize), i + 1);
+      }
+
+      zo_mem_free(grown);
+    }
+  }
+
+  #[test]
+  fn realloc_zero_returns_null() {
+    unsafe {
+      assert!(zo_mem_realloc(std::ptr::null_mut(), 0).is_null());
     }
   }
 }
