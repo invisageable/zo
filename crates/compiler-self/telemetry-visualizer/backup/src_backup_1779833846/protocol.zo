@@ -1,0 +1,123 @@
+-! Wire protocol — newline-delimited JSON events
+-! shared between driver and visualizer.
+
+load core::json::Json;
+
+pub val KIND_START: str = "start";
+pub val KIND_END: str = "end";
+pub val KIND_SUMMARY: str = "summary";
+
+pub val PHASE_TOKENIZE: str = "tokenize";
+pub val PHASE_PARSE: str = "parse";
+pub val PHASE_ANALYZE: str = "analyze";
+pub val PHASE_CODEGEN: str = "codegen";
+pub val PHASE_LINK: str = "link";
+
+-! A single telemetry event from the compiler driver.
+pub struct TelemetryEvent {
+  kind: str,
+  file: str,
+  phase: str,
+  lane: int,
+  ts: int,
+  count: int,
+  total_lines: int,
+  total_ns: int,
+  loc_per_sec: int,
+}
+
+apply TelemetryEvent {
+  pub fun empty() -> Self {
+    Self {
+      kind = "",
+      file = "",
+      phase = "",
+      lane = 0,
+      ts = 0,
+      count = 0,
+      total_lines = 0,
+      total_ns = 0,
+      loc_per_sec = 0,
+    }
+  }
+
+  pub fun from_json(source: str) -> Self {
+    imu json: Json = Json::parse(source);
+
+    if !json.is_valid() {
+      json.free();
+      return Self::empty();
+    }
+
+    imu kind_j: Json = json.get("kind");
+    imu file_j: Json = json.get("file");
+    imu phase_j: Json = json.get("phase");
+    imu lane_j: Json = json.get("lane");
+    imu ts_j: Json = json.get("ts");
+    imu count_j: Json = json.get("count");
+    imu tl_j: Json = json.get("total_lines");
+    imu tn_j: Json = json.get("total_ns");
+    imu lps_j: Json = json.get("loc_per_sec");
+
+    imu event := Self {
+      kind = when kind_j.handle > 0
+        ? kind_j.as_str()
+        : "";
+      file = when file_j.handle > 0
+        ? file_j.as_str()
+        : "";
+      phase = when phase_j.handle > 0
+        ? phase_j.as_str()
+        : "";
+      lane = when lane_j.handle > 0
+        ? lane_j.as_int()
+        : 0;
+      ts = when ts_j.handle > 0
+        ? ts_j.as_int()
+        : 0;
+      count = when count_j.handle > 0
+        ? count_j.as_int()
+        : 0;
+      total_lines = when tl_j.handle > 0
+        ? tl_j.as_int()
+        : 0;
+      total_ns = when tn_j.handle > 0
+        ? tn_j.as_int()
+        : 0;
+      loc_per_sec = when lps_j.handle > 0
+        ? lps_j.as_int()
+        : 0;
+    };
+
+    kind_j.free();
+    file_j.free();
+    phase_j.free();
+    lane_j.free();
+    ts_j.free();
+    count_j.free();
+    tl_j.free();
+    tn_j.free();
+    lps_j.free();
+    json.free();
+
+    event
+  }
+
+  pub fun to_json_str(self) -> str {
+    mut json: Json = Json::object();
+
+    json.set("kind", Json::from_string(self.kind));
+    json.set("file", Json::from_string(self.file));
+    json.set("phase", Json::from_string(self.phase));
+    json.set("lane", Json::from_int(self.lane));
+    json.set("ts", Json::from_int(self.ts));
+    json.set("count", Json::from_int(self.count));
+    json.set("total_lines", Json::from_int(self.total_lines));
+    json.set("total_ns", Json::from_int(self.total_ns));
+    json.set("loc_per_sec", Json::from_int(self.loc_per_sec));
+
+    imu result: str = json.to_str();
+    json.free();
+    result
+  }
+}

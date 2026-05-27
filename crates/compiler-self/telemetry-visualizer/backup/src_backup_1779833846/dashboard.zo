@@ -1,0 +1,129 @@
+-! Dashboard state — updated from telemetry events,
+-! read by the renderer each frame.
+
+load protocol::(
+  TelemetryEvent,
+  KIND_START, KIND_END, KIND_SUMMARY,
+);
+
+pub val MAX_LANES: int = 8;
+
+pub struct LaneSlot {
+  file: str,
+  phase: str,
+  start_ts: int,
+  end_ts: int,
+  count: int,
+  active: bool,
+  progress: float,
+}
+
+pub struct Dashboard {
+  lanes: []LaneSlot,
+  lane_count: int,
+  total_lines: int,
+  total_tokens: int,
+  total_nodes: int,
+  total_inferences: int,
+  total_artifacts: int,
+  loc_per_sec: int,
+  event_count: int,
+  finished: bool,
+  first_ts: int,
+  last_ts: int,
+}
+
+apply LaneSlot {
+  pub fun empty() -> Self {
+    Self {
+      file = "",
+      phase = "",
+      start_ts = 0,
+      end_ts = 0,
+      count = 0,
+      active = false,
+      progress = 0.0,
+    }
+  }
+}
+
+apply Dashboard {
+  pub fun new(lanes: int) -> Self {
+    imu lane_count: int =
+      when lanes > MAX_LANES ? MAX_LANES : lanes;
+
+    mut slots: []LaneSlot = [];
+
+    for _ := 0..lane_count {
+      slots.push(LaneSlot::empty());
+    }
+
+    Self {
+      lanes = slots,
+      lane_count = lane_count,
+      total_lines = 0,
+      total_tokens = 0,
+      total_nodes = 0,
+      total_inferences = 0,
+      total_artifacts = 0,
+      loc_per_sec = 0,
+      event_count = 0,
+      finished = false,
+      first_ts = 0,
+      last_ts = 0,
+    }
+  }
+
+  pub fun apply_event(mut self, event: TelemetryEvent) {
+    self.event_count = self.event_count + 1;
+
+    if self.first_ts == 0 {
+      self.first_ts = event.ts;
+    }
+
+    if event.ts > self.last_ts {
+      self.last_ts = event.ts;
+    }
+
+    if event.kind == KIND_START {
+      imu lane: int = event.lane % self.lane_count;
+
+      self.lanes[lane].file = event.file;
+      self.lanes[lane].phase = event.phase;
+      self.lanes[lane].start_ts = event.ts;
+      self.lanes[lane].end_ts = 0;
+      self.lanes[lane].active = true;
+      self.lanes[lane].progress = 0.0;
+    }
+
+    if event.kind == KIND_END {
+      imu lane: int = event.lane % self.lane_count;
+
+      self.lanes[lane].end_ts = event.ts;
+      self.lanes[lane].count = event.count;
+      self.lanes[lane].active = false;
+      self.lanes[lane].progress = 1.0;
+
+      if event.phase == "tokenize" {
+        self.total_tokens = self.total_tokens + event.count;
+      }
+      if event.phase == "parse" {
+        self.total_nodes = self.total_nodes + event.count;
+      }
+      if event.phase == "analyze" {
+        self.total_inferences =
+          self.total_inferences + event.count;
+      }
+      if event.phase == "codegen" {
+        self.total_artifacts =
+          self.total_artifacts + event.count;
+      }
+    }
+
+    if event.kind == KIND_SUMMARY {
+      self.total_lines = event.total_lines;
+      self.loc_per_sec = event.loc_per_sec;
+      self.finished = true;
+    }
+  }
+}

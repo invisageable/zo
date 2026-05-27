@@ -1,0 +1,230 @@
+-! Telemetry driver — runs synthetic entry
+-! workloads across a multi-core pool and streams
+-! NDJSON events to the visualizer over TCP.
+-!
+-! @cmd — zo run driver/main.zo
+
+load core::c::CStr;
+load core::net::(Address, TcpStream);
+load core::time::(Instant, Duration);
+load core::pool;
+load core::json::Json;
+
+load workload;
+
+val VISUALIZER_HOST: str = "127.0.0.1";
+val VISUALIZER_PORT: int = 18472;
+
+-! Synthetic source files to "compile".
+struct CompileUnit {
+  filename: str,
+  source: str,
+  lines: int,
+}
+
+fun make_source(name: str, line_count: int) -> CompileUnit {
+  mut source: str = "";
+
+  for i := 0..line_count {
+    source = source
+      ++ "fun f_"
+      ++ i.to_str()
+      ++ "() { imu x: int = "
+      ++ i.to_str()
+      ++ "; }\n";
+  }
+
+  CompileUnit {
+    filename = name,
+    source = source,
+    lines = line_count,
+  }
+}
+
+fun make_event_json(
+  event_kind: str,
+  file: str,
+  phase: str,
+  lane: int,
+  ts: int,
+  count: int,
+) -> str {
+  mut doc: Json = Json::object();
+
+  imu v_kind: Json = Json::from_string(event_kind);
+  imu v_file: Json = Json::from_string(file);
+  imu v_phase: Json = Json::from_string(phase);
+  imu v_lane: Json = Json::from_int(lane);
+  imu v_ts: Json = Json::from_int(ts);
+  imu v_count: Json = Json::from_int(count);
+  imu v_zero: Json = Json::from_int(0);
+  imu v_zero2: Json = Json::from_int(0);
+  imu v_zero3: Json = Json::from_int(0);
+
+  doc.set("kind", v_kind);
+  doc.set("file", v_file);
+  doc.set("phase", v_phase);
+  doc.set("lane", v_lane);
+  doc.set("ts", v_ts);
+  doc.set("count", v_count);
+  doc.set("total_lines", v_zero);
+  doc.set("total_ns", v_zero2);
+  doc.set("loc_per_sec", v_zero3);
+
+  imu result: str = doc.to_str();
+  doc.free();
+  result ++ "\n"
+}
+
+fun make_summary_json(
+  total_lines: int,
+  total_ns: int,
+  loc_per_sec: int,
+) -> str {
+  mut doc: Json = Json::object();
+
+  imu v_kind: Json = Json::from_string("summary");
+  imu v_file: Json = Json::from_string("");
+  imu v_phase: Json = Json::from_string("");
+  imu v_lane: Json = Json::from_int(0);
+  imu v_ts: Json = Json::from_int(0);
+  imu v_count: Json = Json::from_int(0);
+  imu v_tl: Json = Json::from_int(total_lines);
+  imu v_tn: Json = Json::from_int(total_ns);
+  imu v_lps: Json = Json::from_int(loc_per_sec);
+
+  doc.set("kind", v_kind);
+  doc.set("file", v_file);
+  doc.set("phase", v_phase);
+  doc.set("lane", v_lane);
+  doc.set("ts", v_ts);
+  doc.set("count", v_count);
+  doc.set("total_lines", v_tl);
+  doc.set("total_ns", v_tn);
+  doc.set("loc_per_sec", v_lps);
+
+  imu result: str = doc.to_str();
+  doc.free();
+  result ++ "\n"
+}
+
+
+-! Compile a single entry through all 5 phases.
+-! Sends start/end events for each phase through
+-! the channel.
+fun compile_entry(
+  name: str,
+  lane: int,
+  epoch: Instant,
+  tx: Tx<str>,
+) {
+  imu phases: []str = [
+    "tokenize", "parse", "analyze", "codegen", "link",
+  ];
+
+  for phase_idx := 0..phases.len {
+    imu phase: str = phases[phase_idx];
+
+    imu start_dur := epoch.elapsed();
+    imu start_ts: int = start_dur.as_micros();
+
+    tx.send(make_event_json(
+      "start", name, phase, lane, start_ts, 0
+    ));
+
+    imu end_dur := epoch.elapsed();
+    imu end_ts: int = end_dur.as_micros();
+
+    tx.send(make_event_json(
+      "end", name, phase, lane, end_ts, 1
+    ));
+  }
+}
+
+
+fun main() {
+  showln("zo telemetry driver");
+  showln("===================");
+
+  -- Build synthetic source files.
+  imu entrys: []CompileUnit = [
+    make_source("math.zo", 80),
+    make_source("io.zo", 60),
+    make_source("net.zo", 100),
+    make_source("sys.zo", 40),
+    make_source("str.zo", 70),
+    make_source("json.zo", 90),
+    make_source("http.zo", 120),
+    make_source("pool.zo", 50),
+    make_source("hash.zo", 30),
+    make_source("time.zo", 45),
+    make_source("file.zo", 55),
+    make_source("regex.zo", 75),
+  ];
+
+  imu total_lines: int =
+    80 + 60 + 100 + 40 + 70 + 90 + 120 + 50 + 30 + 45 + 55 + 75;
+
+  imu file_count: int = entrys.len;
+  showln("Files: {file_count}");
+  showln("Total lines: {total_lines}");
+
+  -- Connect to visualizer.
+  match TcpStream::connect(
+    Address::new(VISUALIZER_HOST, VISUALIZER_PORT)
+  ) {
+    Result::Pass(stream) => {
+      showln("Connected to visualizer.");
+
+      imu epoch := Instant::now();
+      imu cores: int = pool::cpu_count();
+
+      showln("CPU cores: {cores}");
+
+      nursery {
+        imu (tx, rx) := channel(256);
+
+        spawn tcp_sender(stream, rx);
+
+        imu names: []str = [
+          "math.zo", "io.zo", "net.zo", "sys.zo",
+          "str.zo", "json.zo", "http.zo", "pool.zo",
+        ];
+
+        for i := 0..names.len {
+          imu lane: int = i % cores;
+          compile_entry(names[i], lane, epoch, tx);
+        }
+
+        imu summary_dur := epoch.elapsed();
+        imu total_us: int = summary_dur.as_micros();
+        imu loc_per_sec: int =
+          if total_us > 0 {
+            (total_lines * 1000000) / total_us
+          } else { 0 };
+
+        tx.send(make_summary_json(
+          total_lines, total_us * 1000, loc_per_sec
+        ));
+
+        tx.close();
+      }
+
+      stream.close();
+      showln("DONE");
+    }
+    Result::Fail(err) => {
+      showln("Connection failed: {err}");
+      showln("Is the visualizer running?");
+    }
+  }
+}
+
+
+fun tcp_sender(stream: TcpStream, rx: Rx<str>) {
+  loop {
+    imu line: str = rx.recv();
+    if line.len == 0 { break }
+    stream.write(line);
+  }
+}

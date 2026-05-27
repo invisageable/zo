@@ -1187,6 +1187,28 @@ impl Compiler {
           continue;
         }
 
+        // Compile filesystem-resolved modules (non-pack
+        // deps like `core::json`) that this pack loads.
+        // The pack path only defers sibling packs; filesystem
+        // modules must be compiled before the pack's analyzer
+        // runs so their exports are in `ctx.imports` and
+        // `ctx.module_table_per_path`.
+        {
+          let pack = ctx.pending_packs.get(&top).expect("just verified");
+          let fs_loads: Vec<_> = pack
+            .loads
+            .iter()
+            .filter(|lr| {
+              let leaf = lr.value[0];
+              leaf != top && !ctx.pending_packs.contains_key(&leaf)
+            })
+            .map(|lr| (lr.value.clone(), lr.span))
+            .collect();
+          for (path, span) in fs_loads {
+            self.compile_module_recursive(ctx, session, path, span);
+          }
+        }
+
         // Move the cached parse out of the map — the pack
         // compiles exactly once, so it's never read again.
         let mut pack = ctx.pending_packs.remove(&top).expect("just verified");

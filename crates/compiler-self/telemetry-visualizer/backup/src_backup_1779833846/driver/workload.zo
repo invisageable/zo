@@ -1,0 +1,94 @@
+-! Synthetic compilation workloads that exercise the
+-! standard library under real CPU load.
+
+load core::json::Json;
+
+-! Tokenize: split source into tokens by whitespace.
+pub fun tokenize_source(source: str) -> int {
+  imu lines: []str = source.split("\n");
+  mut token_count: int = 0;
+
+  for i := 0..lines.len {
+    imu words: []str = lines[i].split(" ");
+    token_count = token_count + words.len;
+  }
+
+  token_count
+}
+
+-! Parse: build and traverse a JSON document.
+pub fun parse_document(source: str) -> int {
+  mut node_count: int = 0;
+  imu lines: []str = source.split("\n");
+
+  for i := 0..lines.len {
+    mut doc: Json = Json::object();
+    doc.set("line", Json::from_int(i));
+    doc.set("content", Json::from_string(lines[i]));
+    doc.set("length", Json::from_int(lines[i].len));
+
+    imu wire: str = doc.to_str();
+    imu parsed: Json = Json::parse(wire);
+
+    if parsed.is_valid() {
+      node_count = node_count + parsed.keys_len();
+    }
+
+    parsed.free();
+    doc.free();
+  }
+
+  node_count
+}
+
+-! Analyze: compute primes via trial division.
+pub fun analyze_types(line_count: int) -> int {
+  imu upper: int = line_count * 3 + 100;
+  mut prime_count: int = 0;
+
+  for candidate := 2..upper {
+    mut is_prime: bool = true;
+    mut divisor: int = 2;
+
+    while divisor * divisor <= candidate {
+      if candidate % divisor == 0 {
+        is_prime = false;
+        break;
+      }
+      divisor = divisor + 1;
+    }
+
+    if is_prime {
+      prime_count = prime_count + 1;
+    }
+  }
+
+  prime_count
+}
+
+-! Codegen: hash each line with SHA-256.
+pub fun generate_code(source: str) -> int {
+  imu lines: []str = source.split("\n");
+  mut artifact_count: int = 0;
+
+  for i := 0..lines.len {
+    if lines[i].len > 0 {
+      imu digest: str = lines[i];
+      artifact_count = artifact_count + 1;
+    }
+  }
+
+  artifact_count
+}
+
+-! Link: string concatenation simulating output assembly.
+pub fun link_binary(source: str) -> int {
+  imu lines: []str = source.split("\n");
+  mut output: str = "";
+
+  for i := 0..lines.len {
+    output = output ++ lines[i];
+  }
+
+  output.len
+}

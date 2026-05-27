@@ -9,6 +9,15 @@ iT'S REALLY ABOUT CHALLENGiNG. zo DOESN'T CLAiM TO BE A DiRECT COMPETiTOR TO c, 
 > *« Compile everything, every time, instantly. »*
 > &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;— i10e
 
+## dev.
+
+iNSTALL ALL PROGRAMMiNG LANGUAGES REQUiRED:
+
+  - @SEE — [clang](https://clang.llvm.org/get_started.html) OR [gcc](https://gcc.gnu.org/install)
+  - @SEE — [go](https://go.dev/dl)
+  - @SEE — [oding](https://odin-lang.org/docs/install)
+  - @SEE — [rust](https://rust-lang.org/tools/install)
+
 ## benchmark.
 
 > *Measurements: `arm64-apple-darwin`. odin nightly `dev-2026-05`. 5 runs per bench.*

@@ -1,0 +1,241 @@
+-! Telemetry visualizer — receives compilation events
+-! over TCP, then replays them as an animated raylib
+-! dashboard.
+-!
+-! Phase 1: green tasks receive NDJSON over TCP.
+-! Phase 2: raylib loop replays events by timestamp.
+-!
+-! @cmd — zo run main.zo
+
+load core::c::CStr;
+load core::net::(Address, TcpListener, TcpStream);
+load core::time::Instant;
+load core::pool;
+load core::vec::Vec;
+load provider::raylib;
+
+load protocol::TelemetryEvent;
+load dashboard::Dashboard;
+load renderer;
+
+val PORT: int = 18472;
+val WINDOW_WIDTH: int = 1280;
+val WINDOW_HEIGHT: int = 720;
+
+
+-- Phase 1: TCP receive via green tasks.
+
+fun tcp_reader(listener_fd: int, tx: Tx<str>) {
+  imu listener := TcpListener { fd = listener_fd };
+
+  match listener.accept() {
+    Result::Pass(stream) => {
+      loop {
+        imu data: str = stream.read(4096);
+        if data.len == 0 { break }
+        tx.send(data);
+      }
+      stream.close();
+    }
+    Result::Fail(_) => {}
+  }
+  tx.close();
+}
+
+fun collector(rx: Rx<str>, lines_tx: Tx<str>) {
+  mut buffer: str = "";
+
+  loop {
+    imu chunk: str = rx.recv();
+    if chunk.len == 0 { break }
+
+    buffer = buffer ++ chunk;
+
+    imu parts: []str = buffer.split("\n");
+
+    -- Last element may be incomplete; keep it as buffer.
+    for i := 0..parts.len - 1 {
+      if parts[i].len > 0 {
+        lines_tx.send(parts[i]);
+      }
+    }
+
+    buffer = parts[parts.len - 1];
+  }
+
+  -- Flush any remaining complete line.
+  if buffer.len > 0 {
+    lines_tx.send(buffer);
+  }
+
+  lines_tx.close();
+}
+
+fun accumulator(rx: Rx<str>, result_tx: Tx<str>) {
+  mut events: Vec<str> = Vec::new();
+
+  loop {
+    imu line: str = rx.recv();
+    if line.len == 0 { break }
+    events.push(line);
+  }
+
+  -- Send event count, then each event.
+  imu count: int = events.len();
+  result_tx.send(count.to_str());
+
+  for i := 0..count {
+    match events.get(i) {
+      Option::Some(line) => result_tx.send(line),
+      Option::None => {},
+    }
+  }
+
+  events.free();
+  result_tx.close();
+}
+
+fun receive_events() -> []str {
+  match TcpListener::bind(Address::new("127.0.0.1", PORT)) {
+    Result::Pass(listener) => {
+      showln("Listening on 127.0.0.1:{PORT}...");
+
+      nursery {
+        imu (raw_tx, raw_rx) := channel(256);
+        imu (lines_tx, lines_rx) := channel(256);
+        imu (result_tx, result_rx) := channel(4096);
+
+        spawn tcp_reader(listener.fd, raw_tx);
+        spawn collector(raw_rx, lines_tx);
+        spawn accumulator(lines_rx, result_tx);
+      }
+
+      listener.close();
+
+      -- Drain results from accumulator channel.
+      -- First value is the count, rest are event lines.
+      imu count_str: str = result_rx.recv();
+      imu count: int = match count_str.parse_int() {
+        Option::Some(n) => n,
+        Option::None => 0,
+      };
+
+      mut events: []str = [];
+
+      for _ := 0..count {
+        imu line: str = result_rx.recv();
+        if line.len > 0 {
+          events.push(line);
+        }
+      }
+
+      showln("Received {count} events.");
+      events
+    }
+    Result::Fail(err) => {
+      showln("Bind failed: {err}");
+      []
+    }
+  }
+}
+
+
+-- Phase 2: raylib replay.
+
+fun replay(events: []str) {
+  if events.len == 0 {
+    showln("No events to replay.");
+    return;
+  }
+
+  imu cores: int = pool::cpu_count();
+  mut dashboard := Dashboard::new(cores);
+
+  raylib::init_window(
+    WINDOW_WIDTH, WINDOW_HEIGHT,
+    CStr::new("zo telemetry"),
+  );
+  raylib::set_target_fps(60);
+
+  -- Parse all timestamps upfront to determine
+  -- the replay time range.
+  imu first_event := TelemetryEvent::from_json(events[0]);
+  imu epoch_ts: int = first_event.ts;
+
+  imu playback_start := Instant::now();
+  mut cursor: int = 0;
+
+  -- Playback speed multiplier. 1.0 = real-time.
+  imu speed: float = 1.0;
+
+  loop {
+    if raylib::window_should_close() { break }
+    if raylib::is_key_pressed(32)    { break }
+
+    -- Advance events whose timestamp has elapsed.
+    imu elapsed_us: int =
+      (playback_start.elapsed().as_micros() as float * speed)
+        as int;
+
+    while cursor < events.len {
+      imu event := TelemetryEvent::from_json(events[cursor]);
+      imu relative_ts: int = event.ts - epoch_ts;
+
+      if relative_ts > elapsed_us { break }
+
+      dashboard.apply_event(event);
+
+      -- Animate active lanes based on time since start.
+      for lane_idx := 0..dashboard.lane_count {
+        if dashboard.lanes[lane_idx].active {
+          imu lane_start: int =
+            dashboard.lanes[lane_idx].start_ts;
+          imu since: int = event.ts - lane_start;
+          imu progress: float = (since as float) / 50000.0;
+          if progress > 1.0 { progress = 1.0; }
+          dashboard.lanes[lane_idx].progress = progress;
+        }
+      }
+
+      cursor = cursor + 1;
+    }
+
+    -- Animate progress for active lanes based on
+    -- wall-clock time.
+    imu now_us: int =
+      (playback_start.elapsed().as_micros() as float * speed)
+        as int;
+
+    for lane_idx := 0..dashboard.lane_count {
+      if dashboard.lanes[lane_idx].active {
+        imu lane_start: int =
+          dashboard.lanes[lane_idx].start_ts - epoch_ts;
+        imu since: int = now_us - lane_start;
+        imu progress: float = (since as float) / 50000.0;
+        if progress > 1.0 { progress = 1.0; }
+        dashboard.lanes[lane_idx].progress = progress;
+      }
+    }
+
+    raylib::begin_drawing();
+    raylib::clear_background(renderer::COLOR_BG);
+    renderer::draw_header(dashboard);
+    renderer::draw_lanes(dashboard);
+    renderer::draw_legend();
+    renderer::draw_metrics(dashboard);
+    raylib::end_drawing();
+  }
+
+  raylib::close_window();
+}
+
+
+fun main() {
+  showln("zo telemetry visualizer");
+  showln("=======================");
+
+  imu events: []str = receive_events();
+  replay(events);
+
+  showln("DONE");
+}

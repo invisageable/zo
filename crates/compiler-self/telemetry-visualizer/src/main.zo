@@ -1,0 +1,219 @@
+load core::c::CStr;
+load core::net::(Address, TcpListener, TcpStream);
+load core::time::(Instant, Duration);
+load core::pool;
+load core::vec::Vec;
+load core::json::*;
+load provider::raylib;
+
+load protocol::*;
+load dashboard::*;
+load renderer;
+
+val PORT: int = 18472;
+
+fun tcp_reader(listener_fd: int, tx: Tx<str>) {
+  imu listener := TcpListener { fd = listener_fd };
+
+  match listener.accept() {
+    Result::Pass(stream) => {
+      loop {
+        imu data: str = stream.read(4096);
+        if data.len == 0 { break }
+        tx.send(data);
+      }
+      stream.close();
+    }
+    Result::Fail(_) => {}
+  }
+  tx.close();
+}
+
+fun line_splitter(rx: Rx<str>, tx: Tx<str>) {
+  mut buffer: str = "";
+
+  loop {
+    imu chunk: str = rx.recv();
+    if chunk.len == 0 { break }
+
+    buffer = buffer ++ chunk;
+    imu parts: []str = buffer.split("\n");
+
+    for i := 0..parts.len - 1 {
+      if parts[i].len > 0 {
+        tx.send(parts[i]);
+      }
+    }
+
+    buffer = parts[parts.len - 1];
+  }
+
+  if buffer.len > 0 {
+    tx.send(buffer);
+  }
+
+  tx.close();
+}
+
+fun replay(mut events: Vec<str>) {
+  imu count: int = events.len();
+  if count == 0 {
+    showln("No events to replay.");
+    return;
+  }
+
+  imu cores: int = pool::cpu_count();
+  mut db := Dashboard::new(cores);
+
+  raylib::init_window(1280, 720, CStr::new("zo telemetry"));
+  raylib::set_target_fps(60);
+
+  -- Parse first event to get epoch timestamp.
+  imu first_line: str = match events.get(0) {
+    Option::Some(line) => line,
+    Option::None => "",
+  };
+  imu first_doc: Json = Json::parse(first_line);
+  imu first_ts_j: Json = first_doc.get("ts");
+  imu epoch_ts: int = first_ts_j.as_int();
+  first_ts_j.free();
+  first_doc.free();
+
+  imu playback_start := Instant::now();
+  mut cursor: int = 0;
+
+  loop {
+    if raylib::window_should_close() { break }
+    if raylib::is_key_pressed(32) { break }
+
+    -- Advance events by elapsed time.
+    imu elapsed_dur := playback_start.elapsed();
+    imu elapsed_us: int = elapsed_dur.as_micros();
+
+    while cursor < count {
+      imu line: str = match events.get(cursor) {
+        Option::Some(l) => l,
+        Option::None => "",
+      };
+
+      imu ev := TelemetryEvent::from_json(
+        Json::parse(line)
+      );
+      imu relative_ts: int = ev.ts - epoch_ts;
+
+      if relative_ts > elapsed_us { break }
+
+      db.apply_event(
+        ev.kind, ev.file, ev.phase, ev.lane,
+        ev.ts, ev.count, ev.total_lines, ev.loc_per_sec
+      );
+
+      cursor = cursor + 1;
+    }
+
+    -- Update lane progress based on wall-clock.
+    imu now_dur := playback_start.elapsed();
+    imu now_us: int = now_dur.as_micros();
+
+    for lane_idx := 0..db.lane_count {
+      if db.lanes[lane_idx].active {
+        imu lane_start: int =
+          db.lanes[lane_idx].start_ts - epoch_ts;
+        imu since: int = now_us - lane_start;
+        mut progress: float = (since as float) / 50000.0;
+        if progress > 1.0 { progress = 1.0; }
+        db.lanes[lane_idx].progress = progress;
+      }
+    }
+
+    raylib::begin_drawing();
+    raylib::clear_background(renderer::COLOR_BG);
+    renderer::draw_header(raylib::get_fps());
+
+    for lane_idx := 0..db.lane_count {
+      renderer::draw_lane(
+        lane_idx,
+        db.lanes[lane_idx].file,
+        db.lanes[lane_idx].phase,
+        db.lanes[lane_idx].active,
+        db.lanes[lane_idx].progress
+      );
+    }
+
+    renderer::draw_legend(db.lane_count);
+    renderer::draw_metrics(
+      db.lane_count,
+      db.loc_per_sec,
+      db.total_lines,
+      db.event_count,
+      db.total_tokens,
+      db.total_nodes,
+      db.total_inferences,
+      db.total_artifacts,
+      db.finished
+    );
+    raylib::end_drawing();
+  }
+
+  raylib::close_window();
+  events.free();
+}
+
+fun receive_all(listener_fd: int) -> Vec<str> {
+  mut events: Vec<str> = Vec::new();
+  imu listener := TcpListener { fd = listener_fd };
+
+  match listener.accept() {
+    Result::Pass(stream) => {
+      mut buffer: str = "";
+
+      loop {
+        imu data: str = stream.read(4096);
+        if data.len == 0 { break }
+
+        buffer = buffer ++ data;
+        imu parts: []str = buffer.split("\n");
+
+        for i := 0..parts.len - 1 {
+          if parts[i].len > 0 {
+            events.push(parts[i]);
+          }
+        }
+
+        buffer = parts[parts.len - 1];
+      }
+
+      if buffer.len > 0 {
+        events.push(buffer);
+      }
+
+      stream.close();
+    }
+    Result::Fail(_) => {}
+  }
+
+  events
+}
+
+fun main() {
+  showln("zo telemetry visualizer");
+
+  match TcpListener::bind(Address::new("127.0.0.1", PORT)) {
+    Result::Pass(listener) => {
+      showln("Listening on 127.0.0.1:18472...");
+
+      imu events: Vec<str> = receive_all(listener.fd);
+      imu count: int = events.len();
+      showln("Received {count} events.");
+
+      listener.close();
+
+      replay(events);
+    }
+    Result::Fail(err) => {
+      showln("Bind failed: {err}");
+    }
+  }
+
+  showln("DONE");
+}

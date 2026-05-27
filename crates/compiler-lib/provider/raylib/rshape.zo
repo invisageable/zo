@@ -1,24 +1,24 @@
 -*
   from module: rshapes.
-  asic shapes drawing functions.
+  Basic shapes drawing functions.
 *-
 
 load provider::raylib::structs::*;
 
 -! Draw a color-filled circle.
--! 
+-!
 -! @param x — The center x-axis.
 -! @param y — The center y-axis.
 -! @param radius — The radius.
--! @param radius — The color.
--! 
+-! @param color — The color.
+-!
 -! @note — radius is narrowed from `f64` → `f32` at the FFI boundary (raylib's
 -! API takes f32).
 %% link_name = "DrawCircle".
 pub ffi draw_circle(x: int, y: int, radius: f32, color: int);
 
 -! Draw a color-filled circle (Vector version).
--! 
+-!
 -! @param center — ...
 -! @param radius — ...
 -! @param color — ...
@@ -27,3 +27,23 @@ pub ffi draw_circle(x: int, y: int, radius: f32, color: int);
 -! in `s0`/`s1`, then `radius` in `s2`, `color` in `w0`.
 %% link_name = "DrawCircleV".
 pub ffi draw_circle_v(center: Vector2, radius: f32, color: int);
+
+-! Draw a color-filled rectangle.
+-!
+-! @param x — Top-left x.
+-! @param y — Top-left y.
+-! @param width — Rectangle width.
+-! @param height — Rectangle height.
+-! @param color — RGBA packed color.
+%% link_name = "DrawRectangle".
+pub ffi draw_rectangle(x: int, y: int, width: int, height: int, color: int);
+
+-! Draw rectangle outline.
+-!
+-! @param x — Top-left x.
+-! @param y — Top-left y.
+-! @param width — Rectangle width.
+-! @param height — Rectangle height.
+-! @param color — RGBA packed color.
+%% link_name = "DrawRectangleLines".
+pub ffi draw_rectangle_lines(x: int, y: int, width: int, height: int, color: int);
