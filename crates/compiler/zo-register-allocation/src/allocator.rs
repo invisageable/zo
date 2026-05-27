@@ -352,6 +352,8 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         | Insn::NurseryEnd { .. }
         | Insn::SelectWait { .. }
         | Insn::StrSlice { .. }
+        | Insn::ToStr { .. }
+        | Insn::StringFormat { .. }
         // `CoerceToDyn` lowers to `BL zo_dyn_box`;
         // `DynDispatch` lowers to `BLR x16` through a
         // vtable slot. Both clobber X30 — the function
@@ -785,6 +787,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
   // frame region. 16-byte aligned to keep the frame's
   // alignment invariant. Zero when there are no selects.
   let mut select_scratch_size = 0u32;
+  let mut string_format_scratch_size = 0u32;
 
   for i in 0..n {
     if let Insn::SelectWait { chans, .. } = &insns[start + i] {
@@ -799,6 +802,15 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         select_scratch_size = aligned;
       }
     }
+
+    if let Insn::StringFormat { segments, .. } = &insns[start + i] {
+      let want = segments.len() as u32 * 8;
+      let aligned = (want + 15) & !15;
+
+      if aligned > string_format_scratch_size {
+        string_format_scratch_size = aligned;
+      }
+    }
   }
 
   result.function_info.insert(
@@ -811,6 +823,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
       mutable_size,
       chan_scratch_size,
       select_scratch_size,
+      string_format_scratch_size,
     },
   );
 }

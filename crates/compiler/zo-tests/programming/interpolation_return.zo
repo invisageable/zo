@@ -1,0 +1,15 @@
+-- tests-build-pass: interpolated string as return value.
+-- @cmd — zo build interpolation_return.zo
+
+fun greet(name: str) -> str {
+  return "hello, {name}!";
+}
+
+fun main() {
+  imu msg: str = greet("world");
+
+  showln(msg);
+}
+
+-- EXPECTED OUTPUT:
+-- hello, world!

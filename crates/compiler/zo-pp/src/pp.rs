@@ -693,6 +693,23 @@ impl PrettyPrinter {
 
           self.sir_instruction(&c);
         }
+        Insn::ToStr { dst, src, src_ty } => {
+          let c = format!("%{dst} = to_str %{src} : {src_ty:?}");
+
+          self.sir_instruction(&c);
+        }
+        Insn::StringFormat {
+          dst, segments, ..
+        } => {
+          let segs: Vec<String> =
+            segments.iter().map(|s| format!("%{s}")).collect();
+          let c = format!(
+            "%{dst} = string.format [{}]",
+            segs.join(", ")
+          );
+
+          self.sir_instruction(&c);
+        }
         Insn::CoerceToDyn {
           dst,
           src,

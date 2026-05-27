@@ -1,56 +1,41 @@
 # structures
 
+Custom structures package operations into meaningful domain boundaries. The `struct` keyword models complex custom fields, while the `apply` keyword assigns functional behavior logic to those types.
+
 ## struct
 
+Every field inside a `struct` definition must declare an explicit fallback assignment metric. The compiler enforces default initialization rules to maintain optimizations throughout compilation phases.
+
   ```zo
-  -- ...
   struct Point {
     x: int,
     y: int,
   }
 
-  -- Then you created me:
-  imu point: Point = Point {
-    x = 1,
-    y = 2
-  };
-
-  -- And used me like the following:
-  point.y -- 2
-  ```
-
-talk about the default value. All fields must have a default value to be valid. otherwise the compiler will complain.
-
-All structured layout definitions require standard default initial assignment metrics to maintain type validation
-stability guarantees during optimization stages
-
-  ```zo
-  -- ...
   struct Rect {
     x: int = 10,
     y: int = 20,
     w: int = 100,
     h: int = 200,
   }
+
+  struct Counter {
+    x: int = 0,
+  }
   ```
 
 ## methods
 
-talk about the usage of apply keyword to define methods.
+Use the apply statement block to bind custom functions to a target structure definition.
 
   ```zo
-  struct Counter {
-    x: int,
-  }
-
-  -- ...
   apply Counter {
-    -- static method
+    -- Static instantiation function block.
     fun new() -> Self {
       Self { x = 0 }
     }
 
-    -- ...
+    -- Mutable state tracking modifier function.
     fun incr(mut self) {
       self.x += 1;
     }

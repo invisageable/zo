@@ -8255,6 +8255,7 @@ dependencies = [
  "base64",
  "criterion",
  "libc",
+ "proptest",
  "regex",
  "rustc-hash 2.1.2",
  "sha1",

@@ -1,0 +1,12 @@
+-- tests-build-pass: interpolated string assigned to a variable.
+-- @cmd — zo build interpolation_assign.zo
+
+fun main() {
+  imu name: str = "Alice";
+  imu msg: str = "hello, {name}!";
+
+  showln(msg);
+}
+
+-- EXPECTED OUTPUT:
+-- hello, Alice!

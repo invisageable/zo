@@ -2057,6 +2057,8 @@ impl RuntimeNeeds {
         | zo_sir::Insn::NurseryBegin { .. }
         | zo_sir::Insn::NurseryEnd { .. }
         | zo_sir::Insn::StrSlice { .. }
+        | zo_sir::Insn::ToStr { .. }
+        | zo_sir::Insn::StringFormat { .. }
         | zo_sir::Insn::TestBegin { .. }
         | zo_sir::Insn::TestRun { .. }
         | zo_sir::Insn::TestSummary => {

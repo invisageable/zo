@@ -461,6 +461,7 @@ pub struct ARM64Gen<'a> {
   /// so a saved `val_reg` pointing into a struct can't alias
   /// the struct's bytes.
   array_push_scratch_base: u32,
+  string_format_scratch_base: u32,
   /// Offset from SP of the select-wait scratch area.
   /// Layout: `nchans * 8` bytes of `*mut ZoChan`
   /// pointers immediately followed by an `elem_sz`
@@ -797,6 +798,7 @@ impl<'a> ARM64Gen<'a> {
       chan_scratch_base: 0,
       select_scratch_base: 0,
       array_push_scratch_base: 0,
+      string_format_scratch_base: 0,
       next_struct_slot: 0,
       io_shared_buf_offset: None,
       struct_return_fns: HashMap::default(),
@@ -2182,8 +2184,12 @@ impl<'a> ARM64Gen<'a> {
       Insn::Cast { dst, to_ty, .. } => {
         self.value_types.insert(dst.0, *to_ty);
       }
-      Insn::ConstString { dst, ty_id, .. } => {
+      Insn::ConstString { dst, ty_id, .. }
+      | Insn::StringFormat { dst, ty_id, .. } => {
         self.value_types.insert(dst.0, *ty_id);
+      }
+      Insn::ToStr { dst, .. } => {
+        self.value_types.insert(dst.0, TyId(STR_TYPE_ID));
       }
       _ => {}
     }
@@ -2219,6 +2225,7 @@ impl<'a> ARM64Gen<'a> {
               info.mutable_size,
               info.chan_scratch_size,
               info.select_scratch_size,
+              info.string_format_scratch_size,
             )
           });
 
@@ -2229,6 +2236,7 @@ impl<'a> ARM64Gen<'a> {
           mut_size,
           chan_scratch_size,
           select_scratch_size,
+          string_format_scratch_size,
         )) = fn_info
         {
           let has_calls = self.promoted_has_calls(idx as u32, has_calls);
@@ -2247,6 +2255,7 @@ impl<'a> ARM64Gen<'a> {
             + chan_scratch_size
             + select_scratch_size
             + ARRAY_PUSH_SCRATCH_SIZE
+            + string_format_scratch_size
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
@@ -2287,6 +2296,9 @@ impl<'a> ARM64Gen<'a> {
           // saves can't alias struct slots.
           self.array_push_scratch_base =
             self.select_scratch_base + select_scratch_size;
+
+          self.string_format_scratch_base =
+            self.array_push_scratch_base + ARRAY_PUSH_SCRATCH_SIZE;
 
           let param_base = spill_size + mut_size;
 
@@ -3469,6 +3481,7 @@ impl<'a> ARM64Gen<'a> {
                 info.mutable_size,
                 info.chan_scratch_size,
                 info.select_scratch_size,
+                info.string_format_scratch_size,
               )
             })
         });
@@ -3480,6 +3493,7 @@ impl<'a> ARM64Gen<'a> {
           mut_size,
           chan_scratch_size,
           select_scratch_size,
+          string_format_scratch_size,
         )) = epi_info
         {
           // Mirror the prologue's promotion so the
@@ -3499,6 +3513,7 @@ impl<'a> ARM64Gen<'a> {
             + chan_scratch_size
             + select_scratch_size
             + ARRAY_PUSH_SCRATCH_SIZE
+            + string_format_scratch_size
             + FRAME_ALIGN_MASK)
             & !FRAME_ALIGN_MASK;
 
@@ -4628,6 +4643,85 @@ impl<'a> ARM64Gen<'a> {
         }
 
         self.emit_extern_call("_zo_str_slice");
+
+        if let Some(dst_reg) = self.alloc_reg(*dst)
+          && dst_reg != X0
+        {
+          self.emitter.emit_mov_reg(dst_reg, X0);
+        }
+      }
+
+      Insn::ToStr { dst, src, src_ty } => {
+        if src_ty.0 == STR_TYPE_ID {
+          let src_reg = self.alloc_reg(*src).unwrap_or(X0);
+          let dst_reg = self.alloc_reg(*dst).unwrap_or(X0);
+
+          if src_reg != dst_reg {
+            self.emitter.emit_mov_reg(dst_reg, src_reg);
+          }
+        } else {
+          let is_flt = src_ty.0 >= FLOAT_TYPE_ID_MIN
+            && src_ty.0 <= FLOAT_TYPE_ID_MAX;
+
+          if is_flt {
+            if let Some(fp_src) = self.alloc_fp_reg(*src)
+              && fp_src != D0
+            {
+              self.emitter.emit_fmov_fp(D0, fp_src);
+            }
+
+            self.emit_extern_call("_zo_float_to_str");
+          } else if src_ty.0 == BOOL_TYPE_ID {
+            if let Some(src_reg) = self.alloc_reg(*src)
+              && src_reg != X0
+            {
+              self.emitter.emit_mov_reg(X0, src_reg);
+            }
+
+            self.emit_extern_call("_zo_bool_to_str");
+          } else if src_ty.0 == CHAR_TYPE_ID {
+            if let Some(src_reg) = self.alloc_reg(*src)
+              && src_reg != X0
+            {
+              self.emitter.emit_mov_reg(X0, src_reg);
+            }
+
+            self.emit_extern_call("_zo_char_to_str");
+          } else {
+            if let Some(src_reg) = self.alloc_reg(*src)
+              && src_reg != X0
+            {
+              self.emitter.emit_mov_reg(X0, src_reg);
+            }
+
+            self.emit_extern_call("_zo_int_to_str");
+          }
+
+          if let Some(dst_reg) = self.alloc_reg(*dst)
+            && dst_reg != X0
+          {
+            self.emitter.emit_mov_reg(dst_reg, X0);
+          }
+        }
+      }
+
+      Insn::StringFormat {
+        dst, segments, ..
+      } => {
+        let count = segments.len();
+        let base = self.string_format_scratch_base;
+
+        for (i, seg) in segments.iter().enumerate() {
+          if let Some(reg) = self.alloc_reg(*seg) {
+            let off = base + (i as u32) * STACK_SLOT_SIZE;
+
+            self.emit_str_sp(reg, off);
+          }
+        }
+
+        self.emit_mov_imm_64(X0, count as u64);
+        self.emit_add_sp_offset(X1, base);
+        self.emit_extern_call("_zo_str_multi_concat");
 
         if let Some(dst_reg) = self.alloc_reg(*dst)
           && dst_reg != X0

@@ -1,0 +1,15 @@
+-- tests-build-pass: interpolated string passed as argument.
+-- @cmd — zo build interpolation_arg.zo
+
+fun print_msg(msg: str) {
+  showln(msg);
+}
+
+fun main() {
+  imu x: int = 42;
+
+  print_msg("value: {x}");
+}
+
+-- EXPECTED OUTPUT:
+-- value: 42

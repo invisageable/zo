@@ -1,31 +1,29 @@
 # strings
 
-UTF-8 that support several formats within strings such as escape sequences, hex, latin, emojis, etc.
+All strings adhere to valid UTF-8 formats, supporting raw character arrays, unicode hex variants, layout escapes, and structural symbols seamlessly.
 
   ```zo
-  -- What's up, cuh? Remember me? — the string. I'm 
-  -- immutable; once created, my bytes never change. 
-  -- I'm versatile, so my shapes are yours:
+  -- Custom strings are completely immutable. The
+  -- internal data bytes never change.
   "\e[32mHello!\v\e[34mWorld\e[0m\n"
-  "\x48\x65\x6c\x6c\x6f"          -- hex
-  "\u{e9}\u{e8}\u{ea}"            -- latin
-  "\u{2603} \u{2602} \u{2600}"    -- bmp
-  "\u{1F600} \u{1F680} \u{1F4A9}" -- emoji esc. chars
-  "🙈🙉🙊"                        -- emoji
+  "\x48\x65\x6c\x6c\x6f"          -- hex char
+  "\u{e9}\u{e8}\u{ea}"            -- latin char
+  "\u{1F600} \u{1F680} \u{1F4A9}" -- decoded emoji
+  "🙈🙉🙊"                        -- raw unicode literals
   ```
 
 ## concatenation
 
+The `++` operator acts as your layout welding torch. Merging literals fuses values immediately inside the binary compilation phase, yielding zero performance penalties at execution time.
+
   ```zo
-  -- `++` joins two strings. With variables: a fresh
-  -- string at runtime. With literals: folded at 
-  -- compile time — zero runtime cost.
   imu greeting: str = "hello";
   imu name: str = "johndoe";
   imu full: str = greeting ++ ", " ++ name ++ "!";
-  imu title: str = "the " ++ "devolution";
 
-  showln(greeting[0]); -- 'h' (O(1) bounds-checked access)
+  -- Direct character index extraction evaluates
+  -- efficiently.
+  showln(greeting[0]); -- Evaluates to 'h'
   ```
 
   ```zo
@@ -33,5 +31,5 @@ UTF-8 that support several formats within strings such as escape sequences, hex,
   -!
   -!   - `str` is immutable.
   -!   - `++` concatenates.
-  -!   - `s[i]` is O(1) char access, bounds-checked.
+  -!   - `s[i]` for string indexing.
   ```

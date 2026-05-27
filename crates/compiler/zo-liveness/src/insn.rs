@@ -36,7 +36,9 @@ pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
       | Insn::TaskAwait { dst, .. }
       | Insn::SelectRecv { dst, .. }
       | Insn::TaskCancelled { dst, .. }
-      | Insn::StrSlice { dst, .. } => Some(*dst),
+      | Insn::StrSlice { dst, .. }
+      | Insn::ToStr { dst, .. }
+      | Insn::StringFormat { dst, .. } => Some(*dst),
       // `SelectWait` has two outputs (`out_which` +
       // companion `SelectRecv.dst` for the value).
       // Liveness tracks the arm index here; the value
@@ -151,6 +153,12 @@ pub fn visit_uses(insn: &Insn, mut f: impl FnMut(ValueId)) {
       f(*src);
       f(*lo);
       f(*hi);
+    }
+    Insn::ToStr { src, .. } => f(*src),
+    Insn::StringFormat { segments, .. } => {
+      for seg in segments {
+        f(*seg);
+      }
     }
     // `any <Abstract>` boxing: the heap-box copies bytes
     // from `src`, so the defining instruction must stay

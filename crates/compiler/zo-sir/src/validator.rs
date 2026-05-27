@@ -502,6 +502,12 @@ fn check_insn(insn: &Insn, idx: usize, ctx: &mut ValidatorCtx<'_>) {
     Insn::StrSlice { ty_id, .. } => {
       check_placeholder(&mut ctx.report, idx, *ty_id, "StrSlice.ty_id");
     }
+    Insn::ToStr { src_ty, .. } => {
+      check_placeholder(&mut ctx.report, idx, *src_ty, "ToStr.src_ty");
+    }
+    Insn::StringFormat { ty_id, .. } => {
+      check_placeholder(&mut ctx.report, idx, *ty_id, "StringFormat.ty_id");
+    }
     Insn::PackLink { .. } => {}
     Insn::CoerceToDyn { concrete_ty, .. } => {
       check_placeholder(

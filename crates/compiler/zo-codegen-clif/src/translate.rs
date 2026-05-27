@@ -558,7 +558,8 @@ fn record_value_type(ctx: &mut FunCtx, insn: &Insn) {
     | Insn::TupleLiteral { dst, ty_id, .. }
     | Insn::TupleIndex { dst, ty_id, .. }
     | Insn::StructConstruct { dst, ty_id, .. }
-    | Insn::EnumConstruct { dst, ty_id, .. } => {
+    | Insn::EnumConstruct { dst, ty_id, .. }
+    | Insn::StringFormat { dst, ty_id, .. } => {
       ctx.value_types.insert(*dst, *ty_id);
     }
     Insn::Cast { dst, to_ty, .. } => {
@@ -1373,6 +1374,106 @@ fn translate_body(
       | Insn::MapTyDef { .. }
       | Insn::ConstDef { .. }
       | Insn::Directive { .. } => {}
+      Insn::ToStr { dst, src, src_ty } => {
+        let Some(&src_v) = ctx.values.get(src) else {
+          emit_exit_1(tctx, builder);
+          ctx.terminated = true;
+          return;
+        };
+
+        let result = if src_ty.0 == 4 {
+          src_v
+        } else {
+          let name = match src_ty.0 {
+            2 => "zo_bool_to_str",
+            3 => "zo_char_to_str",
+            6..=14 => "zo_int_to_str",
+            15..=17 => "zo_float_to_str",
+            _ => {
+              emit_exit_1(tctx, builder);
+              ctx.terminated = true;
+              return;
+            }
+          };
+
+          let fid =
+            ensure_libc_func(tctx, name, |ptr_ty, cc| {
+              let mut sig = ir::Signature::new(cc);
+
+              sig.params.push(AbiParam::new(
+                if is_float(*src_ty) {
+                  ir::types::F64
+                } else {
+                  ir::types::I64
+                },
+              ));
+              sig.returns.push(AbiParam::new(ptr_ty));
+
+              sig
+            });
+          let fref = tctx
+            .module
+            .declare_func_in_func(fid, builder.func);
+          let call = builder.ins().call(fref, &[src_v]);
+
+          builder.inst_results(call)[0]
+        };
+
+        ctx.values.insert(*dst, result);
+      }
+      Insn::StringFormat {
+        dst, segments, ..
+      } => {
+        let ptr_ty = tctx.ptr_ty;
+        let slot = builder.create_sized_stack_slot(
+          ir::StackSlotData::new(
+            ir::StackSlotKind::ExplicitSlot,
+            (segments.len() as u32) * 8,
+            3,
+          ),
+        );
+
+        for (i, seg) in segments.iter().enumerate() {
+          let Some(&v) = ctx.values.get(seg) else {
+            emit_exit_1(tctx, builder);
+            ctx.terminated = true;
+            return;
+          };
+
+          builder.ins().stack_store(
+            v,
+            slot,
+            (i as i32) * 8,
+          );
+        }
+
+        let addr = builder.ins().stack_addr(ptr_ty, slot, 0);
+        let count =
+          builder.ins().iconst(ir::types::I64, segments.len() as i64);
+        let fid = ensure_libc_func(
+          tctx,
+          "zo_str_multi_concat",
+          |ptr_ty, cc| {
+            let mut sig = ir::Signature::new(cc);
+
+            sig.params.push(AbiParam::new(ir::types::I64));
+            sig.params.push(AbiParam::new(ptr_ty));
+            sig.returns.push(AbiParam::new(ptr_ty));
+
+            sig
+          },
+        );
+        let fref = tctx
+          .module
+          .declare_func_in_func(fid, builder.func);
+        let call =
+          builder.ins().call(fref, &[count, addr]);
+
+        ctx.values.insert(
+          *dst,
+          builder.inst_results(call)[0],
+        );
+      }
       // Catch-all for insns not yet implemented (`Template`,
       // `ArrayPush`, `ArrayPop`, etc.): exit the process with
       // code 1 and bail out of this body. The module still

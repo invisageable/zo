@@ -44,6 +44,7 @@ sha2 = { workspace = true }
 [dev-dependencies]
 # external:crates.
 criterion = { workspace = true }
+proptest = { workspace = true }
 
 # Concurrency benchmarks — run under `criterion` so the
 # statistical harness (warm-up, sample-size calibration,

@@ -1,21 +1,19 @@
 # interpolation
 
-In zo, drop values directly into strings with `{variable}` — no format functions, no allocations at runtime.
+Inject execution data straight into string allocations using {variable_name} syntax. The language bypasses
+heavy formatting engines and runtime allocations entirely.
 
-> *Interpolation does not allow full complex expressions (like binary operations or direct function calls). It requires a clean variable identifier name.*
+> *System Constraint: Interpolation parser blocks forbid complex inline expressions (like math operations or nested function calls). Provide clean variable identifiers only.*
 
   ```zo
-  -- Hi, I'm `{}` — a string interpolation. Wrap any 
-  -- in-scope variable in braces and I expand it 
-  -- inline at compile time.
   imu name: str = "johndoe";
   imu hp: int = 100;
   showln("hero: {name}, hp: {hp}");
   ```
 
-## under the hood
+## compilationi desugaring
 
-The compiler desugars `showln("hp: {hp}")` directly into explicit performance-optimal blocks at compile-time:
+The parser intercepts showln("hp: {hp}") statements at compile-time, rewriting them directly into independent, high-performance serialization instructions:
 
   ```zo
   show("hp: ");
