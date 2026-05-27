@@ -7212,9 +7212,7 @@ impl<'a> Executor<'a> {
               idx += 1;
 
               // Skip optional colon between name and type.
-              if idx < end_idx
-                && self.tree.nodes[idx].token == Token::Colon
-              {
+              if idx < end_idx && self.tree.nodes[idx].token == Token::Colon {
                 idx += 1;
               }
 

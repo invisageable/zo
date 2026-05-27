@@ -4,13 +4,16 @@ use crate::register::{FpRegister, Register};
 const MOVZ: u32 = 0xD2800000;
 const MOVK: u32 = 0xF2800000;
 const MOV_REG: u32 = 0xAA0003E0;
+const MOV_REG_W: u32 = 0x2A0003E0;
 const ADR: u32 = 0x10000000;
 const ADRP: u32 = 0x90000000;
 const STR: u32 = 0xF9000000;
 const STRB: u32 = 0x39000000;
 const STRB_POST: u32 = 0x38000400;
 const LDRB: u32 = 0x39400000;
+const LDRW: u32 = 0xB9400000;
 const LDR: u32 = 0xF9400000;
+const STRW: u32 = 0xB9000000;
 const ADD_IMM: u32 = 0x91000000;
 const SUB_IMM: u32 = 0xD1000000;
 const B: u32 = 0x14000000;
@@ -153,9 +156,16 @@ impl ARM64Emitter {
     self.emit_u32(insn);
   }
 
-  /// MOV register to register.
+  /// MOV register to register (64-bit).
   pub fn emit_mov_reg(&mut self, dst: Register, src: Register) {
     let insn = MOV_REG | ((src.index() as u32) << 16) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// MOV register to register (32-bit, zero-extends).
+  pub fn emit_mov_reg_w(&mut self, dst: Register, src: Register) {
+    let insn = MOV_REG_W | ((src.index() as u32) << 16) | (dst.index() as u32);
 
     self.emit_u32(insn);
   }
@@ -222,6 +232,30 @@ impl ARM64Emitter {
     let imm12 = (offset as u32) & IMM12_MASK;
 
     let insn = LDRB
+      | (imm12 << 10)
+      | ((base.index() as u32) << 5)
+      | (reg.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// 32-bit load (zero-extends to 64-bit register).
+  pub fn emit_ldr_w(&mut self, reg: Register, base: Register, offset: i16) {
+    let imm12 = ((offset as u32) >> 2) & IMM12_MASK;
+
+    let insn = LDRW
+      | (imm12 << 10)
+      | ((base.index() as u32) << 5)
+      | (reg.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// 32-bit store.
+  pub fn emit_str_w(&mut self, reg: Register, base: Register, offset: i16) {
+    let imm12 = ((offset as u32) >> 2) & IMM12_MASK;
+
+    let insn = STRW
       | (imm12 << 10)
       | ((base.index() as u32) << 5)
       | (reg.index() as u32);

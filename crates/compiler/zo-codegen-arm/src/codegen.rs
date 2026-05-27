@@ -66,7 +66,7 @@ const FP_LR_LOAD_OFFSET: i16 = 16;
 // scratch (the AAPCS allows any callee to use them
 // without saving), so the caller never expects them
 // preserved — saving is unnecessary.
-const CALLER_SAVE_RESERVE: u32 = 120;
+const CALLER_SAVE_RESERVE: u32 = 144;
 /// 2 GP slots reserved per function past `select_scratch` for
 /// `Insn::ArrayPush`'s realloc + struct-element heap-clone
 /// saves. Sized for the larger of the two paths (both save 2
@@ -411,8 +411,15 @@ pub struct ARM64Gen<'a> {
   /// whole spill-ops Vec — O(insns × spills) became
   /// O(insns + spills).
   spill_offsets: Vec<u32>,
+  /// Flat-map fallback for GP register lookups.
+  reload_overrides: HashMap<(u32, u32), u8>,
+  /// Flat-map fallback for FP register lookups.
+  fp_reload_overrides: HashMap<(u32, u32), u8>,
   /// Current function's start index into SIR instructions.
   current_fn_start: Option<usize>,
+  /// Current instruction index during emission — drives
+  /// per-instruction register lookups.
+  current_emit_idx: usize,
   /// Mutable variable stack slots: name → offset from SP.
   mutable_slots: HashMap<u32, u32>,
   /// Inline-storage `[N]T` variables: name → SP-relative
@@ -776,7 +783,10 @@ impl<'a> ARM64Gen<'a> {
       branch_fixups: Vec::new(),
       reg_alloc: None,
       spill_offsets: Vec::new(),
+      reload_overrides: HashMap::default(),
+      fp_reload_overrides: HashMap::default(),
       current_fn_start: None,
+      current_emit_idx: 0,
       mutable_slots: HashMap::default(),
       array_var_blocks: HashMap::default(),
       param_slots: HashMap::default(),
@@ -853,15 +863,25 @@ impl<'a> ARM64Gen<'a> {
 
   /// Look up the allocated register for a ValueId.
   fn alloc_reg(&self, vid: ValueId) -> Option<Register> {
-    // Assignments are scoped per FunDef: ValueId counters
-    // reset across functions.
-    let fn_start = self.current_fn_start? as u32;
-
     self
       .reg_alloc
       .as_ref()
-      .and_then(|a| a.get(fn_start, vid))
+      .and_then(|a| a.get_at(self.current_emit_idx, vid))
       .map(Register::new)
+      .or_else(|| {
+        let fn_start = self.current_fn_start? as u32;
+        let key = (fn_start, vid.0);
+
+        if let Some(&reg) = self.reload_overrides.get(&key) {
+          return Some(Register::new(reg));
+        }
+
+        self
+          .reg_alloc
+          .as_ref()
+          .and_then(|a| a.get(fn_start, vid))
+          .map(Register::new)
+      })
   }
 
   /// Look up the allocated GP register for the value
@@ -876,13 +896,25 @@ impl<'a> ARM64Gen<'a> {
 
   /// Look up the allocated FP register for a ValueId.
   fn alloc_fp_reg(&self, vid: ValueId) -> Option<FpRegister> {
-    let fn_start = self.current_fn_start? as u32;
-
     self
       .reg_alloc
       .as_ref()
-      .and_then(|a| a.get_fp(fn_start, vid))
+      .and_then(|a| a.get_fp_at(self.current_emit_idx, vid))
       .map(FpRegister::new)
+      .or_else(|| {
+        let fn_start = self.current_fn_start? as u32;
+        let key = (fn_start, vid.0);
+
+        if let Some(&reg) = self.fp_reload_overrides.get(&key) {
+          return Some(FpRegister::new(reg));
+        }
+
+        self
+          .reg_alloc
+          .as_ref()
+          .and_then(|a| a.get_fp(fn_start, vid))
+          .map(FpRegister::new)
+      })
   }
 
   /// Bind per-function state at the start of every FunDef:
@@ -898,6 +930,8 @@ impl<'a> ARM64Gen<'a> {
 
     self.value_types.clear();
     self.value_def_idx.clear();
+    self.reload_overrides.clear();
+    self.fp_reload_overrides.clear();
     self.mutable_slots.clear();
     self.array_var_blocks.clear();
     self.next_mut_slot = 0;
@@ -1124,22 +1158,40 @@ impl<'a> ARM64Gen<'a> {
         reg,
         slot,
         class: RegisterClass::GP,
+        ..
       } => self.emit_str_sp(Register::new(*reg), *slot * STACK_SLOT_SIZE),
       SpillKind::Load {
         reg,
         slot,
         class: RegisterClass::GP,
-      } => self.emit_ldr_sp(Register::new(*reg), *slot * STACK_SLOT_SIZE),
+        vid,
+      } => {
+        self.emit_ldr_sp(Register::new(*reg), *slot * STACK_SLOT_SIZE);
+
+        if let Some(fn_start) = self.current_fn_start {
+          self.reload_overrides.insert((fn_start as u32, *vid), *reg);
+        }
+      }
       SpillKind::Store {
         reg,
         slot,
         class: RegisterClass::FP,
+        ..
       } => self.emit_str_fp_sp(FpRegister::new(*reg), *slot * STACK_SLOT_SIZE),
       SpillKind::Load {
         reg,
         slot,
         class: RegisterClass::FP,
-      } => self.emit_ldr_fp_sp(FpRegister::new(*reg), *slot * STACK_SLOT_SIZE),
+        vid,
+      } => {
+        self.emit_ldr_fp_sp(FpRegister::new(*reg), *slot * STACK_SLOT_SIZE);
+
+        if let Some(fn_start) = self.current_fn_start {
+          self
+            .fp_reload_overrides
+            .insert((fn_start as u32, *vid), *reg);
+        }
+      }
     }
   }
 
@@ -1619,6 +1671,7 @@ impl<'a> ARM64Gen<'a> {
     }
 
     for (idx, insn) in insns.iter().enumerate() {
+      self.current_emit_idx = idx;
       self.emit_spills(idx, EmitTiming::Before);
       self.translate_insn(insn, idx, insns);
       self.emit_spills(idx, EmitTiming::After);
@@ -2242,20 +2295,27 @@ impl<'a> ARM64Gen<'a> {
             let is_fp =
               ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
 
-            if is_fp {
-              let src = FpRegister::new(i as u8);
+            if i < MAX_REG_ARGS {
+              if is_fp {
+                let src = FpRegister::new(i as u8);
 
-              self.emit_str_fp_sp(src, off);
+                self.emit_str_fp_sp(src, off);
+              } else {
+                let src = Register::new(i as u8);
+
+                self.emit_str_sp(src, off);
+              }
             } else {
-              let src = Register::new(i as u8);
+              // Overflow param: on the caller's stack, above
+              // our frame + the saved FP/LR pair (16 bytes).
+              let caller_off =
+                frame + 16 + (i as u32 - MAX_REG_ARGS as u32) * STACK_SLOT_SIZE;
 
-              self.emit_str_sp(src, off);
+              self.emit_ldr_sp(X16, caller_off);
+              self.emit_str_sp(X16, off);
             }
 
             self.param_slots.insert(i as u32, off);
-            // Also index by the parameter's symbol so
-            // `LoadSource::Local(sym)` (emitted for immutable
-            // param reads) can resolve the spill slot.
             self.param_sym_slots.insert(sym.as_u32(), (off, is_fp));
           }
 
@@ -3020,21 +3080,45 @@ impl<'a> ARM64Gen<'a> {
             // User-function call (zo's own positional
             // calling convention — not full AAPCS).
             // Move args to X0-X7 (GP) or D0-D7 (FP).
-            // Collect moves first to detect clobbering:
-            // if src of move B == dst of move A, moving A
-            // first overwrites B's source. Save conflicting
-            // sources to X16 before any moves happen.
-            //
-            // Stack-bounded — at most `MAX_REG_ARGS` GP
-            // arg slots — so a fixed array + len cursor
-            // replaces a per-call `Vec` allocation.
+            // Count overflow args and compute aligned
+            // stack allocation (AAPCS: SP 16-byte aligned
+            // at the BL boundary).
+            let stack_arg_count = args.len().saturating_sub(MAX_REG_ARGS);
+            let stack_arg_bytes = if stack_arg_count > 0 {
+              let bytes = stack_arg_count as u32 * STACK_SLOT_SIZE;
+              (bytes + 15) & !15
+            } else {
+              0
+            };
+
+            // Stage overflow arg values into dedicated
+            // caller-save area slots (past the X1..X15
+            // region) BEFORE register moves clobber their
+            // source registers. The staging slots survive
+            // across register moves AND caller-save spill.
+            let overflow_staging_base = self.caller_save_base
+              + (CALLER_SAVE_COUNT as u32 + 1) * STACK_SLOT_SIZE;
+
+            for (i, arg) in args.iter().enumerate() {
+              if i < MAX_REG_ARGS {
+                continue;
+              }
+
+              if let Some(src_reg) = self.alloc_reg(*arg) {
+                let stage_off = overflow_staging_base
+                  + (i - MAX_REG_ARGS) as u32 * STACK_SLOT_SIZE;
+                self.emit_str_sp(src_reg, stage_off);
+              }
+            }
+
+            // Collect register moves for args 0..7.
             let mut gp_moves: [(Register, Register); MAX_REG_ARGS] =
               [(X0, X0); MAX_REG_ARGS];
             let mut gp_moves_len: usize = 0;
 
             for (i, arg) in args.iter().enumerate() {
               if i >= MAX_REG_ARGS {
-                break;
+                continue;
               }
 
               if let Some(fp_src) = self.alloc_fp_reg(*arg) {
@@ -3056,10 +3140,11 @@ impl<'a> ARM64Gen<'a> {
             let gp_moves = &gp_moves[..gp_moves_len];
 
             // Pre-save: if any move's src is also another
-            // move's dst, save the src to X16 first. This
-            // handles the common case of register overlap
-            // in closure calls with captures.
-            let mut saved_reg: Option<Register> = None;
+            // move's dst, save the src to a scratch register
+            // before any moves happen. X16 and X17 handle up
+            // to two simultaneous clobbers.
+            let mut saved: [(Register, Register); 2] = [(X0, X0); 2];
+            let mut saved_count = 0usize;
 
             for j in 0..gp_moves.len() {
               let (_, src) = gp_moves[j];
@@ -3069,15 +3154,24 @@ impl<'a> ARM64Gen<'a> {
                 .enumerate()
                 .any(|(k, (dst, _))| k != j && *dst == src);
 
-              if is_clobbered && saved_reg.is_none() {
-                self.emitter.emit_mov_reg(X16, src);
-                saved_reg = Some(src);
+              if is_clobbered
+                && saved_count < 2
+                && !saved[..saved_count].iter().any(|(s, _)| *s == src)
+              {
+                let scratch = if saved_count == 0 { X16 } else { X17 };
+
+                self.emitter.emit_mov_reg(scratch, src);
+                saved[saved_count] = (src, scratch);
+                saved_count += 1;
               }
             }
 
-            // Emit moves, replacing saved src with X16.
             for (dst, src) in gp_moves {
-              let actual_src = if Some(*src) == saved_reg { X16 } else { *src };
+              let actual_src = saved[..saved_count]
+                .iter()
+                .find(|(s, _)| *s == *src)
+                .map(|(_, scratch)| *scratch)
+                .unwrap_or(*src);
 
               self.emitter.emit_mov_reg(*dst, actual_src);
             }
@@ -3092,6 +3186,22 @@ impl<'a> ARM64Gen<'a> {
               let off = base + i as u32 * STACK_SLOT_SIZE;
 
               self.emit_str_sp(reg, off);
+            }
+
+            // Adjust SP and copy overflow args from staging
+            // slots to the stack arg region.
+            if stack_arg_bytes > 0 {
+              self.emitter.emit_sub_imm(SP, SP, stack_arg_bytes as u16);
+
+              for i in 0..stack_arg_count {
+                let stage_off = stack_arg_bytes
+                  + overflow_staging_base
+                  + i as u32 * STACK_SLOT_SIZE;
+                let dest_off = i as u32 * STACK_SLOT_SIZE;
+
+                self.emit_ldr_sp(X16, stage_off);
+                self.emitter.emit_str(X16, SP, dest_off as i16);
+              }
             }
 
             // BL to user-defined function. Strict
@@ -3118,7 +3228,12 @@ impl<'a> ARM64Gen<'a> {
               self.call_fixups.push((fixup_pos, key));
             }
 
-            // Restore caller-saved temp regs after BL.
+            // Restore SP before caller-save reload so
+            // SP-relative offsets match the spill sites.
+            if stack_arg_bytes > 0 {
+              self.emitter.emit_add_imm(SP, SP, stack_arg_bytes as u16);
+            }
+
             for i in 0..CALLER_SAVE_COUNT {
               let reg = Register::new(CALLER_SAVE_START + i as u8);
               let off = base + i as u32 * STACK_SLOT_SIZE;
@@ -3643,17 +3758,38 @@ impl<'a> ARM64Gen<'a> {
         let alloc_size =
           (ARRAY_HEADER_SIZE as u32 + initial_cap * STACK_SLOT_SIZE) as u64;
 
+        // The most recent call result lives in X0 (not
+        // covered by the X1..X15 caller-save). If any
+        // element was assigned X0 by the allocator, save
+        // it before malloc clobbers X0 with the heap
+        // pointer, then reload into X20 after.
+        let x0_elem = elements
+          .iter()
+          .find(|e| self.alloc_reg(**e) == Some(X0))
+          .copied();
+
+        if x0_elem.is_some() {
+          let save_off =
+            self.caller_save_base + CALLER_SAVE_COUNT as u32 * STACK_SLOT_SIZE;
+
+          self.emit_str_sp(X0, save_off);
+        }
+
         self.emit_mov_imm_64(X0, alloc_size);
         self.emit_extern_call("_malloc");
 
-        // X0 holds the heap pointer; pin it in a callee-saved
-        // register (X19) across the per-element stores so the
-        // X16/X17 scratches we use for length/cap don't lose
-        // it. AAPCS guarantees `_malloc` preserved X19, so no
-        // explicit save needed. Element values landed back in
-        // their allocator-assigned regs because
-        // `emit_extern_call` saves X1..X15 across the BL.
         let r_buf = Register::new(19);
+
+        if let Some(vid) = x0_elem {
+          let save_off =
+            self.caller_save_base + CALLER_SAVE_COUNT as u32 * STACK_SLOT_SIZE;
+          let r_reload = Register::new(20);
+
+          self.emit_ldr_sp(r_reload, save_off);
+          self
+            .reload_overrides
+            .insert((self.current_fn_start.unwrap_or(0) as u32, vid.0), 20);
+        }
 
         self.emitter.emit_mov_reg(r_buf, X0);
 
@@ -4232,12 +4368,15 @@ impl<'a> ARM64Gen<'a> {
         self.emit_add_sp_offset(X1, slot);
         self.emit_extern_call("_zo_chan_send");
       }
-      Insn::ChannelRecv { dst, channel, .. } => {
+      Insn::ChannelRecv {
+        dst,
+        channel,
+        ty_id,
+      } => {
         // ABI: `_zo_chan_recv(chan, dst: *mut u8)`.
-        // The runtime writes into the scratch slot;
-        // we then load the written value into the
-        // destination register the allocator reserved
-        // for `dst`.
+        // The runtime writes `elem_sz` bytes into the
+        // scratch slot; we load the value at the correct
+        // width so upper bits are zero-extended.
         let slot = self.chan_scratch_base;
 
         if let Some(ch_reg) = self.alloc_reg(*channel)
@@ -4250,7 +4389,13 @@ impl<'a> ARM64Gen<'a> {
         self.emit_extern_call("_zo_chan_recv");
 
         if let Some(dst_reg) = self.alloc_reg(*dst) {
-          self.emit_ldr_sp(dst_reg, slot);
+          let elem_sz = self.size_of_ty(*ty_id);
+
+          if elem_sz <= 4 && slot.is_multiple_of(4) {
+            self.emitter.emit_ldr_w(dst_reg, SP, slot as i16);
+          } else {
+            self.emit_ldr_sp(dst_reg, slot);
+          }
         }
       }
       Insn::ChannelClose { channel } => {

@@ -291,24 +291,27 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
 
     // --- Handle Load (parameter or mutable) ---
     if let Insn::Load { dst, src, .. } = insn {
+      // Snapshot BEFORE allocation — captures the register
+      // state the codegen sees when emission begins for this
+      // instruction. The result register is inserted into
+      // this snapshot after allocation so `alloc_reg(dst)`
+      // finds it without a flat-map fallback.
+      snapshot_state(&state, gi, result);
+
       match src {
         LoadSource::Param(_) => {
-          // Allocate a fresh register — don't force the
-          // physical param register. The codegen will load
-          // from the param's spill slot on the stack.
           let reg = state.alloc_or_spill(gi, &liveness, i, result, fp);
 
           state.assign(*dst, reg, fp);
           insert_assignment(result, start as u32, *dst, reg, fp);
+          snapshot_result(result, gi, *dst, reg, fp);
         }
         LoadSource::Local(_) => {
-          // Local variable: allocate a fresh register
-          // (the value will be loaded from stack at
-          // runtime by the codegen LDR).
           let reg = state.alloc_or_spill(gi, &liveness, i, result, fp);
 
           state.assign(*dst, reg, fp);
           insert_assignment(result, start as u32, *dst, reg, fp);
+          snapshot_result(result, gi, *dst, reg, fp);
         }
       }
 
@@ -382,10 +385,16 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
     }
 
     // --- Handle Call (clobbers all caller-saved) ---
-    if let Insn::Call { args, .. } = insn {
-      has_calls = true;
+    if let Insn::Call { .. } = insn {
+      // Snapshot the pre-call register state. The codegen's
+      // staging code for overflow args (>8) and the arg-move
+      // loop both call `alloc_reg` at this instruction's
+      // index. The physical registers still hold their
+      // values at that point — spill Stores write to stack
+      // but don't clear registers.
+      snapshot_state(&state, gi, result);
 
-      let arg_set = args.iter().map(|a| a.0).collect::<Vec<_>>();
+      has_calls = true;
 
       // Collect values to save (both GP and FP). `gp_save`
       // gets sorted in place before the reload loop so
@@ -396,9 +405,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         .gp
         .val_to_reg
         .iter()
-        .filter(|(vid, _)| {
-          liveness.is_live_out_raw(i, **vid) && !arg_set.contains(vid)
-        })
+        .filter(|(vid, _)| liveness.is_live_out_raw(i, **vid))
         .map(|(vid, reg)| (*vid, *reg))
         .collect::<Vec<_>>();
 
@@ -406,9 +413,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         .fp
         .val_to_reg
         .iter()
-        .filter(|(vid, _)| {
-          liveness.is_live_out_raw(i, **vid) && !arg_set.contains(vid)
-        })
+        .filter(|(vid, _)| liveness.is_live_out_raw(i, **vid))
         .map(|(vid, reg)| (*vid, *reg))
         .collect::<Vec<_>>();
 
@@ -450,31 +455,20 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
 
         state.assign(vid, reg, result_fp);
         insert_assignment(result, start as u32, vid, reg, result_fp);
+        snapshot_result(result, gi, vid, reg, result_fp);
       }
 
       // Reload saved values into the SAME register they
-      // occupied before the call. The assignments HashMap
-      // is keyed by ValueId and stores only one register.
-      // If the reload uses a different register, the codegen
-      // sees the new register for ALL instructions (including
-      // the original Load that defined the value), causing a
-      // mismatch: Load emits to the new register but the
-      // spill-store targets the original. Reloading into the
-      // same register avoids this.
+      // occupied before the call. Reloading into the
+      // original register keeps the next instruction's
+      // snapshot consistent — UNLESS the original is X0
+      // (the Call result register).
       if gi + 1 < end {
-        // Reload order: non-X0 originals first, so they
-        // retain their reg before X0-vids run `alloc_free`
-        // and might steal it.
         gp_save.sort_by_key(|(_, reg)| u8::from(*reg == 0));
 
         for &(vid, orig_reg) in &gp_save {
           let slot = state.spill_slots[&vid];
 
-          // Reload into the original register to keep the
-          // assignments HashMap consistent — UNLESS the
-          // original is X0 (reg 0), which is the Call
-          // result register. Reloading into X0 would
-          // overwrite the Call result.
           let reload_reg = if orig_reg == 0 {
             state.gp.alloc_free().expect("out of GP regs for reload")
           } else {
@@ -489,6 +483,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
               reg: reload_reg,
               slot,
               class: RegisterClass::GP,
+              vid,
             },
           });
 
@@ -513,6 +508,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
               reg: orig_reg,
               slot,
               class: RegisterClass::FP,
+              vid,
             },
           });
 
@@ -556,6 +552,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
             } else {
               RegisterClass::GP
             },
+            vid: use_vid.0,
           },
         });
 
@@ -563,6 +560,11 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         insert_assignment(result, start as u32, use_vid, reg, ufp);
       }
     });
+
+    // Snapshot after reloads, before freeing dead uses.
+    // All uses are in registers, all live values visible.
+    // Result is inserted below after allocation.
+    snapshot_state(&state, gi, result);
 
     // Pass 2: free uses that are not live past this insn.
     zo_liveness::visit_uses(insn, |use_vid| {
@@ -580,6 +582,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
 
       state.assign(vid, reg, fp);
       insert_assignment(result, start as u32, vid, reg, fp);
+      snapshot_result(result, gi, vid, reg, fp);
     }
 
     free_dead(&mut state, &liveness, i);
@@ -868,7 +871,25 @@ fn insn_is_fp(insn: &Insn) -> bool {
   }
 }
 
-/// Insert assignment into the correct map (GP or FP).
+/// Snapshot the current register state into the per-
+/// instruction maps. Called after each instruction is
+/// fully processed so the codegen sees the correct
+/// register for every value at every instruction point.
+fn snapshot_state(
+  state: &AllocState,
+  global_idx: usize,
+  result: &mut RegAlloc,
+) {
+  if global_idx < result.insn_gp.len() {
+    result.insn_gp[global_idx] = state.gp.val_to_reg.clone();
+  }
+
+  if global_idx < result.insn_fp.len() {
+    result.insn_fp[global_idx] = state.fp.val_to_reg.clone();
+  }
+}
+
+/// Update the flat map fallback (GP or FP).
 fn insert_assignment(
   result: &mut RegAlloc,
   fn_start: u32,
@@ -880,5 +901,33 @@ fn insert_assignment(
     result.fp_assignments.insert((fn_start, vid.0), reg);
   } else {
     result.assignments.insert((fn_start, vid.0), reg);
+  }
+}
+
+/// Insert a result value into an already-taken snapshot.
+/// Called after `snapshot_state` so the instruction's own
+/// result register is visible to `get_at` alongside the
+/// pre-existing uses and live values.
+fn snapshot_result(
+  result: &mut RegAlloc,
+  global_idx: usize,
+  vid: ValueId,
+  reg: u8,
+  fp: bool,
+) {
+  let map = if fp {
+    &mut result.insn_fp
+  } else {
+    &mut result.insn_gp
+  };
+
+  if global_idx < map.len() {
+    // Evict any stale vid that occupied this register
+    // before it was freed and reallocated. Without this,
+    // the snapshot contains two vids on the same register
+    // — a dead use and the new result — which is a
+    // logical conflict even if benign at runtime.
+    map[global_idx].retain(|_, r| *r != reg);
+    map[global_idx].insert(vid.0, reg);
   }
 }

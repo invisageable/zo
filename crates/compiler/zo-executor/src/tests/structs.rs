@@ -567,10 +567,7 @@ fun main() {
         "expected >= 2 TupleIndex (m.verts + .x), got {}",
         tuple_indices
       );
-      assert!(
-        has_array_index,
-        "expected ArrayIndex for [0]"
-      );
+      assert!(has_array_index, "expected ArrayIndex for [0]");
     },
   );
 }

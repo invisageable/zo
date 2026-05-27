@@ -8226,10 +8226,12 @@ dependencies = [
 name = "zo-register-allocation"
 version = "0.3.11"
 dependencies = [
+ "proptest",
  "rustc-hash 2.1.2",
  "zo-interner",
  "zo-liveness",
  "zo-sir",
+ "zo-span",
  "zo-ty",
  "zo-value",
 ]

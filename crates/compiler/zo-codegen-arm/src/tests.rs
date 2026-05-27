@@ -1031,3 +1031,57 @@ fn test_emit_add_sp_offset_uses_dst_not_x16_in_slow_path() {
      bump the read_file count or struct-area pressure",
   );
 }
+
+// ================================================================
+// Call result must use 64-bit MOV, never 32-bit MOV (W-register).
+//
+// Regression: `emit_mov_reg_w` on a Call result zero-extends
+// the 32-bit value, destroying the sign bit. A function
+// returning `-1` (0xFFFFFFFF as s32) would produce
+// 0x00000000_FFFFFFFF (4294967295) instead of the sign-
+// extended 0xFFFFFFFF_FFFFFFFF. The fix: always use
+// `emit_mov_reg` (64-bit) for Call results.
+// ================================================================
+
+#[test]
+fn call_result_uses_64bit_mov_not_w_register() {
+  let code = compile_to_code(
+    r#"
+fun neg() -> int {
+  -1
+}
+
+fun main() {
+  imu x: int = neg();
+  showln(x);
+}"#,
+  );
+
+  // Find all BL instructions (user-defined call).
+  // BL encoding: bits [31:26] = 100101 → top byte 0x94..0x97.
+  // After each BL, the next MOV (if present) must be 64-bit
+  // (0xAA0003E0 base), never 32-bit (0x2A0003E0 base).
+  let insns: Vec<u32> = code
+    .chunks_exact(4)
+    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+    .collect();
+
+  for (i, &insn) in insns.iter().enumerate() {
+    let is_bl = (insn >> 26) == 0b100101;
+
+    if !is_bl || i + 1 >= insns.len() {
+      continue;
+    }
+
+    let next = insns[i + 1];
+    let is_mov_w = (next & 0xFFE0_FFE0) == 0x2A00_03E0;
+
+    assert!(
+      !is_mov_w,
+      "instruction after BL at index {} is MOV (W-register) \
+       0x{:08X} — Call results must use 64-bit MOV to \
+       preserve sign extension of negative values",
+      i, next,
+    );
+  }
+}

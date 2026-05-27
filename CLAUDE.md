@@ -141,3 +141,4 @@ Add under ## Zo Project Conventions section.\n\nRespect zo project conventions:
 Add under ## Testing section.\n\nAlways run the full integration test suite (`cargo test`) before declaring a task complete. Never claim success without test evidence. If tests fail, diagnose and fix — do not move on.
 Add under ## Skills / Commands section.\n\nWhen asked to 'simplify' code, this means reduce complexity while preserving identical behavior — it does NOT mean rewrite, remove features, or refactor architecture. Read the skill definition carefully before acting.
 Add under ## Zo Project Conventions section.\n\nDo not reorder user code to fix compiler bugs. The compiler must handle code in any order — fix the compiler, not the user's source.
+- use lldb to investigate generated machine code

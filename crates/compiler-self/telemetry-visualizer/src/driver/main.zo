@@ -189,6 +189,7 @@ fun main() {
         imu names: []str = [
           "math.zo", "io.zo", "net.zo", "sys.zo",
           "str.zo", "json.zo", "http.zo", "pool.zo",
+          "hash.zo", "time.zo", "file.zo", "regex.zo",
         ];
 
         for i := 0..names.len {

@@ -1,5 +1,8 @@
 pub mod allocator;
 
+#[cfg(test)]
+mod tests;
+
 use zo_interner::{Interner, Symbol};
 use zo_sir::Insn;
 use zo_ty::{Ty, TyId, TyTable};
@@ -120,19 +123,26 @@ pub enum SpillKind {
     reg: u8,
     slot: u32,
     class: RegisterClass,
+    vid: u32,
   },
 }
 
 /// The result of register allocation over the entire SIR.
 pub struct RegAlloc {
-  /// `(function_start, ValueId.0) → GP register`. Keyed
-  /// per-function because ValueId counters reset across
-  /// FunDefs; a flat `vid → reg` map would let a later
-  /// function's vid=N overwrite an earlier one's.
+  /// Flat GP map — fallback for values that the per-insn
+  /// snapshot misses (liveness gaps, codegen-side lookups
+  /// at non-standard instruction indices).
   pub assignments: HashMap<(u32, u32), u8>,
-  /// `(function_start, ValueId.0) → FP register`. Same
-  /// scoping as [`Self::assignments`].
+  /// Flat FP map (same role as `assignments`).
   pub fp_assignments: HashMap<(u32, u32), u8>,
+  /// Per-instruction GP register state.
+  /// `insn_gp[global_insn_idx]` maps `ValueId.0 → GP
+  /// register` — the physical register holding that value
+  /// when the codegen begins emitting instruction
+  /// `global_insn_idx`. Primary authority for GP lookups.
+  pub insn_gp: Vec<HashMap<u32, u8>>,
+  /// Per-instruction FP register state (same semantics).
+  pub insn_fp: Vec<HashMap<u32, u8>>,
   /// Spill operations emitted by the allocator.
   pub spill_ops: Vec<SpillOp>,
   /// ValueId produced by each instruction (parallel array).
@@ -185,9 +195,12 @@ impl RegAlloc {
     type_view: Option<(&[Ty], &TyTable)>,
   ) -> Self {
     let value_ids = compute_value_ids(insns);
+    let n = insns.len();
     let mut result = Self {
       assignments: HashMap::default(),
       fp_assignments: HashMap::default(),
+      insn_gp: vec![HashMap::default(); n],
+      insn_fp: vec![HashMap::default(); n],
       spill_ops: Vec::new(),
       value_ids,
       function_info: HashMap::default(),
@@ -251,15 +264,35 @@ impl RegAlloc {
     result
   }
 
-  /// Look up the GP register for a ValueId within the
-  /// function whose body starts at `fn_start`.
+  /// Look up the GP register for a ValueId at a specific
+  /// instruction index. Falls back to the legacy flat map
+  /// when per-instruction data is absent.
+  #[inline]
+  pub fn get_at(&self, insn_idx: usize, vid: ValueId) -> Option<u8> {
+    self
+      .insn_gp
+      .get(insn_idx)
+      .and_then(|m| m.get(&vid.0).copied())
+  }
+
+  /// Look up the FP register for a ValueId at a specific
+  /// instruction index.
+  #[inline]
+  pub fn get_fp_at(&self, insn_idx: usize, vid: ValueId) -> Option<u8> {
+    self
+      .insn_fp
+      .get(insn_idx)
+      .and_then(|m| m.get(&vid.0).copied())
+  }
+
+  /// Flat GP fallback — covers values the per-insn
+  /// snapshot misses (liveness/visit_uses gaps).
   #[inline]
   pub fn get(&self, fn_start: u32, vid: ValueId) -> Option<u8> {
     self.assignments.get(&(fn_start, vid.0)).copied()
   }
 
-  /// Look up the FP register for a ValueId within the
-  /// function whose body starts at `fn_start`.
+  /// Flat FP fallback.
   #[inline]
   pub fn get_fp(&self, fn_start: u32, vid: ValueId) -> Option<u8> {
     self.fp_assignments.get(&(fn_start, vid.0)).copied()

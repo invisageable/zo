@@ -236,10 +236,7 @@ impl<'a> Dce<'a> {
           if let Insn::Store { name, .. } = &self.sir.instructions[gi]
             && !liveness.is_var_live_out(i, *name)
           {
-            report_error(Error::new(
-              ErrorKind::UnusedVariable,
-              fn_span,
-            ));
+            report_error(Error::new(ErrorKind::UnusedVariable, fn_span));
 
             dead.push(gi);
           }

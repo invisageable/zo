@@ -1,0 +1,26 @@
+-- tests-build-pass: Call result preserves negative sign.
+-- @cmd — zo build call_result_negative.zo
+
+fun neg_one() -> int {
+  -1
+}
+
+fun neg_forty_two() -> int {
+  -42
+}
+
+fun main() {
+  imu a: int = neg_one();
+  showln(a);
+
+  imu b: int = neg_forty_two();
+  showln(b);
+
+  imu c: int = neg_one() + neg_forty_two();
+  showln(c);
+}
+
+-- EXPECTED OUTPUT:
+-- -1
+-- -42
+-- -43

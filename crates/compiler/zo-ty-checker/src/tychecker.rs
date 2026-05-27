@@ -219,9 +219,11 @@ impl TyChecker {
   /// survive — the main pass overwrites their placeholder
   /// fields via `intern_struct` / `intern_enum`.
   pub fn truncate_to(&mut self, baseline: TyCheckerBaseline) {
-    self.substitutions
+    self
+      .substitutions
       .retain(|k, _| k.0 < baseline.next_infer_var.0);
-    self.var_levels
+    self
+      .var_levels
       .retain(|k, _| k.0 < baseline.next_infer_var.0);
   }
 
