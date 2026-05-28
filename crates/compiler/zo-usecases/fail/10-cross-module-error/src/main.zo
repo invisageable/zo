@@ -1,0 +1,8 @@
+load broken::*;
+
+fun main() {
+  imu v: int = oops();
+  showln("{v}");
+}
+
+-- EXPECTED ERROR: broken.zo

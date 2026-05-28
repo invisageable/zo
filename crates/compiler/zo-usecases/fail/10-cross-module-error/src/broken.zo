@@ -1,0 +1,4 @@
+pub fun oops() -> int {
+  imu x: str = 42;
+  return x;
+}

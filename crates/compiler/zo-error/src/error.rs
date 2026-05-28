@@ -11,11 +11,14 @@ use serde::Serialize;
 /// - bits 32-47: length (16 bits).
 /// - bits 48-63: ErrorKind (16 bits).
 ///
-/// Secondary span (64 bits, optional):
-/// - Same layout as primary. `u64::MAX` means absent.
+/// Extra (64 bits):
+/// - bits 0-47:  secondary span (start:32 + len:16),
+///               or `0xFFFF_FFFF_FFFF` when absent.
+/// - bits 48-63: file ID (16 bits). Index into the
+///               compiler's file table. `0` = entry file.
+///               `0xFFFF` = unset (default).
 ///
-/// Used for errors that reference two locations (e.g., mismatched delimiters:
-/// opening + closing).
+/// 16 bits of file ID supports 65535 source files.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct Error {
@@ -24,6 +27,11 @@ pub struct Error {
 }
 
 impl Error {
+  /// No file association.
+  const NO_FILE: u16 = 0xFFFF;
+  /// No secondary span (low 48 bits all set).
+  const NO_SECONDARY: u64 = 0x0000_FFFF_FFFF_FFFF;
+
   /// Creates a new [`Error`] from a span and a kind.
   #[inline(always)]
   pub const fn new(kind: ErrorKind, span: Span) -> Self {
@@ -32,7 +40,19 @@ impl Error {
 
     Self {
       data: packed,
-      extra: u64::MAX,
+      extra: Self::NO_SECONDARY | ((Self::NO_FILE as u64) << 48),
+    }
+  }
+
+  /// Creates a new [`Error`] tagged with a source file.
+  #[inline(always)]
+  pub const fn with_file(kind: ErrorKind, span: Span, file_id: u16) -> Self {
+    let packed =
+      (span.start as u64) | ((span.len as u64) << 32) | ((kind as u64) << 48);
+
+    Self {
+      data: packed,
+      extra: Self::NO_SECONDARY | ((file_id as u64) << 48),
     }
   }
 
@@ -46,7 +66,30 @@ impl Error {
     let packed =
       (span.start as u64) | ((span.len as u64) << 32) | ((kind as u64) << 48);
 
-    let extra = (secondary.start as u64) | ((secondary.len as u64) << 32);
+    let extra = (secondary.start as u64)
+      | ((secondary.len as u64) << 32)
+      | ((Self::NO_FILE as u64) << 48);
+
+    Self {
+      data: packed,
+      extra,
+    }
+  }
+
+  /// Creates an [`Error`] with a secondary span AND a file.
+  #[inline(always)]
+  pub const fn with_file_and_secondary(
+    kind: ErrorKind,
+    span: Span,
+    secondary: Span,
+    file_id: u16,
+  ) -> Self {
+    let packed =
+      (span.start as u64) | ((span.len as u64) << 32) | ((kind as u64) << 48);
+
+    let extra = (secondary.start as u64)
+      | ((secondary.len as u64) << 32)
+      | ((file_id as u64) << 48);
 
     Self {
       data: packed,
@@ -66,14 +109,35 @@ impl Error {
   /// Returns the secondary span, if present.
   #[inline(always)]
   pub fn secondary_span(&self) -> Option<Span> {
-    if self.extra == u64::MAX {
+    let low48 = self.extra & 0x0000_FFFF_FFFF_FFFF;
+
+    if low48 == Self::NO_SECONDARY {
       return None;
     }
 
-    let start = (self.extra & 0xFFFFFFFF) as u32;
+    let start = (self.extra & 0xFFFF_FFFF) as u32;
     let len = ((self.extra >> 32) & 0xFFFF) as u16;
 
     Some(Span { start, len })
+  }
+
+  /// Returns a copy with the file ID replaced.
+  #[inline(always)]
+  pub const fn tagged(self, file_id: u16) -> Self {
+    let extra = (self.extra & 0x0000_FFFF_FFFF_FFFF) | ((file_id as u64) << 48);
+
+    Self {
+      data: self.data,
+      extra,
+    }
+  }
+
+  /// Returns the source file index, or `None` when unset.
+  #[inline(always)]
+  pub fn file_id(&self) -> Option<u16> {
+    let id = (self.extra >> 48) as u16;
+
+    if id == Self::NO_FILE { None } else { Some(id) }
   }
 
   /// Returns the error kind.

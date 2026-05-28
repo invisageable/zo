@@ -7,6 +7,7 @@ use ariadne::{ColorGenerator, Label, Report, ReportKind, Source};
 
 use std::io;
 use std::ops::Range;
+use std::path::{Path, PathBuf};
 
 /// Configuration for error rendering.
 #[derive(Debug, Clone)]
@@ -51,26 +52,36 @@ impl ErrorRenderer {
   }
 
   /// Renders all errors from the aggregator to stderr.
+  ///
+  /// Each error's `file_id()` indexes into `files` to
+  /// select the source text and filename. Errors with no
+  /// file_id (or an out-of-range id) fall back to index 0
+  /// (the entry file).
   pub fn render(
     &self,
     aggregator: &ErrorAggregator,
-    source: &str,
-    filename: &str,
+    files: &[(PathBuf, String)],
   ) -> io::Result<()> {
     let mut colors = ColorGenerator::new();
 
     for phase_errors in aggregator.errors() {
-      // Limit errors per phase
       let errors_to_show = phase_errors
         .errors
         .iter()
         .take(self.config.max_errors_per_phase);
 
       for error in errors_to_show {
-        self.render_error(error, source, filename, &mut colors)?;
+        let (source, filename) = file_for_error(error, files);
+
+        let span = error.span();
+
+        if span.start as usize >= source.len() {
+          continue;
+        }
+
+        self.render_error(error, source, &filename, &mut colors)?;
       }
 
-      // Show message if we truncated errors
       if phase_errors.errors.len() > self.config.max_errors_per_phase {
         eprintln!(
           "... and {} more {} errors not shown",
@@ -728,12 +739,39 @@ impl Default for ErrorRenderer {
 /// Convenience function to render errors directly to stderr.
 pub fn render_errors_to_stderr(
   aggregator: &ErrorAggregator,
-  source: &str,
-  filename: &str,
+  files: &[(PathBuf, String)],
 ) -> io::Result<()> {
   let renderer = ErrorRenderer::new();
 
-  renderer.render(aggregator, source, filename)
+  renderer.render(aggregator, files)
+}
+
+/// Resolves an error's source text and display filename
+/// from the file table. Falls back to index 0 when the
+/// error carries no file_id or the id is out of range.
+fn file_for_error<'a>(
+  error: &Error,
+  files: &'a [(PathBuf, String)],
+) -> (&'a str, String) {
+  let idx = error
+    .file_id()
+    .map(|id| id as usize)
+    .unwrap_or(0)
+    .min(files.len().saturating_sub(1));
+
+  let (path, source) = &files[idx];
+
+  let filename = display_filename(path);
+
+  (source.as_str(), filename)
+}
+
+/// Extracts a display filename from a path.
+fn display_filename(path: &Path) -> String {
+  path
+    .file_name()
+    .map(|n| n.to_string_lossy().into_owned())
+    .unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
