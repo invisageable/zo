@@ -10,6 +10,7 @@ doctest = false
 # internal:sources.
 
 # internal:crates.
+zo-buffer = { workspace = true }
 
 # external:crates.
 quote = { workspace = true }

@@ -52,6 +52,28 @@ pub enum ZoTy {
   Unit,
 }
 
+/// A function parameter with its zo type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ZoParam {
+  /// The parameter name.
+  pub name: String,
+  /// The parameter's zo type.
+  pub ty: ZoTy,
+}
+
+/// A type-mapped FFI function ready to render as `pub ffi`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FfiBinding {
+  /// The zo `pub ffi` name (== the C symbol, verbatim).
+  pub name: String,
+  /// Parameters with zo types.
+  pub params: Vec<ZoParam>,
+  /// The zo return type (`ZoTy::Unit` ⇒ no `-> T`).
+  pub ret: ZoTy,
+  /// Doc lines passed through from the shim's `///`.
+  pub doc: Vec<String>,
+}
+
 /// An error raised while binding a Rust shim.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BindError {
