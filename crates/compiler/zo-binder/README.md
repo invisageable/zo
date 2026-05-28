@@ -1,6 +1,6 @@
 # zo-binder.
 
-Turn a C-ABI Rust shim crate into the `provider/<lib>/<lib>.zo` foreign-function (FFI) declarations the zo compiler consumes. Write the Rust functions once; zo-binder writes the matching `pub ffi` declarations, so the two never drift.
+Generate a zo provider's `provider/<lib>/<lib>.zo` foreign-function (FFI) declarations from a C library — a C-ABI Rust shim crate, or a C header through raylib's `rlparser` JSON. Write the source once; zo-binder writes the matching `pub ffi` declarations, so the two never drift.
 
   ```
   Rust shim (src/lib.rs)            zo-binder              provider/<lib>/<lib>.zo
@@ -36,13 +36,16 @@ Both plans live in `crates/compiler/zo-notes/personal/architecture`.
 
 zo-binder is a small pure pipeline (a library) plus a thin command-line interface:
 
-| Module      | Responsibility                                                                        |
-| :---------- | :------------------------------------------------------------------------------------ |
-| `parse.rs`  | `syn`-parse the shim; keep `extern "C"` + `#[no_mangle]` fns; resolve `type` aliases. |
-| `tymap.rs`  | Map each Rust type to a zo type; reject an unsupported type by its spelling.          |
-| `emit.rs`   | Render the `.zo` text (`Emitter` over `zo_buffer::Buffer`).                           |
-| `bind.rs`   | Orchestrate `parse → tymap → emit`.                                                   |
-| `main.rs`   | Locate the shim, render, then write only when the output changed.                     |
+| Module       | Responsibility                                                                           |
+| :----------- | :--------------------------------------------------------------------------------------- |
+| `parse.rs`   | `syn`-parse a Rust shim; keep `extern "C"` + `#[no_mangle]` fns; resolve `type` aliases. |
+| `cheader.rs` | `serde`-parse rlparser JSON into functions, structs, enums, aliases.                     |
+| `tymap.rs`   | Map a Rust type to a zo type, rejecting an unsupported one by spelling.                  |
+| `ctymap.rs`  | Map a C type spelling (`const char *`, `Vector2`) to a zo type.                          |
+| `emit.rs`    | Render the `.zo` text (`Emitter` over `zo_buffer::Buffer`).                              |
+| `bind.rs`    | Orchestrate the Rust-shim path: `parse → tymap → emit`.                                  |
+| `cbind.rs`   | Orchestrate the C-header path: `cheader → ctymap → emit`, with skip-and-report.          |
+| `main.rs`    | Two CLI modes (shim / `--json`); render, then write only when output changed.            |
 
 Three rules govern the output:
 
@@ -113,6 +116,18 @@ Re-running without a Rust change rewrites nothing.
 
 Build the shim's cdylib so the linker resolves the symbols. The compiler stages `libzo_provider_undoredo.dylib` next to your binary.
 
+### or: from a C header (rlparser JSON).
+
+For a C library, run its `rlparser` to produce `<lib>_api.json`, then point zo-binder at it with the system dylib paths:
+
+  ```sh
+  zo-binder --json raylib_api.json --lib raylib \
+    --macos /opt/homebrew/lib/libraylib.dylib \
+    --linux /usr/lib/x86_64-linux-gnu/libraylib.so
+  ```
+
+zo-binder maps each function and struct and writes `provider/raylib/raylib.zo`: PascalCase names become snake_case with a `%% link_name`, `typedef` aliases resolve to their target (`Texture2D` → `Texture`), and structs generate as `pub struct`. A function or struct whose types do not map is skipped and reported, never failing the run.
+
 ## type mapping.
 
 | Rust (in the shim)            | zo                             | Notes                                  |
@@ -127,11 +142,13 @@ Build the shim's cdylib so the linker resolves the symbols. The compiler stages 
 | `*const c_char`               | `CStr`                         | adds `load core::c::*;`                |
 | `*const T` / `*mut T`         | `s64`                          | opaque pointer / handle                |
 
-zo-binder rejects anything outside the table (`&str`, `String`, `Vec<_>`, references, a struct passed by value) and names the offending Rust type.
+zo-binder rejects anything outside the table (`&str`, `String`, `Vec<_>`, references) and names the offending Rust type.
+
+The C-header path maps the equivalent C spellings: `const char *` → `CStr`, `T *` → `s64`, a known struct or alias → that struct, every primitive as above.
 
 ## limitations.
 
-  - **Rust shims only.** Parsing raw C headers (system raylib, say) is a separate, deferred front-end on the same back-end.
-  - **No struct generation.** A `#[repr(C)]` struct passed by value maps to a zo `struct` that must already exist in `provider/<lib>/`.
+  - **Unmapped C constructs are skipped.** C arrays, function-pointer callbacks, and variadics do not map; the function or struct that needs them is skipped and reported, so the kept surface stays self-consistent.
+  - **Rust shims do not generate structs.** A `#[repr(C)]` struct passed by value must already exist as a zo `struct`. The C-header path generates structs from the JSON.
   - **C-string returns.** A bare `const char *` return carries no length, so it maps to `s64`; wrap it by hand (`CBytes` / `.to_str()`).
-  - **Docs pass through unchanged.** Rust `///` comments become `-!` lines as written, Rust-specific sections included.
+  - **Docs pass through unchanged.** Rust `///` comments and C descriptions become `-!` lines as written, source-specific sections included.
