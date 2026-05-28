@@ -23,8 +23,14 @@ pub struct Tree {
   /// 1:1 with nodes array
   pub spans: Vec<Span>,
   /// Value index map: node_index -> value_index
-  /// Only has entries for nodes with values
-  value_map: Vec<(u16, u16)>, // (node_index, value_index) pairs
+  /// Only has entries for nodes with values.
+  ///
+  /// @note — both fields are `u32`. A `u16` node_index
+  /// wraps for trees over 65535 nodes, which breaks the
+  /// `binary_search_by_key` sort invariant in `value()`
+  /// and silently misroutes every lookup (a 500K-line
+  /// program is ~2.4M nodes).
+  value_map: Vec<(u32, u32)>, // (node_index, value_index) pairs
 }
 
 /// Captured lengths of every internal vector of a `Tree`.
@@ -90,7 +96,6 @@ impl Tree {
       flags: 0,
       child_start: 0,
       child_count: 0,
-      _reserved: 0,
     };
 
     self.nodes.push(header);
@@ -107,20 +112,19 @@ impl Tree {
     value: NodeValue,
   ) -> u32 {
     let node_index = self.nodes.len() as u32;
-    let value_index = self.values.len() as u16;
+    let value_index = self.values.len() as u32;
 
     let header = NodeHeader {
       token,
       flags: NodeHeader::FLAG_HAS_VALUE,
       child_start: 0,
       child_count: 0,
-      _reserved: 0,
     };
 
     self.nodes.push(header);
     self.spans.push(span);
     self.values.push(value);
-    self.value_map.push((node_index as u16, value_index));
+    self.value_map.push((node_index, value_index));
 
     node_index
   }
@@ -134,7 +138,7 @@ impl Tree {
   ) {
     let node = &mut self.nodes[node_index as usize];
 
-    node.child_start = child_start as u16;
+    node.child_start = child_start;
     node.child_count = child_count;
   }
 
@@ -150,10 +154,10 @@ impl Tree {
   /// set (splice clones the original `NodeHeader` whole, so
   /// the flag rides along).
   pub fn attach_value_tail(&mut self, node_index: u32, value: NodeValue) {
-    let value_index = self.values.len() as u16;
+    let value_index = self.values.len() as u32;
 
     self.values.push(value);
-    self.value_map.push((node_index as u16, value_index));
+    self.value_map.push((node_index, value_index));
   }
 
   /// `true` when `value_map` is sorted by `node_index`. The
@@ -175,7 +179,7 @@ impl Tree {
 
     match self
       .value_map
-      .binary_search_by_key(&(node_index as u16), |(index, _)| *index)
+      .binary_search_by_key(&node_index, |(index, _)| *index)
     {
       Ok(i) => {
         let (_, value_index) = self.value_map[i];
@@ -336,14 +340,14 @@ impl Tree {
 
       if node_pos < start {
         // Before the range - keep as is
-        preserved_map.push((node_index, preserved_values.len() as u16));
+        preserved_map.push((node_index, preserved_values.len() as u32));
         preserved_values.push(self.values[value_index as usize]);
       } else if node_pos >= actual_end {
         // After the range - adjust index
         let offset = new_count as i32 - old_count as i32;
-        let new_node_idx = (node_pos as i32 + offset) as u16;
+        let new_node_idx = (node_pos as i32 + offset) as u32;
 
-        preserved_map.push((new_node_idx, preserved_values.len() as u16));
+        preserved_map.push((new_node_idx, preserved_values.len() as u32));
         preserved_values.push(self.values[value_index as usize]);
       }
       // Skip nodes in the range - they'll be replaced
@@ -359,7 +363,6 @@ impl Tree {
         flags: 0, // Will be set below for nodes with values
         child_start: 0,
         child_count: 0,
-        _reserved: 0,
       });
 
       replacement_spans.push(*span);
@@ -376,7 +379,7 @@ impl Tree {
       if let Some(val) = value {
         self.nodes[node_index].flags |= NodeHeader::FLAG_HAS_VALUE;
 
-        preserved_map.push((node_index as u16, preserved_values.len() as u16));
+        preserved_map.push((node_index as u32, preserved_values.len() as u32));
         preserved_values.push(val);
       }
     }
@@ -396,30 +399,35 @@ impl Default for Tree {
   }
 }
 
-/// Compact node header - 8 bytes total
-/// Designed for cache efficiency and dense packing
+/// Compact node header - 8 bytes total.
+/// Designed for cache efficiency and dense packing.
+///
+/// Field order packs to exactly 8 bytes with no padding:
+/// `child_start` (u32 @ 0) is naturally aligned, then the
+/// u16 + two u8s fill the remaining 4 bytes. `child_start`
+/// is u32 (not u16) so a single parse tree can address more
+/// than 65535 nodes — a 500K-line program is ~2.4M nodes.
+/// `child_count` stays u16: one node never has more than
+/// 65535 direct children.
 #[derive(Debug, Clone, Copy, Serialize)]
 #[repr(C)]
 pub struct NodeHeader {
-  /// Token kind (1 byte)
-  pub token: Token,
+  /// For postorder ranges: index of first child in parse
+  /// buffer. 0 means no children (leaf node).
+  pub child_start: u32,
 
-  /// Flags for node properties (1 byte)
-  /// Bit 0: has_value (symbol or literal)
-  /// Bit 1: has_explicit_children (uses child_index sidecar)
-  /// Bit 2-7: reserved
-  pub flags: u8,
-
-  /// For postorder ranges: index of first child in parse buffer
-  /// 0 means no children (leaf node)
-  pub child_start: u16,
-
-  /// Number of children in postorder range
-  /// 0 means no children (leaf node)
+  /// Number of children in postorder range.
+  /// 0 means no children (leaf node).
   pub child_count: u16,
 
-  /// Reserved for alignment and future use
-  pub _reserved: u16,
+  /// Token kind (1 byte).
+  pub token: Token,
+
+  /// Flags for node properties (1 byte).
+  /// Bit 0: has_value (symbol or literal).
+  /// Bit 1: has_explicit_children (uses child_index sidecar).
+  /// Bit 2-7: reserved.
+  pub flags: u8,
 }
 
 impl NodeHeader {

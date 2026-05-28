@@ -4,50 +4,57 @@ use zo_interner::Symbol;
 use zo_sir::{Insn, LoadSource};
 use zo_value::ValueId;
 
-/// Compute the `ValueId` produced by each SIR instruction.
+/// The `ValueId` defined by a single SIR instruction, or
+/// `None` for instructions that produce no value.
 ///
 /// Every value-producing instruction carries an explicit
-/// `dst: ValueId`. Non-value instructions return `None`.
+/// `dst: ValueId`. `SelectWait` exposes its arm index
+/// (`out_which`); `Template` exposes its `id`. Single source
+/// of truth for "what does this instruction define" — shared
+/// by [`compute_value_ids`] and the def-site index.
+#[inline]
+pub fn insn_def(insn: &Insn) -> Option<ValueId> {
+  match insn {
+    Insn::ConstInt { dst, .. }
+    | Insn::ConstFloat { dst, .. }
+    | Insn::ConstBool { dst, .. }
+    | Insn::ConstString { dst, .. }
+    | Insn::Call { dst, .. }
+    | Insn::Load { dst, .. }
+    | Insn::BinOp { dst, .. }
+    | Insn::UnOp { dst, .. }
+    | Insn::ArrayLiteral { dst, .. }
+    | Insn::ArrayIndex { dst, .. }
+    | Insn::ArrayLen { dst, .. }
+    | Insn::ArrayPop { dst, .. }
+    | Insn::TupleLiteral { dst, .. }
+    | Insn::TupleIndex { dst, .. }
+    | Insn::EnumConstruct { dst, .. }
+    | Insn::StructConstruct { dst, .. }
+    | Insn::Cast { dst, .. }
+    // Concurrency value-producing insns.
+    | Insn::ChannelCreate { dst, .. }
+    | Insn::ChannelRecv { dst, .. }
+    | Insn::TaskSpawn { dst, .. }
+    | Insn::TaskAwait { dst, .. }
+    | Insn::SelectRecv { dst, .. }
+    | Insn::TaskCancelled { dst, .. }
+    | Insn::StrSlice { dst, .. }
+    | Insn::ToStr { dst, .. }
+    | Insn::StringFormat { dst, .. } => Some(*dst),
+    // `SelectWait` has two outputs (`out_which` +
+    // companion `SelectRecv.dst` for the value).
+    // Liveness tracks the arm index here; the value
+    // register is defined by the paired `SelectRecv`.
+    Insn::SelectWait { out_which, .. } => Some(*out_which),
+    Insn::Template { id, .. } => Some(*id),
+    _ => None,
+  }
+}
+
+/// Compute the `ValueId` produced by each SIR instruction.
 pub fn compute_value_ids(insns: &[Insn]) -> Vec<Option<ValueId>> {
-  insns
-    .iter()
-    .map(|insn| match insn {
-      Insn::ConstInt { dst, .. }
-      | Insn::ConstFloat { dst, .. }
-      | Insn::ConstBool { dst, .. }
-      | Insn::ConstString { dst, .. }
-      | Insn::Call { dst, .. }
-      | Insn::Load { dst, .. }
-      | Insn::BinOp { dst, .. }
-      | Insn::UnOp { dst, .. }
-      | Insn::ArrayLiteral { dst, .. }
-      | Insn::ArrayIndex { dst, .. }
-      | Insn::ArrayLen { dst, .. }
-      | Insn::ArrayPop { dst, .. }
-      | Insn::TupleLiteral { dst, .. }
-      | Insn::TupleIndex { dst, .. }
-      | Insn::EnumConstruct { dst, .. }
-      | Insn::StructConstruct { dst, .. }
-      | Insn::Cast { dst, .. }
-      // Concurrency value-producing insns.
-      | Insn::ChannelCreate { dst, .. }
-      | Insn::ChannelRecv { dst, .. }
-      | Insn::TaskSpawn { dst, .. }
-      | Insn::TaskAwait { dst, .. }
-      | Insn::SelectRecv { dst, .. }
-      | Insn::TaskCancelled { dst, .. }
-      | Insn::StrSlice { dst, .. }
-      | Insn::ToStr { dst, .. }
-      | Insn::StringFormat { dst, .. } => Some(*dst),
-      // `SelectWait` has two outputs (`out_which` +
-      // companion `SelectRecv.dst` for the value).
-      // Liveness tracks the arm index here; the value
-      // register is defined by the paired `SelectRecv`.
-      Insn::SelectWait { out_which, .. } => Some(*out_which),
-      Insn::Template { id, .. } => Some(*id),
-      _ => None,
-    })
-    .collect()
+  insns.iter().map(insn_def).collect()
 }
 
 /// Visit every `ValueId` read by `insn` (its uses),

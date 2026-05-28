@@ -322,13 +322,14 @@ fn splice_one(
   let splice_start = tree.nodes.len();
   let splice_end = splice_start + body.nodes.len();
 
-  // u16 cap on `NodeHeader.child_start` is hard — past this
-  // the rebase below silently truncates and the spliced
-  // bodies' parent→child edges point at unrelated nodes.
-  // Emit a real diagnostic anchored at the body's first
-  // span so the user sees which module hit the cap, not
-  // just a downstream "Undefined variable" cascade.
-  if splice_end > u16::MAX as usize {
+  // u32 cap on `NodeHeader.child_start` — past this the
+  // rebase below silently truncates and the spliced bodies'
+  // parent→child edges point at unrelated nodes. Emit a real
+  // diagnostic anchored at the body's first span so the user
+  // sees which module hit the cap, not just a downstream
+  // "Undefined variable" cascade. 4 billion nodes is far
+  // beyond any real program; the guard stays as a canary.
+  if splice_end > u32::MAX as usize {
     let span = body.spans.first().copied().unwrap_or_default();
     report_error(Error::new(ErrorKind::CrossModuleGenericTooLarge, span));
 
@@ -392,16 +393,16 @@ fn splice_one(
     if clone.child_count > 0 {
       let new_child_start = clone.child_start as i64 + offset;
 
-      // u16 cap already enforced at splice_start; the
-      // assert remains as a debug-only canary against a
-      // mis-recorded body whose internal child indices
-      // lie outside the body's own subrange.
+      // Debug-only canary against a mis-recorded body whose
+      // internal child indices lie outside the body's own
+      // subrange. `child_start` is u32, so the only real
+      // ceiling is u32::MAX nodes.
       debug_assert!(
-        new_child_start >= 0 && new_child_start <= u16::MAX as i64,
-        "child_start rebase out of u16 range"
+        new_child_start >= 0 && new_child_start <= u32::MAX as i64,
+        "child_start rebase out of u32 range"
       );
 
-      clone.child_start = new_child_start as u16;
+      clone.child_start = new_child_start as u32;
     }
 
     tree.nodes.push(clone);

@@ -1734,7 +1734,8 @@ impl<'a> Executor<'a> {
         && seen_fun
       {
         let header = self.tree.nodes[idx];
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         match tok {
           Token::Struct => self.execute_struct(idx, children_end),
@@ -1757,7 +1758,8 @@ impl<'a> Executor<'a> {
       // the main pass.
       if block_depth == 0 && tok == Token::Apply && seen_fun {
         let header = self.tree.nodes[idx];
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.prescan_apply_header(idx, children_end);
 
@@ -1770,7 +1772,8 @@ impl<'a> Executor<'a> {
       // self.method() forward references resolve.
       if block_depth == 0 && tok == Token::Apply {
         let header = self.tree.nodes[idx];
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.prescan_apply_methods(idx, children_end);
 
@@ -1782,7 +1785,8 @@ impl<'a> Executor<'a> {
       if block_depth == 0 && tok == Token::Fun {
         seen_fun = true;
         let header = self.tree.nodes[idx];
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_fun(idx, children_end);
 
@@ -1895,7 +1899,7 @@ impl<'a> Executor<'a> {
       if self.tree.nodes[cursor].token == Token::Fun {
         let fun_header = self.tree.nodes[cursor];
         let fun_end =
-          (fun_header.child_start + fun_header.child_count) as usize;
+          (fun_header.child_start + fun_header.child_count as u32) as usize;
 
         self.execute_fun(cursor, fun_end);
 
@@ -2359,50 +2363,58 @@ impl<'a> Executor<'a> {
 
     match header.token {
       Token::Fun => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_fun(idx, children_end);
       }
 
       Token::Fn => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_closure(idx, children_end);
       }
 
       Token::Ffi => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_ffi(idx, children_end);
       }
 
       Token::Enum => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_enum(idx, children_end);
       }
 
       Token::Struct => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_struct(idx, children_end);
       }
 
       Token::Apply => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_apply(idx, children_end);
       }
 
       Token::Abstract => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_abstract(idx, children_end);
       }
 
       // === TYPE ALIAS ===
       Token::Type => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_type_alias(idx, children_end);
 
@@ -2410,7 +2422,8 @@ impl<'a> Executor<'a> {
       }
 
       Token::Group => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_group_type(idx, children_end);
 
@@ -2419,7 +2432,8 @@ impl<'a> Executor<'a> {
 
       // === MODULE STATEMENTS ===
       Token::Load => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_load(idx, children_end);
 
@@ -2427,7 +2441,8 @@ impl<'a> Executor<'a> {
       }
 
       Token::Pack => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         // `execute_pack` owns its body traversal (mirrors
         // `execute_apply`): emits `PackDecl`, pushes the
@@ -2460,7 +2475,8 @@ impl<'a> Executor<'a> {
 
       // === CONTROL FLOW ===
       Token::If => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_if(idx, children_end);
       }
@@ -2523,25 +2539,29 @@ impl<'a> Executor<'a> {
       }
 
       Token::While => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_while(idx, children_end);
       }
 
       Token::For => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_for(idx, children_end);
       }
 
       Token::Loop => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_loop(idx, children_end);
       }
 
       Token::Match => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_match(idx, children_end);
       }
@@ -2594,7 +2614,8 @@ impl<'a> Executor<'a> {
 
       // === DIRECTIVES ===
       Token::Hash => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         // `#link { ... }` (and any future directive that
         // owns its own `{...}` block) overrides
@@ -2613,7 +2634,8 @@ impl<'a> Executor<'a> {
       // Children get skipped so the executor doesn't walk
       // the name / literal as a regular expression.
       Token::Attribute => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_attribute(idx, children_end);
         self.skip_until = children_end;
@@ -5089,12 +5111,14 @@ impl<'a> Executor<'a> {
 
       // === TEMPLATE TOKENS ===
       Token::TemplateAssign => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
         self.execute_template_assign(idx, children_end);
       }
 
       Token::TemplateFragmentStart => {
-        let children_end = (header.child_start + header.child_count) as usize;
+        let children_end =
+          (header.child_start + header.child_count as u32) as usize;
         self.execute_template_fragment(idx, children_end);
         // Skip past the fragment so the parent loop
         // doesn't reprocess tag/text tokens.
@@ -7512,7 +7536,7 @@ impl<'a> Executor<'a> {
         let brace_header = self.tree.nodes[brace_start];
 
         let brace_children_end =
-          (brace_header.child_start + brace_header.child_count) as usize;
+          (brace_header.child_start + brace_header.child_count as u32) as usize;
 
         // Body is the block's children.
         // RBrace is at end_idx - 1 (sibling after block).
@@ -8659,7 +8683,8 @@ impl<'a> Executor<'a> {
     is_mutable: bool,
     is_constant: bool,
   ) {
-    let children_end = (header.child_start + header.child_count) as usize;
+    let children_end =
+      (header.child_start + header.child_count as u32) as usize;
 
     // Check if this is a template assignment.
     let has_template = ((idx + 1)..children_end)
@@ -10716,7 +10741,8 @@ impl<'a> Executor<'a> {
 
     // Find matching RBrace.
     let header = self.tree.nodes[brace_idx];
-    let children_end = (header.child_start + header.child_count) as usize;
+    let children_end =
+      (header.child_start + header.child_count as u32) as usize;
 
     // Process field assignments: name: expr, ...
     // Execute children between { and } to evaluate
@@ -11055,7 +11081,8 @@ impl<'a> Executor<'a> {
       // Each `type` sub-node is a full alias.
       if tok == Token::Type {
         let header = self.tree.nodes[idx];
-        let child_end = (header.child_start + header.child_count) as usize;
+        let child_end =
+          (header.child_start + header.child_count as u32) as usize;
 
         self.execute_type_alias(idx, child_end);
 
@@ -18629,7 +18656,8 @@ impl<'a> Executor<'a> {
   /// `close_nursery_at_rbrace` when the walker reaches the
   /// recorded RBrace index.
   fn execute_nursery(&mut self, _idx: usize, header: &NodeHeader) {
-    let children_end = (header.child_start + header.child_count) as usize;
+    let children_end =
+      (header.child_start + header.child_count as u32) as usize;
     // The body block sits at `idx + 1` and closes at
     // `children_end - 1` (inclusive of the RBrace).
     let rbrace_idx = children_end.saturating_sub(1);
@@ -18647,7 +18675,8 @@ impl<'a> Executor<'a> {
   /// uses the kind to decide whether a panic cascades
   /// past the scope into the enclosing task.
   fn execute_supervise(&mut self, _idx: usize, header: &NodeHeader) {
-    let children_end = (header.child_start + header.child_count) as usize;
+    let children_end =
+      (header.child_start + header.child_count as u32) as usize;
     let rbrace_idx = children_end.saturating_sub(1);
     let label = self.sir.next_label();
 
@@ -18689,7 +18718,8 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    let children_end = (header.child_start + header.child_count) as usize;
+    let children_end =
+      (header.child_start + header.child_count as u32) as usize;
 
     // Kind detection — if the first child is a
     // synthetic `Token::Thread` marker, this is a
@@ -18805,7 +18835,8 @@ impl<'a> Executor<'a> {
   ///    written slot.
   fn execute_select(&mut self, _idx: usize, header: &NodeHeader) {
     let children_start = header.child_start as usize;
-    let children_end = (header.child_start + header.child_count) as usize;
+    let children_end =
+      (header.child_start + header.child_count as u32) as usize;
 
     // Prevent the main loop from walking any of the
     // select body — `execute_select` owns the traversal
@@ -18823,7 +18854,7 @@ impl<'a> Executor<'a> {
 
     let lb = self.tree.nodes[lbrace_idx];
     let body_first = lb.child_start as usize;
-    let body_last_excl = (lb.child_start + lb.child_count) as usize;
+    let body_last_excl = (lb.child_start + lb.child_count as u32) as usize;
 
     // The trailing `RBrace` is the last child of
     // `LBrace`; carve it out so arm scanning stops
@@ -19036,7 +19067,8 @@ impl<'a> Executor<'a> {
     if first_tok == Some(Token::Fn) {
       let fn_hdr = self.tree.nodes[body_start];
       let fn_children_start = fn_hdr.child_start as usize;
-      let fn_children_end = (fn_hdr.child_start + fn_hdr.child_count) as usize;
+      let fn_children_end =
+        (fn_hdr.child_start + fn_hdr.child_count as u32) as usize;
 
       // Scan the closure header for its first
       // parameter name and the position of the body
@@ -22853,8 +22885,9 @@ impl<'a> Executor<'a> {
                       // Inline closure as event handler:
                       // @click={fn() => expr}
                       let header = self.tree.nodes[idx];
-                      let children_end =
-                        (header.child_start + header.child_count) as usize;
+                      let children_end = (header.child_start
+                        + header.child_count as u32)
+                        as usize;
 
                       // For payload-bearing events (`@input`,
                       // `@change`), synthesize a `Fn(Event) -> ?`

@@ -791,3 +791,155 @@ fn template_computed_binding_pins_closure() {
   );
   assert!(names.contains(&main));
 }
+
+// ===== OPTIMISTIC MARK-SWEEP (deep dead chains) =====
+
+fn const_int(dst: u32, value: u64) -> Insn {
+  Insn::ConstInt {
+    dst: ValueId(dst),
+    value,
+    ty_id: TyId(9),
+  }
+}
+
+fn add(dst: u32, lhs: u32, rhs: u32) -> Insn {
+  Insn::BinOp {
+    dst: ValueId(dst),
+    op: BinOp::Add,
+    lhs: ValueId(lhs),
+    rhs: ValueId(rhs),
+    ty_id: TyId(9),
+  }
+}
+
+fn count_value_insns(sir: &zo_sir::Sir) -> usize {
+  sir
+    .instructions
+    .iter()
+    .filter(|i| matches!(i, Insn::ConstInt { .. } | Insn::BinOp { .. }))
+    .count()
+}
+
+/// `a = b + 1; b = c + 1; c = 42;` with `a` never observed.
+/// The optimistic pass collapses the whole chain in ONE sweep,
+/// where the prior fixed-point loop needed one pass per link.
+#[test]
+fn dead_dependency_chain_collapses() {
+  let mut interner = Interner::new();
+  let main = interner.intern("main");
+
+  // c=V1, one=V2, b=V3, two=V4, a=V5 — none reach the Return.
+  let body = vec![
+    const_int(1, 42),
+    const_int(2, 1),
+    add(3, 1, 2),
+    const_int(4, 1),
+    add(5, 3, 4),
+  ];
+
+  let mut sir = make_sir(fun(main, Pubness::No, body));
+
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
+
+  assert_eq!(
+    count_value_insns(&sir),
+    0,
+    "every link of a dead chain must be eliminated"
+  );
+}
+
+/// `CStr::new`-shaped body: a `StructConstruct` whose result
+/// is returned must survive — regression for a mark-sweep bug
+/// that dropped it, leaving `ret` on an undefined value.
+#[test]
+fn struct_construct_feeding_return_survives() {
+  let mut interner = Interner::new();
+  let main = interner.intern("wrap");
+  let cstr = interner.intern("CStr");
+
+  let insns = vec![
+    Insn::FunDef {
+      name: main,
+      params: vec![(interner.intern("s"), TyId(4))],
+      return_ty: TyId(21),
+      body_start: 0,
+      kind: zo_value::FunctionKind::UserDefined,
+      pubness: Pubness::No,
+      mut_self: false,
+      link_name: None,
+      owning_pack: None,
+      span: Span::ZERO,
+      is_test: false,
+    },
+    Insn::Load {
+      dst: ValueId(1),
+      src: zo_sir::LoadSource::Param(0),
+      ty_id: TyId(4),
+    },
+    Insn::StructConstruct {
+      dst: ValueId(2),
+      struct_name: cstr,
+      fields: vec![ValueId(1)],
+      ty_id: TyId(21),
+    },
+    Insn::Return {
+      value: Some(ValueId(2)),
+      ty_id: TyId(21),
+    },
+  ];
+
+  let mut sir = make_sir(insns);
+
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
+
+  assert!(
+    sir
+      .instructions
+      .iter()
+      .any(|i| matches!(i, Insn::StructConstruct { .. })),
+    "a StructConstruct feeding the return must survive DCE"
+  );
+}
+
+/// Same chain, but `a` flows into the `Return`. Liveness
+/// propagates backward through every operand, so all five
+/// survive.
+#[test]
+fn live_dependency_chain_survives() {
+  let mut interner = Interner::new();
+  let main = interner.intern("main");
+
+  let mut insns = vec![Insn::FunDef {
+    name: main,
+    params: vec![],
+    return_ty: TyId(9),
+    body_start: 0,
+    kind: zo_value::FunctionKind::UserDefined,
+    pubness: Pubness::No,
+    mut_self: false,
+    link_name: None,
+    owning_pack: None,
+    span: Span::ZERO,
+    is_test: false,
+  }];
+
+  insns.push(const_int(1, 42));
+  insns.push(const_int(2, 1));
+  insns.push(add(3, 1, 2));
+  insns.push(const_int(4, 1));
+  insns.push(add(5, 3, 4));
+  insns.push(Insn::Return {
+    value: Some(ValueId(5)),
+    ty_id: TyId(9),
+  });
+
+  let mut sir = make_sir(insns);
+
+  Dce::new(&mut sir, vec![main], &interner).eliminate();
+
+  assert_eq!(
+    count_value_insns(&sir),
+    5,
+    "a value chain feeding the return must survive intact"
+  );
+}

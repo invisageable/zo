@@ -1,4 +1,4 @@
-// generated bench source. ~10K lines.
+// generated bench source.
 
 #include <stdio.h>
 

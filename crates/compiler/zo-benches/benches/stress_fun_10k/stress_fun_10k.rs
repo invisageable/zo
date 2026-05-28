@@ -1,4 +1,4 @@
-// generated bench source. ~10K lines.
+// generated bench source.
 #![allow(dead_code)]
 
 fn func000(x: i64) -> i64 { x.wrapping_add(1) }
