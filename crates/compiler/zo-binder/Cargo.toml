@@ -15,3 +15,7 @@ zo-buffer = { workspace = true }
 # external:crates.
 quote = { workspace = true }
 syn = { workspace = true }
+
+[dev-dependencies]
+# external:crates.
+indoc = { workspace = true }
