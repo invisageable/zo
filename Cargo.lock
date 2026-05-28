@@ -7992,6 +7992,7 @@ version = "0.3.11"
 dependencies = [
  "criterion",
  "rustc-hash 2.1.2",
+ "smallvec",
  "zo-error",
  "zo-interner",
  "zo-liveness",

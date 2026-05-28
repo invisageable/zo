@@ -1,13 +1,14 @@
 use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
-use zo_liveness::compute_value_ids;
+use zo_liveness::{compute_value_ids, insn_def, visit_uses};
 use zo_reporter::rationale::report_rationale;
 use zo_reporter::report_error;
 use zo_sir::{Insn, Sir};
 use zo_span::Span;
-use zo_value::Pubness;
+use zo_value::{Pubness, ValueId};
 
-use rustc_hash::FxHashSet as HashSet;
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+use smallvec::SmallVec;
 
 /// Function range in the SIR instruction stream.
 struct FunRange {
@@ -283,96 +284,185 @@ impl<'a> Dce<'a> {
 
   /// Eliminates dead instructions within each function body.
   ///
-  /// An instruction is dead if:
-  ///   1. It defines a `ValueId` (has a `dst`).
-  ///   2. That `ValueId` is not live-out at the instruction.
-  ///   3. The instruction is pure (no side effects).
+  /// A value-producing, pure instruction is dead when its
+  /// result is never observed — not consumed (transitively)
+  /// by any instruction that must execute.
   ///
-  /// Iterates to fixpoint — removing one instruction may make
-  /// others dead.
+  /// Optimistic mark-sweep (Wegman–Zadeck, §5.1): assume every
+  /// value is dead, seed the instructions that must execute
+  /// (`insn_is_critical`), then propagate liveness backward
+  /// through operands exactly once via a worklist. A single
+  /// `retain` sweep removes the unmarked. Strict O(N) — a
+  /// dead-dependency chain of depth D collapses in one pass,
+  /// where the prior fixed-point loop took D passes.
   fn eliminate_dead_instructions(&mut self) {
     if self.sir.instructions.is_empty() {
       return;
     }
 
-    let num_values = self.sir.next_value_id;
+    let functions = find_functions(&self.sir.instructions);
 
-    loop {
-      let functions = find_functions(&self.sir.instructions);
-
-      if functions.is_empty() {
-        return;
-      }
-
-      let value_ids = compute_value_ids(&self.sir.instructions);
-
-      // Mark dead instructions across every function, then
-      // compact in a single `retain` pass. Removing one at a
-      // time with `Vec::remove` memmoves the whole tail per
-      // call — O(dead × len) — which dominates codegen on
-      // large programs (a 500K-line file is ~2.4M insns).
-      let mut dead_mask = vec![false; self.sir.instructions.len()];
-      let mut any_removed = false;
-
-      for &(start, end) in functions.iter().rev() {
-        if start >= self.sir.instructions.len()
-          || end > self.sir.instructions.len()
-        {
-          continue;
-        }
-
-        let liveness = zo_liveness::analyze(
-          &self.sir.instructions,
-          start,
-          end,
-          &value_ids,
-          num_values,
-        );
-
-        for i in 0..(end - start) {
-          let gi = start + i;
-          let insn = &self.sir.instructions[gi];
-
-          if is_impure(insn) {
-            continue;
-          }
-
-          if matches!(
-            insn,
-            Insn::Label { .. }
-              | Insn::Jump { .. }
-              | Insn::BranchIfNot { .. }
-              | Insn::FunDef { .. }
-          ) {
-            continue;
-          }
-
-          if let Some(vid) = value_ids[gi]
-            && !liveness.is_live_out_raw(i, vid.0)
-          {
-            dead_mask[gi] = true;
-            any_removed = true;
-          }
-        }
-      }
-
-      if !any_removed {
-        break;
-      }
-
-      let mut gi = 0;
-      self.sir.instructions.retain(|_| {
-        let keep = !dead_mask[gi];
-        gi += 1;
-        keep
-      });
+    if functions.is_empty() {
+      return;
     }
+
+    // One global mask, one allocation; the compaction is a
+    // single linear `retain`. Marking is scoped per function
+    // with a function-local def map — merged-module SIR reuses
+    // ValueIds across functions (each module numbers its
+    // values independently), so a whole-program def index would
+    // misroute lookups to the wrong function.
+    let mut dead = vec![false; self.sir.instructions.len()];
+
+    for &(start, end) in &functions {
+      if start >= self.sir.instructions.len()
+        || end > self.sir.instructions.len()
+      {
+        continue;
+      }
+
+      mark_dead_in_function(&self.sir.instructions, start, end, &mut dead);
+    }
+
+    let mut gi = 0;
+
+    self.sir.instructions.retain(|_| {
+      let keep = !dead[gi];
+      gi += 1;
+      keep
+    });
   }
 }
 
 // ================================================================
 // Helpers (module-level, stateless).
 // ================================================================
+
+/// An instruction that must execute regardless of whether its
+/// result is read — the seed set for the optimistic mark-sweep.
+///
+/// Side-effecting instructions ([`is_impure`], which already
+/// includes `Return` and `Directive`) plus the control-flow and
+/// binding instructions that anchor liveness:
+///   - `BranchIfNot` keeps its `cond` operand live.
+///   - `VarDef` keeps its `init` operand live (the binding is
+///     observable through later `Load`s of the same name).
+///   - `Label` / `Jump` / `FunDef` are structural; seeding them
+///     is harmless (they carry no value operands).
+fn insn_is_critical(insn: &Insn) -> bool {
+  is_impure(insn)
+    || matches!(
+      insn,
+      Insn::Label { .. }
+        | Insn::Jump { .. }
+        | Insn::BranchIfNot { .. }
+        | Insn::FunDef { .. }
+        | Insn::VarDef { .. }
+    )
+}
+
+/// Mark dead, value-producing, pure instructions in the
+/// function body `[start, end)` into `dead`.
+///
+/// Optimistic worklist: seed critical instructions live, then
+/// propagate liveness backward through operands.
+///
+/// Position-aware: a `find_functions` range can span a value
+/// space boundary — trailing module-level `val` const-defs sit
+/// between a function's `Return` and the next `FunDef`, and
+/// merged-module SIR reuses ValueIds, so the same `ValueId` can
+/// be defined twice in one range. Each use therefore resolves
+/// to the nearest *preceding* definition (the dominating def in
+/// linear order). Def positions live in a `SmallVec<[u32; 1]>`,
+/// so the single-definition norm — the overwhelming majority —
+/// stays inline and allocates nothing; only a genuine collision
+/// spills to the heap. The full range is retained on purpose:
+/// the dead trailing const-value insns must be swept here, or
+/// codegen later sees the reused ValueId and aliases the body's
+/// definition to the trailing constant's slot.
+fn mark_dead_in_function(
+  insns: &[Insn],
+  start: usize,
+  end: usize,
+  dead: &mut [bool],
+) {
+  let len = end - start;
+  let mut alive = vec![false; len];
+
+  // `ValueId → ascending def positions (global indices)`. Built
+  // by scanning in order, so each is already sorted. Single-def
+  // values stay inline in the `SmallVec`, so the common case
+  // allocates nothing.
+  let mut defs: HashMap<ValueId, SmallVec<[u32; 1]>> = HashMap::default();
+
+  for (offset, insn) in insns[start..end].iter().enumerate() {
+    if let Some(dst) = insn_def(insn) {
+      defs.entry(dst).or_default().push((start + offset) as u32);
+    }
+  }
+
+  // Worklist of `(value, use position)`. The position picks the
+  // dominating def when a ValueId is defined more than once.
+  let mut work: Vec<(ValueId, usize)> = Vec::new();
+
+  let push_uses =
+    |insn: &Insn, pos: usize, work: &mut Vec<(ValueId, usize)>| {
+      visit_uses(insn, |u| {
+        if u.0 != u32::MAX {
+          work.push((u, pos));
+        }
+      });
+    };
+
+  // Seed: every critical insn is live; enqueue its operands.
+  for (offset, insn) in insns[start..end].iter().enumerate() {
+    if insn_is_critical(insn) {
+      alive[offset] = true;
+      push_uses(insn, start + offset, &mut work);
+    }
+  }
+
+  // Propagate: resolve each use to its dominating def, mark that
+  // def live, enqueue its operands. Each insn flips false→true
+  // at most once, so total work stays linear.
+  while let Some((vid, use_pos)) = work.pop() {
+    let Some(positions) = defs.get(&vid) else {
+      continue;
+    };
+
+    let def_gi = resolve_def(positions, use_pos);
+    let li = def_gi as usize - start;
+
+    if !alive[li] {
+      alive[li] = true;
+      push_uses(&insns[def_gi as usize], def_gi as usize, &mut work);
+    }
+  }
+
+  // Collect: value-producing, not critical, never marked.
+  for (offset, insn) in insns[start..end].iter().enumerate() {
+    if insn_def(insn).is_some() && !insn_is_critical(insn) && !alive[offset] {
+      dead[start + offset] = true;
+    }
+  }
+}
+
+/// Pick the definition of a value that dominates a use at
+/// `use_pos`: the largest def position `<= use_pos`. Falls back
+/// to the earliest definition for the rare forward reference
+/// (no preceding def — e.g. a value threaded around a loop).
+/// `positions` is ascending.
+#[inline]
+fn resolve_def(positions: &[u32], use_pos: usize) -> u32 {
+  let up = use_pos as u32;
+  let idx = positions.partition_point(|&p| p <= up);
+
+  if idx > 0 {
+    positions[idx - 1]
+  } else {
+    positions[0]
+  }
+}
 
 /// Returns true if an instruction has side effects.
 ///

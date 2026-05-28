@@ -22,6 +22,7 @@ zo-value = { workspace = true }
 
 # external:crates.
 rustc-hash = { workspace = true }
+smallvec = { workspace = true }
 
 [dev-dependencies]
 # external:crates.
