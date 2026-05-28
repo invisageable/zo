@@ -57,7 +57,10 @@ pub ffi undo_stack_new() -> s64;
 pub ffi undo_stack_push(stack: s64, value: s64);
 "#;
 
-  assert_eq!(Emitter::new().render(&provider("undoredo", functions)), expected);
+  assert_eq!(
+    Emitter::new().render(&provider("undoredo", functions)),
+    expected
+  );
 }
 
 #[test]
@@ -94,7 +97,10 @@ pub ffi zo_sqlite_open(path: CStr) -> int;
 pub ffi zo_sqlite_close(handle: int);
 "#;
 
-  assert_eq!(Emitter::new().render(&provider("sqlite", functions)), expected);
+  assert_eq!(
+    Emitter::new().render(&provider("sqlite", functions)),
+    expected
+  );
 }
 
 #[test]

@@ -4,32 +4,56 @@ use crate::cheader::{CApi, CFunction, CStruct};
 use crate::ctymap::map_c_ty;
 use crate::emit::Emitter;
 use crate::model::{
-  BindError, Bindings, FfiBinding, LinkSpec, ZoField, ZoParam, ZoStruct,
+  BindError, Bindings, FfiBinding, LinkSpec, ZoField, ZoParam, ZoStruct, ZoTy,
 };
 
 use swisskit_core::to;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+
+/// The result of binding a C API: the rendered file plus the
+/// names skipped because a type did not map (callbacks, etc.).
+#[derive(Debug)]
+pub struct CBindResult {
+  /// The rendered `.zo` source.
+  pub output: String,
+  /// Names skipped because a type did not map.
+  pub skipped: Vec<String>,
+}
 
 /// Render zo bindings for `lib` from a parsed C API.
-pub fn bind_c_api(
-  lib: &str,
-  link: LinkSpec,
-  api: &CApi,
-) -> Result<String, BindError> {
-  let known = known_types(api);
+///
+/// @note — a function or struct whose types do not map is
+/// skipped (not an error), keeping the generated surface
+/// self-consistent: functions are bound only against structs
+/// that themselves generated.
+pub fn bind_c_api(lib: &str, link: LinkSpec, api: &CApi) -> CBindResult {
+  let aliases = alias_map(api);
+  let all_structs: HashSet<String> =
+    api.structs.iter().map(|item| item.name.clone()).collect();
 
-  let structs = api
-    .structs
-    .iter()
-    .map(|item| bind_struct(item, &known))
-    .collect::<Result<Vec<_>, _>>()?;
+  let mut structs = Vec::new();
+  let mut generated = HashSet::new();
+  let mut skipped = Vec::new();
 
-  let functions = api
-    .functions
-    .iter()
-    .map(|function| bind_function(function, &known))
-    .collect::<Result<Vec<_>, _>>()?;
+  for item in &api.structs {
+    match bind_struct(item, &all_structs, &aliases) {
+      Ok(zo_struct) => {
+        generated.insert(item.name.clone());
+        structs.push(zo_struct);
+      }
+      Err(_) => skipped.push(format!("struct {}", item.name)),
+    }
+  }
+
+  let mut functions = Vec::new();
+
+  for function in &api.functions {
+    match bind_function(function, &generated, &aliases) {
+      Ok(binding) => functions.push(binding),
+      Err(_) => skipped.push(function.name.clone()),
+    }
+  }
 
   let bindings = Bindings {
     lib: lib.to_string(),
@@ -38,26 +62,28 @@ pub fn bind_c_api(
     functions,
   };
 
-  Ok(Emitter::new().render(&bindings))
+  CBindResult {
+    output: Emitter::new().render(&bindings),
+    skipped,
+  }
 }
 
-/// Names the type mapper may resolve to a zo struct.
-fn known_types(api: &CApi) -> HashSet<String> {
+/// Alias name → target type (`Texture2D` → `Texture`).
+fn alias_map(api: &CApi) -> HashMap<String, String> {
   api
-    .structs
+    .aliases
     .iter()
-    .map(|item| item.name.clone())
-    .chain(api.enums.iter().map(|item| item.name.clone()))
-    .chain(api.aliases.iter().map(|item| item.name.clone()))
+    .map(|alias| (alias.name.clone(), alias.ty.clone()))
     .collect()
 }
 
 /// Type-map one C function into an [`FfiBinding`].
 fn bind_function(
   function: &CFunction,
-  known: &HashSet<String>,
+  structs: &HashSet<String>,
+  aliases: &HashMap<String, String>,
 ) -> Result<FfiBinding, BindError> {
-  let name = to!(snake &function.name);
+  let name = to!(snake & function.name);
   let link_name = (name != function.name).then(|| function.name.clone());
 
   let params = function
@@ -66,8 +92,8 @@ fn bind_function(
     .filter(|param| param.ty != "void")
     .map(|param| {
       Ok(ZoParam {
-        name: to!(snake &param.name),
-        ty: map_c_ty(&param.ty, known, &function.name)?,
+        name: to!(snake & param.name),
+        ty: map_type(&param.ty, structs, aliases, &function.name)?,
       })
     })
     .collect::<Result<Vec<_>, BindError>>()?;
@@ -76,7 +102,7 @@ fn bind_function(
     name,
     link_name,
     params,
-    ret: map_c_ty(&function.return_type, known, &function.name)?,
+    ret: map_type(&function.return_type, structs, aliases, &function.name)?,
     doc: doc(&function.description),
   })
 }
@@ -84,15 +110,16 @@ fn bind_function(
 /// Map one C struct into a [`ZoStruct`].
 fn bind_struct(
   item: &CStruct,
-  known: &HashSet<String>,
+  structs: &HashSet<String>,
+  aliases: &HashMap<String, String>,
 ) -> Result<ZoStruct, BindError> {
   let fields = item
     .fields
     .iter()
     .map(|field| {
       Ok(ZoField {
-        name: to!(snake &field.name),
-        ty: map_c_ty(&field.ty, known, &item.name)?,
+        name: to!(snake & field.name),
+        ty: map_type(&field.ty, structs, aliases, &item.name)?,
       })
     })
     .collect::<Result<Vec<_>, BindError>>()?;
@@ -102,6 +129,18 @@ fn bind_struct(
     fields,
     doc: doc(&item.description),
   })
+}
+
+/// Resolve a one-level alias, then map the C type to a zo type.
+fn map_type(
+  c: &str,
+  structs: &HashSet<String>,
+  aliases: &HashMap<String, String>,
+  func: &str,
+) -> Result<ZoTy, BindError> {
+  let resolved = aliases.get(c.trim()).map(String::as_str).unwrap_or(c);
+
+  map_c_ty(resolved, structs, func)
 }
 
 /// One doc line from a description, or none when empty.

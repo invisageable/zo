@@ -9,8 +9,10 @@ use crate::tymap::map_ty;
 
 /// Parse `src` and render the `.zo` binding file for `lib`.
 pub fn bind(lib: &str, src: &str) -> Result<String, BindError> {
-  let functions =
-    items_into_bindings(&parse_ffi_items(src)?)?;
+  let functions = parse_ffi_items(src)?
+    .iter()
+    .map(bind_item)
+    .collect::<Result<Vec<_>, _>>()?;
 
   let bindings = Bindings {
     lib: lib.to_string(),
@@ -20,13 +22,6 @@ pub fn bind(lib: &str, src: &str) -> Result<String, BindError> {
   };
 
   Ok(Emitter::new().render(&bindings))
-}
-
-/// Type-map every parsed item into an [`FfiBinding`].
-fn items_into_bindings(
-  items: &[FfiItem],
-) -> Result<Vec<FfiBinding>, BindError> {
-  items.iter().map(bind_item).collect()
 }
 
 /// Type-map one parsed [`FfiItem`] into an [`FfiBinding`].

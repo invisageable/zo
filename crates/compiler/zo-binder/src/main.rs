@@ -1,24 +1,40 @@
-//! zo-binder CLI — regenerate a provider's `.zo` bindings
-//! from its Rust shim crate.
+//! zo-binder CLI — regenerate a provider's `.zo` bindings.
 //!
-//! @note — `zo-binder <lib>` reads
-//! `crates/compiler/zo-provider-<lib>/src/lib.rs` and writes
-//! `crates/compiler-lib/provider/<lib>/<lib>.zo`. Run from the
-//! workspace root (via `just bind <lib>`).
+//! @note — run from the workspace root, in one of two modes.
+//!
+//! Rust shim: `zo-binder <lib>` reads
+//! `crates/compiler/zo-provider-<lib>/src/lib.rs`.
+//!
+//! C header: `zo-binder --json <api.json> --lib <name>
+//! --macos <path> --linux <path> [--out <path>]` reads
+//! rlparser JSON.
+//!
+//! Both write `provider/<lib>/<lib>.zo` unless `--out` is set.
 
 use zo_binder::bind::bind;
+use zo_binder::cbind::bind_c_api;
+use zo_binder::cheader::parse_c_api;
+use zo_binder::model::LinkSpec;
 
+use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-  let Some(lib) = std::env::args().nth(1) else {
-    eprintln!("usage: zo-binder <lib>");
-    return ExitCode::FAILURE;
+  let args: Vec<String> = std::env::args().skip(1).collect();
+
+  let result = match args.first() {
+    Some(first) if !first.starts_with("--") => run_shim(first),
+    Some(_) => run_c(&flags(&args)),
+    None => Err(
+      "usage: zo-binder <lib> | zo-binder --json <api.json> \
+       --lib <name> --macos <path> --linux <path> [--out <path>]"
+        .to_string(),
+    ),
   };
 
-  match run(&lib) {
+  match result {
     Ok(()) => ExitCode::SUCCESS,
     Err(error) => {
       eprintln!("zo-binder: {error}");
@@ -27,27 +43,87 @@ fn main() -> ExitCode {
   }
 }
 
-/// Read the shim, render its bindings, and write on change.
-fn run(lib: &str) -> Result<(), String> {
+/// Generate from a Rust shim crate's `src/lib.rs`.
+fn run_shim(lib: &str) -> Result<(), String> {
   let input =
     PathBuf::from(format!("crates/compiler/zo-provider-{lib}/src/lib.rs"));
 
-  let dir = PathBuf::from(format!("crates/compiler-lib/provider/{lib}"));
-  let output = dir.join(format!("{lib}.zo"));
-
-  let src = fs::read_to_string(&input)
+  let source = fs::read_to_string(&input)
     .map_err(|error| format!("read {}: {error}", input.display()))?;
 
-  let generated = bind(lib, &src).map_err(|error| error.to_string())?;
+  let generated = bind(lib, &source).map_err(|error| error.to_string())?;
 
-  if fs::read_to_string(&output).is_ok_and(|old| old == generated) {
+  write_if_changed(&provider_path(lib), &generated)
+}
+
+/// Generate from an rlparser `raylib_api.json`.
+fn run_c(flags: &HashMap<String, String>) -> Result<(), String> {
+  let json = flags.get("json").ok_or("missing --json <api.json>")?;
+  let lib = flags.get("lib").ok_or("missing --lib <name>")?;
+  let macos = flags.get("macos").ok_or("missing --macos <path>")?;
+  let linux = flags.get("linux").ok_or("missing --linux <path>")?;
+
+  let source = fs::read_to_string(json)
+    .map_err(|error| format!("read {json}: {error}"))?;
+  let api = parse_c_api(&source).map_err(|error| error.to_string())?;
+
+  let link = LinkSpec::System {
+    macos: macos.clone(),
+    linux: linux.clone(),
+  };
+  let result = bind_c_api(lib, link, &api);
+
+  let output = match flags.get("out") {
+    Some(path) => PathBuf::from(path),
+    None => provider_path(lib),
+  };
+  write_if_changed(&output, &result.output)?;
+
+  if !result.skipped.is_empty() {
+    println!(
+      "skipped {} unsupported item(s): {}",
+      result.skipped.len(),
+      result.skipped.join(", ")
+    );
+  }
+
+  Ok(())
+}
+
+/// Parse `--key value` pairs into a map.
+fn flags(args: &[String]) -> HashMap<String, String> {
+  let mut map = HashMap::new();
+  let mut iter = args.iter();
+
+  while let Some(arg) = iter.next() {
+    if let Some(key) = arg.strip_prefix("--")
+      && let Some(value) = iter.next()
+    {
+      map.insert(key.to_string(), value.clone());
+    }
+  }
+
+  map
+}
+
+/// The committed binding path for `lib`.
+fn provider_path(lib: &str) -> PathBuf {
+  PathBuf::from(format!("crates/compiler-lib/provider/{lib}/{lib}.zo"))
+}
+
+/// Write `content` to `output`, skipping an unchanged file.
+fn write_if_changed(output: &Path, content: &str) -> Result<(), String> {
+  if fs::read_to_string(output).is_ok_and(|old| old == content) {
     println!("up to date: {}", output.display());
     return Ok(());
   }
 
-  fs::create_dir_all(&dir)
-    .map_err(|error| format!("mkdir {}: {error}", dir.display()))?;
-  fs::write(&output, &generated)
+  if let Some(dir) = output.parent() {
+    fs::create_dir_all(dir)
+      .map_err(|error| format!("mkdir {}: {error}", dir.display()))?;
+  }
+
+  fs::write(output, content)
     .map_err(|error| format!("write {}: {error}", output.display()))?;
 
   println!("wrote: {}", output.display());
