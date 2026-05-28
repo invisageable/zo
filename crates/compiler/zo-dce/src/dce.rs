@@ -140,12 +140,17 @@ impl<'a> Dce<'a> {
   /// Removes instructions between a `Return` and the next
   /// `Label` or `FunDef`. Single linear scan, O(N).
   fn eliminate_unreachable_after_return(&mut self) {
-    let mut i = 0;
+    // Mark unreachable instructions in one pass, then compact
+    // with a single `retain`. Removing inline with
+    // `Vec::remove` memmoves the tail per dead instruction —
+    // O(dead × len) — which is catastrophic on large programs.
+    let mut keep = Vec::with_capacity(self.sir.instructions.len());
     let mut in_dead_zone = false;
+    let mut any_dead = false;
 
-    while i < self.sir.instructions.len() {
+    for insn in &self.sir.instructions {
       if in_dead_zone {
-        match &self.sir.instructions[i] {
+        match insn {
           Insn::Label { .. }
           | Insn::FunDef { .. }
           | Insn::StructDef { .. }
@@ -164,19 +169,29 @@ impl<'a> Dce<'a> {
           | Insn::PackDecl { .. }
           | Insn::PackLink { .. } => {
             in_dead_zone = false;
-            i += 1;
+            keep.push(true);
           }
           _ => {
-            self.sir.instructions.remove(i);
+            keep.push(false);
+            any_dead = true;
           }
         }
       } else {
-        if matches!(&self.sir.instructions[i], Insn::Return { .. }) {
+        if matches!(insn, Insn::Return { .. }) {
           in_dead_zone = true;
         }
 
-        i += 1;
+        keep.push(true);
       }
+    }
+
+    if any_dead {
+      let mut i = 0;
+      self.sir.instructions.retain(|_| {
+        let k = keep[i];
+        i += 1;
+        k
+      });
     }
   }
 
@@ -206,6 +221,11 @@ impl<'a> Dce<'a> {
       }
 
       let value_ids = compute_value_ids(&self.sir.instructions);
+
+      // Mark dead stores across every function, then compact
+      // in a single `retain` pass — same O(dead × len) memmove
+      // hazard as `eliminate_dead_instructions`.
+      let mut dead_mask = vec![false; self.sir.instructions.len()];
       let mut any_removed = false;
 
       for &(start, end) in functions.iter().rev() {
@@ -228,8 +248,6 @@ impl<'a> Dce<'a> {
           num_values,
         );
 
-        let mut dead = Vec::new();
-
         for i in 0..(end - start) {
           let gi = start + i;
 
@@ -238,16 +256,19 @@ impl<'a> Dce<'a> {
           {
             report_error(Error::new(ErrorKind::UnusedVariable, fn_span));
 
-            dead.push(gi);
+            dead_mask[gi] = true;
+            any_removed = true;
           }
         }
+      }
 
-        dead.sort_unstable_by(|a, b| b.cmp(a));
-
-        for idx in dead {
-          self.sir.instructions.remove(idx);
-          any_removed = true;
-        }
+      if any_removed {
+        let mut gi = 0;
+        self.sir.instructions.retain(|_| {
+          let keep = !dead_mask[gi];
+          gi += 1;
+          keep
+        });
       }
 
       if !any_removed {
@@ -284,6 +305,13 @@ impl<'a> Dce<'a> {
       }
 
       let value_ids = compute_value_ids(&self.sir.instructions);
+
+      // Mark dead instructions across every function, then
+      // compact in a single `retain` pass. Removing one at a
+      // time with `Vec::remove` memmoves the whole tail per
+      // call — O(dead × len) — which dominates codegen on
+      // large programs (a 500K-line file is ~2.4M insns).
+      let mut dead_mask = vec![false; self.sir.instructions.len()];
       let mut any_removed = false;
 
       for &(start, end) in functions.iter().rev() {
@@ -300,8 +328,6 @@ impl<'a> Dce<'a> {
           &value_ids,
           num_values,
         );
-
-        let mut dead = Vec::new();
 
         for i in 0..(end - start) {
           let gi = start + i;
@@ -324,21 +350,22 @@ impl<'a> Dce<'a> {
           if let Some(vid) = value_ids[gi]
             && !liveness.is_live_out_raw(i, vid.0)
           {
-            dead.push(gi);
+            dead_mask[gi] = true;
+            any_removed = true;
           }
-        }
-
-        dead.sort_unstable_by(|a, b| b.cmp(a));
-
-        for idx in dead {
-          self.sir.instructions.remove(idx);
-          any_removed = true;
         }
       }
 
       if !any_removed {
         break;
       }
+
+      let mut gi = 0;
+      self.sir.instructions.retain(|_| {
+        let keep = !dead_mask[gi];
+        gi += 1;
+        keep
+      });
     }
   }
 }

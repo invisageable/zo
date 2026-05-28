@@ -2593,7 +2593,7 @@ impl<'a> Parser<'a> {
         format!(
           " (children: {}..{})",
           node.child_start,
-          node.child_start + node.child_count
+          node.child_start + node.child_count as u32
         )
       } else {
         "".into()

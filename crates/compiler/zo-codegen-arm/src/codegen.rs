@@ -615,6 +615,15 @@ pub struct ARM64Gen<'a> {
   /// this, large literals were O(N²) on the SIR stream.
   /// Direct `Vec<InsnIdx>` load — no hashing.
   value_def_idx: DenseMap<ValueId, InsnIdx>,
+  /// Keys inserted into `value_def_idx` since the last
+  /// reset. `enter_function` resets the map per function;
+  /// resetting only these keys keeps that O(entries) instead
+  /// of O(max global ValueId) — `DenseMap::clear` walks its
+  /// whole backing `Vec`, which the global pre-pass grows to
+  /// the program's max ValueId (~2.4M slots on a 500K-line
+  /// file), making a per-function full clear O(functions ×
+  /// values) = O(n²).
+  value_def_dirty: Vec<ValueId>,
   /// FFI signatures by symbol — populated in the pre-pass
   /// by scanning every `Insn::FunDef` whose `kind` is
   /// `FunctionKind::Intrinsic`. The `_` arm of
@@ -824,6 +833,7 @@ impl<'a> ARM64Gen<'a> {
       struct_metas: HashMap::default(),
       enum_walk_done_fixups: Vec::new(),
       value_def_idx: DenseMap::new(),
+      value_def_dirty: Vec::new(),
       ffi_sigs: HashMap::default(),
       ffi_link_names: HashMap::default(),
       extern_dylib_paths: HashMap::default(),
@@ -926,12 +936,27 @@ impl<'a> ARM64Gen<'a> {
   /// per-function rebuild of `value_def_idx` over the
   /// function's SIR range (ValueId counters reset per
   /// function, so the flat map would alias vid=N).
+  /// Insert into `value_def_idx`, tracking the key so the
+  /// next `reset_value_def_idx` resets only touched slots.
+  fn value_def_insert(&mut self, key: ValueId, idx: InsnIdx) {
+    self.value_def_idx.insert(key, idx);
+    self.value_def_dirty.push(key);
+  }
+
+  /// Reset only the slots touched since the last reset —
+  /// O(entries), not O(max global ValueId).
+  fn reset_value_def_idx(&mut self) {
+    for key in self.value_def_dirty.drain(..) {
+      self.value_def_idx.remove(key);
+    }
+  }
+
   fn enter_function(&mut self, name: Symbol, idx: usize, all_insns: &[Insn]) {
     self.current_function = Some(name);
     self.current_fn_start = Some(idx);
 
     self.value_types.clear();
-    self.value_def_idx.clear();
+    self.reset_value_def_idx();
     self.reload_overrides.clear();
     self.fp_reload_overrides.clear();
     self.mutable_slots.clear();
@@ -959,7 +984,7 @@ impl<'a> ARM64Gen<'a> {
         | Insn::ConstFloat { dst, .. }
         | Insn::ConstBool { dst, .. }
         | Insn::Load { dst, .. } => {
-          self.value_def_idx.insert(*dst, widx);
+          self.value_def_insert(*dst, widx);
         }
         _ => {}
       }
@@ -1656,7 +1681,7 @@ impl<'a> ARM64Gen<'a> {
     // arm in `translate_insn` rebuilds the map scoped to
     // each function — required because ValueId counters
     // reset per function and the flat map would alias.
-    self.value_def_idx.clear();
+    self.reset_value_def_idx();
 
     for (i, insn) in insns.iter().enumerate() {
       let idx = InsnIdx(i as u32);
@@ -1666,7 +1691,7 @@ impl<'a> ARM64Gen<'a> {
         | Insn::ConstFloat { dst, .. }
         | Insn::ConstBool { dst, .. }
         | Insn::Load { dst, .. } => {
-          self.value_def_idx.insert(*dst, idx);
+          self.value_def_insert(*dst, idx);
         }
         _ => {}
       }

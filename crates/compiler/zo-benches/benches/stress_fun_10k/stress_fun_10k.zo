@@ -1,4 +1,4 @@
--- generated bench source. ~10K lines.
+-- generated bench source.
 
 fun func000(x: int) -> int { return x + 1; }
 
