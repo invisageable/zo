@@ -6,6 +6,7 @@ members = [
   "sources/sitter/tree-sitter-zo",
   "crates/compiler/zo",
   "crates/compiler/zo-benches",
+  "crates/compiler/zo-binder",
   "crates/compiler/zo-test-runner",
   "crates/compiler/zo-lsp",
   "crates/packager/fret",
@@ -194,6 +195,7 @@ posthog-rs = "0.6.0"
 profiling = "1.0.17"
 proptest = "1.11.0"
 pulldown-cmark = "0.13.3"
+quote = "1.0.45"
 raw-window-handle = "0.6.2"
 raylib = "5.5.1"
 rayon = { version = "1.12.0" }
@@ -214,6 +216,7 @@ sha1 = "0.10.6"
 sha2 = { version = "0.10.9" }
 smallvec = { version = "1.15.1", features = ["const_new", "serde"] }
 smol_str = { version = "0.3.6", features = ["serde"] }
+syn = { version = "2.0", features = ["full"] }
 sysinfo = "0.39.2"
 target-lexicon = "0.13.5"
 tempfile = "3.27.0"

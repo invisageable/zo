@@ -12,3 +12,5 @@ doctest = false
 # internal:crates.
 
 # external:crates.
+quote = { workspace = true }
+syn = { workspace = true }
