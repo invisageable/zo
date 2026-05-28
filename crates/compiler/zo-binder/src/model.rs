@@ -43,17 +43,34 @@ pub enum RustTy {
   Other(String),
 }
 
+/// A zo type at the FFI boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ZoTy {
+  /// A named zo type rendered verbatim (`int`, `s64`, `CStr`).
+  Named(&'static str),
+  /// The unit type — a return with no `-> T` clause.
+  Unit,
+}
+
 /// An error raised while binding a Rust shim.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BindError {
   /// The Rust source failed to parse.
   Syntax(String),
+  /// A type in the shim has no zo mapping.
+  ///
+  /// @note — carries the enclosing function and the Rust type
+  /// spelling so the error points back at the source.
+  UnsupportedType { func: String, rust_ty: String },
 }
 
 impl fmt::Display for BindError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       BindError::Syntax(msg) => write!(f, "syntax error: {msg}"),
+      BindError::UnsupportedType { func, rust_ty } => {
+        write!(f, "unsupported type `{rust_ty}` in `{func}`")
+      }
     }
   }
 }

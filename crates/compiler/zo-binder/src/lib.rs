@@ -7,6 +7,7 @@
 
 pub mod model;
 pub mod parse;
+pub mod tymap;
 
 #[cfg(test)]
 mod tests;
