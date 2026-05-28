@@ -44,10 +44,12 @@ pub enum RustTy {
 }
 
 /// A zo type at the FFI boundary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ZoTy {
   /// A named zo type rendered verbatim (`int`, `s64`, `CStr`).
   Named(&'static str),
+  /// A named struct/enum type from a C header (`Vector2`).
+  Struct(String),
   /// The unit type — a return with no `-> T` clause.
   Unit,
 }

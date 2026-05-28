@@ -7836,6 +7836,8 @@ version = "0.3.11"
 dependencies = [
  "indoc",
  "quote",
+ "serde",
+ "serde_json",
  "syn 2.0.113",
  "zo-buffer",
 ]

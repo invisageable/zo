@@ -96,9 +96,12 @@ impl Emitter {
     self.params(&binding.params);
     self.out.char(b')');
 
-    if let ZoTy::Named(ret) = binding.ret {
-      self.out.str(" -> ");
-      self.out.str(ret);
+    match &binding.ret {
+      ZoTy::Unit => {}
+      ret => {
+        self.out.str(" -> ");
+        self.write_ty(ret);
+      }
     }
 
     self.out.char(b';');
@@ -114,7 +117,16 @@ impl Emitter {
 
       self.out.str(&param.name);
       self.out.str(": ");
-      self.out.str(zo_ty_name(param.ty));
+      self.write_ty(&param.ty);
+    }
+  }
+
+  /// Write a type's verbatim zo spelling.
+  fn write_ty(&mut self, ty: &ZoTy) {
+    match ty {
+      ZoTy::Named(name) => self.out.str(name),
+      ZoTy::Struct(name) => self.out.str(name),
+      ZoTy::Unit => self.out.str("()"),
     }
   }
 }
@@ -128,19 +140,12 @@ impl Default for Emitter {
 /// True when any binding references `CStr` (needs `core::c`).
 fn uses_cstr(bindings: &[FfiBinding]) -> bool {
   bindings.iter().any(|binding| {
-    is_cstr(binding.ret) || binding.params.iter().any(|param| is_cstr(param.ty))
+    is_cstr(&binding.ret)
+      || binding.params.iter().any(|param| is_cstr(&param.ty))
   })
 }
 
 /// True when `ty` is the `CStr` C-string type.
-fn is_cstr(ty: ZoTy) -> bool {
+fn is_cstr(ty: &ZoTy) -> bool {
   matches!(ty, ZoTy::Named("CStr"))
-}
-
-/// The verbatim zo spelling of a type.
-fn zo_ty_name(ty: ZoTy) -> &'static str {
-  match ty {
-    ZoTy::Named(name) => name,
-    ZoTy::Unit => "()",
-  }
 }
