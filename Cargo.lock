@@ -7838,6 +7838,7 @@ dependencies = [
  "quote",
  "serde",
  "serde_json",
+ "swisskit-core",
  "syn 2.0.113",
  "zo-buffer",
 ]

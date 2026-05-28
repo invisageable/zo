@@ -1,10 +1,11 @@
 use crate::emit::Emitter;
-use crate::model::{FfiBinding, ZoParam, ZoTy};
+use crate::model::{Bindings, FfiBinding, LinkSpec, ZoParam, ZoTy};
 
 /// A binding with no doc and no link_name (the common case).
 fn binding(name: &str, params: Vec<ZoParam>, ret: ZoTy) -> FfiBinding {
   FfiBinding {
     name: name.to_string(),
+    link_name: None,
     params,
     ret,
     doc: vec![],
@@ -19,9 +20,19 @@ fn param(name: &str, ty: ZoTy) -> ZoParam {
   }
 }
 
+/// Wrap functions in a provider [`Bindings`] (no structs).
+fn provider(lib: &str, functions: Vec<FfiBinding>) -> Bindings {
+  Bindings {
+    lib: lib.to_string(),
+    link: LinkSpec::Provider,
+    structs: vec![],
+    functions,
+  }
+}
+
 #[test]
 fn emits_scalar_bindings_without_core_c() {
-  let bindings = vec![
+  let functions = vec![
     binding("undo_stack_new", vec![], ZoTy::Named("s64")),
     binding(
       "undo_stack_push",
@@ -46,7 +57,7 @@ pub ffi undo_stack_new() -> s64;
 pub ffi undo_stack_push(stack: s64, value: s64);
 "#;
 
-  assert_eq!(Emitter::new().render("undoredo", &bindings), expected);
+  assert_eq!(Emitter::new().render(&provider("undoredo", functions)), expected);
 }
 
 #[test]
@@ -58,7 +69,7 @@ fn emits_load_core_c_and_doc_when_cstr_present() {
   );
   open.doc = vec!["Open a connection.".to_string()];
 
-  let bindings = vec![
+  let functions = vec![
     open,
     binding(
       "zo_sqlite_close",
@@ -83,7 +94,7 @@ pub ffi zo_sqlite_open(path: CStr) -> int;
 pub ffi zo_sqlite_close(handle: int);
 "#;
 
-  assert_eq!(Emitter::new().render("sqlite", &bindings), expected);
+  assert_eq!(Emitter::new().render(&provider("sqlite", functions)), expected);
 }
 
 #[test]
@@ -91,7 +102,7 @@ fn blank_doc_line_has_no_trailing_space() {
   let mut item = binding("noop", vec![], ZoTy::Unit);
   item.doc = vec!["First.".to_string(), String::new(), "Third.".to_string()];
 
-  let out = Emitter::new().render("demo", &[item]);
+  let out = Emitter::new().render(&provider("demo", vec![item]));
 
   assert!(out.contains("\n-!\n"));
   assert!(!out.contains("-! \n"));

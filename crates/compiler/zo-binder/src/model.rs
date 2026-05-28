@@ -66,14 +66,60 @@ pub struct ZoParam {
 /// A type-mapped FFI function ready to render as `pub ffi`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FfiBinding {
-  /// The zo `pub ffi` name (== the C symbol, verbatim).
+  /// The zo `pub ffi` name.
   pub name: String,
+  /// The C symbol, when it differs from `name` (emitted as a
+  /// `%% link_name` attribute). `None` ⇒ name passes through.
+  pub link_name: Option<String>,
   /// Parameters with zo types.
   pub params: Vec<ZoParam>,
   /// The zo return type (`ZoTy::Unit` ⇒ no `-> T`).
   pub ret: ZoTy,
-  /// Doc lines passed through from the shim's `///`.
+  /// Doc lines passed through from the source.
   pub doc: Vec<String>,
+}
+
+/// A generated zo struct definition.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ZoStruct {
+  /// The struct name.
+  pub name: String,
+  /// Fields in declaration order.
+  pub fields: Vec<ZoField>,
+  /// Doc lines passed through from the source.
+  pub doc: Vec<String>,
+}
+
+/// A zo struct field.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ZoField {
+  /// The field name.
+  pub name: String,
+  /// The field's zo type.
+  pub ty: ZoTy,
+}
+
+/// How the `#link {}` block resolves the dylib.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LinkSpec {
+  /// A provider cdylib staged at `@executable_path`
+  /// (`libzo_provider_<lib>`), derived from the lib name.
+  Provider,
+  /// A system library, one path per platform.
+  System { macos: String, linux: String },
+}
+
+/// A complete set of bindings for one library, ready to emit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Bindings {
+  /// The provider/library name.
+  pub lib: String,
+  /// How to resolve the dylib.
+  pub link: LinkSpec,
+  /// Struct definitions, emitted before the functions.
+  pub structs: Vec<ZoStruct>,
+  /// FFI function declarations.
+  pub functions: Vec<FfiBinding>,
 }
 
 /// An error raised while binding a Rust shim.

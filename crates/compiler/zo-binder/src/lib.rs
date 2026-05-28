@@ -6,6 +6,7 @@
 //! `zo run` path.
 
 pub mod bind;
+pub mod cbind;
 pub mod cheader;
 pub mod ctymap;
 pub mod emit;

@@ -8,6 +8,7 @@ doctest = false
 
 [dependencies]
 # internal:sources.
+swisskit-core = { workspace = true }
 
 # internal:crates.
 zo-buffer = { workspace = true }

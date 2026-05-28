@@ -1,10 +1,11 @@
-//! Render bound FFI items as a zo provider binding file.
+//! Render a [`Bindings`] set as a zo provider binding file.
 //!
 //! @note — output matches the hand-written `provider/<lib>/`
 //! shape: a banner, an optional `load core::c::*;`, the
-//! `#link {}` block, then one `pub ffi` per binding.
+//! `#link {}` block, the `pub struct` definitions, then one
+//! `pub ffi` per function.
 
-use crate::model::{FfiBinding, ZoParam, ZoTy};
+use crate::model::{Bindings, FfiBinding, LinkSpec, ZoParam, ZoStruct, ZoTy};
 
 use zo_buffer::Buffer;
 
@@ -20,9 +21,9 @@ impl Emitter {
     Self { out: Buffer::new() }
   }
 
-  /// Render the full `.zo` binding file for `lib`.
-  pub fn render(mut self, lib: &str, bindings: &[FfiBinding]) -> String {
-    self.header(lib);
+  /// Render the full `.zo` binding file.
+  pub fn render(mut self, bindings: &Bindings) -> String {
+    self.header(&bindings.lib);
 
     if uses_cstr(bindings) {
       self.out.str("load core::c::*;");
@@ -30,11 +31,16 @@ impl Emitter {
       self.out.newline();
     }
 
-    self.link(lib);
+    self.link(&bindings.lib, &bindings.link);
 
-    for binding in bindings {
+    for item in &bindings.structs {
       self.out.newline();
-      self.binding(binding);
+      self.zo_struct(item);
+    }
+
+    for function in &bindings.functions {
+      self.out.newline();
+      self.binding(function);
     }
 
     String::from_utf8(self.out.finish()).expect("emit emits valid UTF-8")
@@ -57,36 +63,85 @@ impl Emitter {
     self.out.newline();
   }
 
-  /// Emit the `#link {}` block pointing at the provider dylib.
-  fn link(&mut self, lib: &str) {
+  /// Emit the `#link {}` block for the dylib.
+  fn link(&mut self, lib: &str, spec: &LinkSpec) {
     self.out.str("#link {");
     self.out.newline();
 
-    self.out.indent();
-    self.out.str("macos: \"@executable_path/libzo_provider_");
-    self.out.str(lib);
-    self.out.str(".dylib\",");
-    self.out.newline();
-
-    self.out.indent();
-    self.out.str("linux: \"@executable_path/libzo_provider_");
-    self.out.str(lib);
-    self.out.str(".so\",");
-    self.out.newline();
+    match spec {
+      LinkSpec::Provider => {
+        self.provider_link("macos", lib, "dylib");
+        self.provider_link("linux", lib, "so");
+      }
+      LinkSpec::System { macos, linux } => {
+        self.link_line("macos", macos);
+        self.link_line("linux", linux);
+      }
+    }
 
     self.out.char(b'}');
     self.out.newline();
   }
 
-  /// Emit one `pub ffi` declaration with its doc lines.
+  /// Emit a provider `<platform>: "@executable_path/...",` line.
+  fn provider_link(&mut self, platform: &str, lib: &str, ext: &str) {
+    self.out.indent();
+    self.out.str(platform);
+    self.out.str(": \"@executable_path/libzo_provider_");
+    self.out.str(lib);
+    self.out.char(b'.');
+    self.out.str(ext);
+    self.out.str("\",");
+    self.out.newline();
+  }
+
+  /// Emit a `<platform>: "<path>",` line.
+  fn link_line(&mut self, platform: &str, path: &str) {
+    self.out.indent();
+    self.out.str(platform);
+    self.out.str(": \"");
+    self.out.str(path);
+    self.out.str("\",");
+    self.out.newline();
+  }
+
+  /// Emit a `pub struct` definition.
+  fn zo_struct(&mut self, item: &ZoStruct) {
+    self.doc(&item.doc);
+
+    self.out.str("pub struct ");
+    self.out.str(&item.name);
+
+    if item.fields.is_empty() {
+      self.out.str(" {}");
+      self.out.newline();
+      return;
+    }
+
+    self.out.str(" {");
+    self.out.newline();
+
+    for field in &item.fields {
+      self.out.indent();
+      self.out.str(&field.name);
+      self.out.str(": ");
+      self.write_ty(&field.ty);
+      self.out.char(b',');
+      self.out.newline();
+    }
+
+    self.out.char(b'}');
+    self.out.newline();
+  }
+
+  /// Emit one `pub ffi` declaration with doc + `link_name`.
   fn binding(&mut self, binding: &FfiBinding) {
-    for line in &binding.doc {
-      if line.is_empty() {
-        self.out.str("-!");
-      } else {
-        self.out.str("-! ");
-        self.out.str(line);
-      }
+    self.doc(&binding.doc);
+
+    if let Some(link_name) = &binding.link_name {
+      self.out.str("%% link_name = \"");
+      self.out.str(link_name);
+      self.out.str("\".");
       self.out.newline();
     }
 
@@ -121,6 +176,19 @@ impl Emitter {
     }
   }
 
+  /// Emit `-!` doc lines.
+  fn doc(&mut self, lines: &[String]) {
+    for line in lines {
+      if line.is_empty() {
+        self.out.str("-!");
+      } else {
+        self.out.str("-! ");
+        self.out.str(line);
+      }
+      self.out.newline();
+    }
+  }
+
   /// Write a type's verbatim zo spelling.
   fn write_ty(&mut self, ty: &ZoTy) {
     match ty {
@@ -138,11 +206,17 @@ impl Default for Emitter {
 }
 
 /// True when any binding references `CStr` (needs `core::c`).
-fn uses_cstr(bindings: &[FfiBinding]) -> bool {
-  bindings.iter().any(|binding| {
-    is_cstr(&binding.ret)
-      || binding.params.iter().any(|param| is_cstr(&param.ty))
-  })
+fn uses_cstr(bindings: &Bindings) -> bool {
+  let in_functions = bindings.functions.iter().any(|function| {
+    is_cstr(&function.ret)
+      || function.params.iter().any(|param| is_cstr(&param.ty))
+  });
+  let in_structs = bindings
+    .structs
+    .iter()
+    .any(|item| item.fields.iter().any(|field| is_cstr(&field.ty)));
+
+  in_functions || in_structs
 }
 
 /// True when `ty` is the `CStr` C-string type.

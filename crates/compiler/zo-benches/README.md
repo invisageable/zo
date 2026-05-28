@@ -6,8 +6,7 @@
 
 iT'S REALLY ABOUT CHALLENGiNG. zo DOESN'T CLAiM TO BE A DiRECT COMPETiTOR TO c, rust OR odin. THE NUMBER OF OPTiMiSATiON AND THE QUALiTY OF THESE COMPiLERS ARE A FAR CRY FROM MY NAiVE ViSiON OF BUiLDiNG COMPiLERS. SO YES, CURRENTLY COMPiLiNG THE FAMOUS `hello, world!` iS 8-28X FASTER THAN iN c, rust OR odin, BUT KEEP iN MiND THAT THE PiPELiNES ARE COMPLETELY DiFFERENT. iT'S BEST NOT TO POP THE CHAMPAGNE TO CELEBRATE ANYTHiNG YET. THERE iS SO MUCH STUFF TO DO. BUT THESE BENCHES GiVE US HOPE, AND THAT'S ALL THAT MATTERS TO STAY MOTiVATED.
 
-> *« Compile everything, every time, instantly. »*
-> &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;— i10e
+> *« Compile everything, every time, instantly. » — i10e*
 
 ## dev.
 
@@ -20,9 +19,11 @@ iNSTALL ALL PROGRAMMiNG LANGUAGES REQUiRED:
 
 ## benchmark.
 
-> *Measurements: `arm64-apple-darwin`. odin nightly `dev-2026-05`. 5 runs per bench.*
+> *Measurements: `arm64-apple-darwin`. 5 runs per bench.*
 
-### benchmark — results.
+### benchmark — comptime.
+
+WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 
 #### ackermann.
 
@@ -168,15 +169,17 @@ Workload: 10,000 lines of code.
 
 ### benchmark — runtime.
 
-| Benchmark         | clang     | rustc       | odin        | zo        |
-| :---------------- | :-------- | :---------- | :---------- | :-------- |
-| `ackermann`       | 28.60ms   | 29.15ms     | 32.21ms     | 29.91ms   |
-| `arithmetic`      | 30.27ms   | 30.05ms     | 29.14ms     | 28.22ms   |
-| `fibonacci`       | 28.41ms   | 29.81ms     | 28.62ms     | 28.22ms   |
-| `hello`           | 28.71ms   | 29.40ms     | 28.94ms     | 28.19ms   |
-| **`munchhausen`** | **5.86s** | **14.65s**  | **15.02s**  | **7.38s** |
-| `rule_110`        | 46.92ms   | 34.78ms     | 34.02ms     | 28.29ms   |
-| `stress_fun_10k`  | 28.66ms   | 29.23ms     | 29.70ms     | 28.47ms   |
+WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **EXECUTE** AN EXECUTABLE FiLE.
+
+| Benchmark         | clang       | rustc       | odin        | zo          |
+| :---------------- | :---------- | :---------- | :---------- | :---------- |
+| `ackermann`       | **28.60ms** | 29.15ms     | 32.21ms     | 29.91ms     |
+| `arithmetic`      | 30.27ms     | 30.05ms     | 29.14ms     | **28.22ms** |
+| `fibonacci`       | 28.41ms     | 29.81ms     | 28.62ms     | **28.22ms** |
+| `hello`           | 28.71ms     | 29.40ms     | 28.94ms     | **28.19ms** |
+| `munchhausen`     | **5.86s**   | 14.65s      | 15.02s      | 7.38s**     |
+| `rule_110`        | 46.92ms     | 34.78ms     | 34.02ms     | **28.29ms** |
+| `stress_fun_10k`  | 28.66ms     | 29.23ms     | 29.70ms     | **28.47ms** |
 
 ### benchmark — summary.
 
