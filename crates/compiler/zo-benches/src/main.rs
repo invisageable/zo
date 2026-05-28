@@ -239,6 +239,7 @@ fn run_bench(
   }
 
   let c_file = bench_dir.join(format!("{name}.c"));
+  let go_file = bench_dir.join(format!("{name}.go"));
   let rs_file = bench_dir.join(format!("{name}.rs"));
   let odin_file = bench_dir.join(format!("{name}.odin"));
   let zo_file = bench_dir.join(format!("{name}.zo"));
@@ -251,6 +252,17 @@ fn run_bench(
       benchmark_c(
         &c_file,
         &bin_dir.join(format!("{name}_c")),
+        num_runs,
+        with_runtime,
+        argv,
+        with_rss,
+      );
+    }
+
+    if go_file.exists() {
+      benchmark_go(
+        &go_file,
+        &bin_dir.join(format!("{name}_go")),
         num_runs,
         with_runtime,
         argv,
@@ -488,6 +500,59 @@ fn benchmark_c(
       .arg(source)
       .arg("-o")
       .arg(output)
+      .output();
+
+    let elapsed = start.elapsed().as_nanos() as u64;
+
+    match result {
+      Ok(_) => {
+        times.push(elapsed);
+        println!("Run {i}: {}", fmt_dur(elapsed));
+      }
+      Err(_) => println!("Run {i}: FAILED"),
+    }
+  }
+
+  if !times.is_empty() {
+    let avg = (times.iter().sum::<u64>()) / times.len() as u64;
+
+    println!("Average: {}", fmt_dur(avg));
+  }
+
+  if with_runtime && output.exists() {
+    time_runtime(output, runs, argv, with_rss);
+  }
+
+  println!();
+}
+
+fn benchmark_go(
+  source: &PathBuf,
+  output: &PathBuf,
+  runs: usize,
+  with_runtime: bool,
+  argv: &str,
+  with_rss: bool,
+) {
+  println!("go (ARM64):");
+
+  let lines = count_lines(source).unwrap_or(0);
+  let filename = source.file_name().unwrap().to_string_lossy();
+
+  println!("Compiling {filename} — {lines} lines.");
+
+  let mut times = Vec::new();
+
+  for i in 1..=runs {
+    let _ = fs::remove_file(output);
+
+    let start = Instant::now();
+
+    let result = Command::new("go")
+      .arg("build")
+      .arg("-o")
+      .arg(output)
+      .arg(source)
       .output();
 
     let elapsed = start.elapsed().as_nanos() as u64;

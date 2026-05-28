@@ -13,10 +13,10 @@ use serde::Serialize;
 ///
 /// Extra (64 bits):
 /// - bits 0-47:  secondary span (start:32 + len:16),
-///               or `0xFFFF_FFFF_FFFF` when absent.
+///   or `0xFFFF_FFFF_FFFF` when absent.
 /// - bits 48-63: file ID (16 bits). Index into the
-///               compiler's file table. `0` = entry file.
-///               `0xFFFF` = unset (default).
+///   compiler's file table. `0` = entry file.
+///   `0xFFFF` = unset (default).
 ///
 /// 16 bits of file ID supports 65535 source files.
 #[repr(C)]
