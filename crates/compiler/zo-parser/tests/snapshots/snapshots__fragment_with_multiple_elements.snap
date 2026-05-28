@@ -4,206 +4,166 @@ expression: parsing
 ---
 tree:
   nodes:
-    - token: Fun
-      flags: 0
-      child_start: 1
+    - child_start: 1
       child_count: 39
-      _reserved: 0
-    - token: Ident
+      token: Fun
+      flags: 0
+    - child_start: 0
+      child_count: 0
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: LParen
+      token: LParen
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RParen
+      token: RParen
       flags: 0
-      child_start: 0
-      child_count: 0
-      _reserved: 0
-    - token: LBrace
-      flags: 0
-      child_start: 5
+    - child_start: 5
       child_count: 34
-      _reserved: 0
-    - token: Imu
+      token: LBrace
       flags: 0
-      child_start: 6
+    - child_start: 6
       child_count: 29
-      _reserved: 0
-    - token: Ident
+      token: Imu
+      flags: 0
+    - child_start: 0
+      child_count: 0
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: TemplateAssign
+      token: TemplateAssign
       flags: 0
-      child_start: 0
-      child_count: 0
-      _reserved: 0
-    - token: TemplateFragmentStart
-      flags: 0
-      child_start: 9
+    - child_start: 9
       child_count: 25
-      _reserved: 0
-    - token: LAngle
+      token: TemplateFragmentStart
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Ident
+      token: LAngle
+      flags: 0
+    - child_start: 0
+      child_count: 0
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RAngle
+      token: RAngle
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: TemplateText
+      token: TemplateText
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: LAngle
+      token: LAngle
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Slash2
+      token: Slash2
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Ident
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RAngle
+      token: RAngle
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: LAngle
+      token: LAngle
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Ident
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RAngle
+      token: RAngle
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: TemplateText
+      token: TemplateText
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: LAngle
+      token: LAngle
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Slash2
+      token: Slash2
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Ident
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RAngle
+      token: RAngle
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: LAngle
+      token: LAngle
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Ident
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RAngle
+      token: RAngle
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: TemplateText
+      token: TemplateText
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: LAngle
+      token: LAngle
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Slash2
+      token: Slash2
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Ident
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RAngle
+      token: RAngle
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: TemplateFragmentEnd
+      token: TemplateFragmentEnd
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Semicolon
+      token: Semicolon
       flags: 0
-      child_start: 0
-      child_count: 0
-      _reserved: 0
-    - token: Hash
-      flags: 0
-      child_start: 36
+    - child_start: 36
       child_count: 3
-      _reserved: 0
-    - token: Ident
-      flags: 1
-      child_start: 0
-      child_count: 0
-      _reserved: 0
-    - token: Ident
-      flags: 1
-      child_start: 0
-      child_count: 0
-      _reserved: 0
-    - token: Semicolon
+      token: Hash
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RBrace
+      token: Ident
+      flags: 1
+    - child_start: 0
+      child_count: 0
+      token: Ident
+      flags: 1
+    - child_start: 0
+      child_count: 0
+      token: Semicolon
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
+      token: RBrace
+      flags: 0
   values:
     - Symbol: 25
     - Symbol: 26

@@ -4,211 +4,170 @@ expression: parsing
 ---
 tree:
   nodes:
-    - token: Fun
-      flags: 0
-      child_start: 1
+    - child_start: 1
       child_count: 17
-      _reserved: 0
-    - token: Ident
-      flags: 1
-      child_start: 0
-      child_count: 0
-      _reserved: 0
-    - token: LParen
+      token: Fun
       flags: 0
-      child_start: 3
+    - child_start: 0
+      child_count: 0
+      token: Ident
+      flags: 1
+    - child_start: 3
       child_count: 5
-      _reserved: 0
-    - token: Ident
+      token: LParen
+      flags: 0
+    - child_start: 0
+      child_count: 0
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: IntType
+      token: IntType
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Comma
+      token: Comma
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Ident
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: IntType
+      token: IntType
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RParen
+      token: RParen
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Arrow
+      token: Arrow
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: IntType
+      token: IntType
       flags: 0
-      child_start: 0
-      child_count: 0
-      _reserved: 0
-    - token: LBrace
-      flags: 0
-      child_start: 12
+    - child_start: 12
       child_count: 5
-      _reserved: 0
-    - token: Return
+      token: LBrace
       flags: 0
-      child_start: 13
+    - child_start: 13
       child_count: 4
-      _reserved: 0
-    - token: Ident
+      token: Return
+      flags: 0
+    - child_start: 0
+      child_count: 0
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Ident
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Plus
+      token: Plus
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Semicolon
+      token: Semicolon
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RBrace
+      token: RBrace
       flags: 0
-      child_start: 0
-      child_count: 0
-      _reserved: 0
-    - token: Fun
-      flags: 0
-      child_start: 19
+    - child_start: 19
       child_count: 22
-      _reserved: 0
-    - token: Ident
+      token: Fun
+      flags: 0
+    - child_start: 0
+      child_count: 0
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: LParen
+      token: LParen
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RParen
+      token: RParen
       flags: 0
-      child_start: 0
-      child_count: 0
-      _reserved: 0
-    - token: LBrace
-      flags: 0
-      child_start: 23
+    - child_start: 23
       child_count: 17
-      _reserved: 0
-    - token: Imu
+      token: LBrace
       flags: 0
-      child_start: 24
+    - child_start: 24
       child_count: 11
-      _reserved: 0
-    - token: Ident
+      token: Imu
+      flags: 0
+    - child_start: 0
+      child_count: 0
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: IntType
+      token: IntType
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Colon
+      token: Colon
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Eq
+      token: Eq
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Ident
+      token: Ident
       flags: 1
-      child_start: 0
-      child_count: 0
-      _reserved: 0
-    - token: LParen
-      flags: 0
-      child_start: 30
+    - child_start: 30
       child_count: 3
-      _reserved: 0
-    - token: Int
+      token: LParen
+      flags: 0
+    - child_start: 0
+      child_count: 0
+      token: Int
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Comma
+      token: Comma
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Int
+      token: Int
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RParen
+      token: RParen
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Semicolon
+      token: Semicolon
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Ident
+      token: Ident
       flags: 1
-      child_start: 0
-      child_count: 0
-      _reserved: 0
-    - token: LParen
-      flags: 0
-      child_start: 37
+    - child_start: 37
       child_count: 1
-      _reserved: 0
-    - token: Ident
+      token: LParen
+      flags: 0
+    - child_start: 0
+      child_count: 0
+      token: Ident
       flags: 1
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RParen
+      token: RParen
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: Semicolon
+      token: Semicolon
       flags: 0
-      child_start: 0
+    - child_start: 0
       child_count: 0
-      _reserved: 0
-    - token: RBrace
+      token: RBrace
       flags: 0
-      child_start: 0
-      child_count: 0
-      _reserved: 0
   values:
     - Symbol: 25
     - Symbol: 26
