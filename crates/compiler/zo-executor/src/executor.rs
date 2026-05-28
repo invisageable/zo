@@ -4856,6 +4856,41 @@ impl<'a> Executor<'a> {
             return;
           }
 
+          let is_data_ptr =
+            member_name.is_some_and(|s| self.interner.get(s) == "data_ptr");
+
+          if is_data_ptr {
+            // str pointer + 8 = address of UTF-8 payload.
+            let s64_ty = self.ty_checker.s64_type();
+
+            let const_8 = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
+            self.sir.emit(Insn::ConstInt {
+              dst: const_8,
+              value: 8,
+              ty_id: s64_ty,
+            });
+
+            let dst = ValueId(self.sir.next_value_id);
+            self.sir.next_value_id += 1;
+
+            let sv = self.sir.emit(Insn::BinOp {
+              dst,
+              op: BinOp::Add,
+              lhs: tup_sir,
+              rhs: const_8,
+              ty_id: s64_ty,
+            });
+
+            let rid = self.values.store_runtime(0);
+
+            self.value_stack.push(rid);
+            self.ty_stack.push(s64_ty);
+            self.sir_values.push(sv);
+
+            return;
+          }
+
           let span = self.tree.spans[idx];
 
           report_error(Error::new(ErrorKind::InvalidFieldAccess, span));

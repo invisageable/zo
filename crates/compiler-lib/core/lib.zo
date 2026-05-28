@@ -16,6 +16,7 @@ pub pack int;
 pub pack io;
 pub pack collections;
 pub pack str;
+pub pack string;
 pub pack vec;
 
 

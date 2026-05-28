@@ -1,0 +1,21 @@
+-- tests-build-pass: growable String construction.
+-- @cmd — zo build string_builder.zo
+
+load core::string::*;
+
+fun main() {
+  mut builder: String = String::new();
+
+  builder.push_str("hello");
+  builder.push_str(", ");
+  builder.push_str("world!");
+
+  imu result: str = builder.to_str();
+
+  showln(result);
+
+  builder.free();
+}
+
+-- EXPECTED OUTPUT:
+-- hello, world!
