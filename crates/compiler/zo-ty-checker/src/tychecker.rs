@@ -98,6 +98,10 @@ pub struct TyChecker {
   /// `zo-module-resolver`; the type checker only needs
   /// the membership test, so a set of names is enough.
   abstracts: HashSet<Symbol>,
+  /// File index for error tagging. Set by the executor
+  /// before analysis so every `report_error` call in the
+  /// type checker carries the correct source file.
+  current_file_id: u16,
 }
 impl TyChecker {
   /// Create a new type checker with pre-registered primitives.
@@ -125,6 +129,7 @@ impl TyChecker {
       abstracts: HashSet::default(),
       subst_undo: Vec::new(),
       subst_marks: Vec::new(),
+      current_file_id: 0xFFFF,
     };
 
     // Core types.
@@ -195,6 +200,16 @@ impl TyChecker {
   /// type-annotation resolution downstream can recognize the
   /// name as an abstract and route through the implicit-mono
   /// lowering.
+  /// Sets the file index for error tagging.
+  pub fn set_file_id(&mut self, file_id: u16) {
+    self.current_file_id = file_id;
+  }
+
+  /// Reports an error tagged with the current file.
+  fn report(&self, kind: ErrorKind, span: Span) {
+    report_error(Error::with_file(kind, span, self.current_file_id));
+  }
+
   pub fn register_abstract(&mut self, name: Symbol) {
     self.abstracts.insert(name);
   }
@@ -432,7 +447,7 @@ impl TyChecker {
         };
 
         if self.occurs_check(target_var, target_repr) {
-          report_error(Error::new(ErrorKind::InfiniteType, span));
+          self.report(ErrorKind::InfiniteType, span);
           return None;
         }
 
@@ -444,7 +459,7 @@ impl TyChecker {
       // One is an inference variable
       (Ty::Infer(var), _) => {
         if self.occurs_check(var, repr2) {
-          report_error(Error::new(ErrorKind::InfiniteType, span));
+          self.report(ErrorKind::InfiniteType, span);
           return None;
         }
 
@@ -453,7 +468,7 @@ impl TyChecker {
       }
       (_, Ty::Infer(var)) => {
         if self.occurs_check(var, repr1) {
-          report_error(Error::new(ErrorKind::InfiniteType, span));
+          self.report(ErrorKind::InfiniteType, span);
           return None;
         }
 
@@ -468,7 +483,7 @@ impl TyChecker {
         let fun2 = *self.ty_table.fun(&f2)?;
 
         if fun1.param_count != fun2.param_count {
-          report_error(Error::new(ErrorKind::ArgumentCountMismatch, span));
+          self.report(ErrorKind::ArgumentCountMismatch, span);
           return None;
         }
 
@@ -501,7 +516,7 @@ impl TyChecker {
         if let (Some(s1), Some(s2)) = (arr1.size, arr2.size)
           && s1 != s2
         {
-          report_error(Error::new(ErrorKind::ArraySizeMismatch, span));
+          self.report(ErrorKind::ArraySizeMismatch, span);
 
           return None;
         }
@@ -517,7 +532,7 @@ impl TyChecker {
 
         // Check mutability matches
         if ref1.mutability != ref2.mutability {
-          report_error(Error::new(ErrorKind::TypeMismatch, span));
+          self.report(ErrorKind::TypeMismatch, span);
           return None;
         }
 
@@ -534,7 +549,7 @@ impl TyChecker {
         let tup2 = *self.ty_table.tuple(t2)?;
 
         if tup1.elem_count != tup2.elem_count {
-          report_error(Error::new(ErrorKind::TypeMismatch, span));
+          self.report(ErrorKind::TypeMismatch, span);
 
           return None;
         }
@@ -601,7 +616,7 @@ impl TyChecker {
       (_, Ty::Error) => Some(repr1),
 
       _ => {
-        report_error(Error::new(ErrorKind::TypeMismatch, span));
+        self.report(ErrorKind::TypeMismatch, span);
         None
       }
     }
@@ -1032,7 +1047,7 @@ impl TyChecker {
           Ty::Infer(_) => Some(ty),
           Ty::Int { .. } | Ty::Float(_) => Some(ty),
           _ => {
-            report_error(Error::new(ErrorKind::TypeMismatch, span));
+            self.report(ErrorKind::TypeMismatch, span);
             None
           }
         }
@@ -1077,7 +1092,7 @@ impl TyChecker {
           Ty::Infer(_) => Some(ty),
           Ty::Int { .. } => Some(ty),
           _ => {
-            report_error(Error::new(ErrorKind::TypeMismatch, span));
+            self.report(ErrorKind::TypeMismatch, span);
             None
           }
         }
@@ -1111,7 +1126,7 @@ impl TyChecker {
         match self.tys[repr.0 as usize] {
           Ty::Infer(_) | Ty::Int { .. } | Ty::Float(_) => Some(rhs_ty),
           _ => {
-            report_error(Error::new(ErrorKind::TypeMismatch, span));
+            self.report(ErrorKind::TypeMismatch, span);
             None
           }
         }
@@ -1131,7 +1146,7 @@ impl TyChecker {
         match self.tys[repr.0 as usize] {
           Ty::Infer(_) | Ty::Int { .. } => Some(rhs_ty),
           _ => {
-            report_error(Error::new(ErrorKind::TypeMismatch, span));
+            self.report(ErrorKind::TypeMismatch, span);
             None
           }
         }
@@ -1153,7 +1168,7 @@ impl TyChecker {
       return Some(ty);
     }
 
-    report_error(Error::new(ErrorKind::UndefinedVariable, span));
+    self.report(ErrorKind::UndefinedVariable, span);
     None
   }
 

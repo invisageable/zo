@@ -88,6 +88,11 @@ pub struct AnalyzerConfig {
   /// loaded transitively (preload, `core::*`, user packs)
   /// stay default `false` and skip the check.
   pub is_entry: bool,
+  /// Index into the compiler's file table. Stamped onto
+  /// every `Error` the executor emits so the renderer
+  /// resolves spans against the correct source text.
+  /// `0` = entry file. `0xFFFF` = unset (default).
+  pub file_id: u16,
 }
 
 /// Represents the [`Analyzer`] phase.
@@ -178,6 +183,7 @@ impl<'a> Analyzer<'a> {
       implicit_pack,
       in_scope_packs,
       is_entry: _,
+      file_id,
     } = self.config;
 
     if !imports.is_empty() {
@@ -199,6 +205,8 @@ impl<'a> Analyzer<'a> {
     if !in_scope_packs.is_empty() {
       executor = executor.with_in_scope_packs(in_scope_packs);
     }
+
+    executor = executor.with_file_id(file_id);
 
     let (
       sir,

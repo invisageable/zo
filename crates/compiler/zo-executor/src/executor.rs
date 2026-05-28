@@ -456,6 +456,11 @@ pub struct Executor<'a> {
   /// fragments (`html_inline` etc.) where there's no
   /// on-disk source to point at.
   source_path: Option<std::path::PathBuf>,
+  /// Index into the compiler's file table. `0` = entry
+  /// file; `0xFFFF` = unset. Stamped onto every
+  /// `Error::with_file` so the renderer resolves the
+  /// span against the correct source text.
+  current_file_id: u16,
   /// Attributes (`%% name [= literal | (arg)].`) the
   /// parser emitted just before the next item. Drained
   /// and applied when the next `FunDef` / `StructDef` /
@@ -861,6 +866,7 @@ impl<'a> Executor<'a> {
       vendor_dir: zo_host_paths::first_existing_lib_dir("vendor"),
       source_dir: None,
       source_path: None,
+      current_file_id: 0xFFFF,
       pending_attributes: Vec::new(),
       global_constants: Vec::new(),
       pack_constants: HashMap::default(),
@@ -1374,6 +1380,15 @@ impl<'a> Executor<'a> {
     self
   }
 
+  /// Tags every error emitted by this executor with the
+  /// given file ID so the renderer resolves spans against
+  /// the correct source text.
+  pub fn with_file_id(mut self, file_id: u16) -> Self {
+    self.current_file_id = file_id;
+    self.ty_checker.set_file_id(file_id);
+    self
+  }
+
   /// Pre-populates `pack_names` with packs the caller has
   /// already compiled and merged into the SIR (typically
   /// preload's transitive loads — `io`, `vec`, `map`, …).
@@ -1385,6 +1400,22 @@ impl<'a> Executor<'a> {
       self.pack_names.insert(name);
     }
     self
+  }
+
+  /// Reports an error tagged with this executor's file.
+  fn report(&self, kind: ErrorKind, span: Span) {
+    report_error(Error::with_file(kind, span, self.current_file_id));
+  }
+
+  /// Reports an error with a secondary span, tagged with
+  /// this executor's file.
+  fn report_secondary(&self, kind: ErrorKind, span: Span, secondary: Span) {
+    report_error(Error::with_file_and_secondary(
+      kind,
+      span,
+      secondary,
+      self.current_file_id,
+    ));
   }
 
   /// Emit `Insn::PackDecl`, mark the pack name in scope,
@@ -2168,24 +2199,24 @@ impl<'a> Executor<'a> {
       // `host_entry()` returned `Some(entry)` only when
       // the user wrote at least one of `system` /
       // `vendor`, so `(None, None)` is unreachable.
-      let err = match (entry.system, entry.vendor) {
-        (Some(sys), Some(ven)) => Error::with_secondary(
-          ErrorKind::LinkResolutionFailed,
-          sys.span,
-          ven.span,
-        ),
+      match (entry.system, entry.vendor) {
+        (Some(sys), Some(ven)) => {
+          self.report_secondary(
+            ErrorKind::LinkResolutionFailed,
+            sys.span,
+            ven.span,
+          );
+        }
         (Some(sys), None) => {
-          Error::new(ErrorKind::LinkResolutionFailed, sys.span)
+          self.report(ErrorKind::LinkResolutionFailed, sys.span);
         }
         (None, Some(ven)) => {
-          Error::new(ErrorKind::LinkResolutionFailed, ven.span)
+          self.report(ErrorKind::LinkResolutionFailed, ven.span);
         }
         (None, None) => {
           unreachable!("parse_link_value sets at least one of system / vendor")
         }
       };
-
-      report_error(err);
     }
   }
 
@@ -2315,7 +2346,7 @@ impl<'a> Executor<'a> {
     {
       let span = self.tree.spans[idx];
 
-      report_error(Error::new(ErrorKind::InvalidTopLevelItem, span));
+      self.report(ErrorKind::InvalidTopLevelItem, span);
 
       return;
     }
@@ -3035,7 +3066,7 @@ impl<'a> Executor<'a> {
         {
           let span = self.tree.spans[idx];
 
-          report_error(Error::new(ErrorKind::InvalidTopLevelItem, span));
+          self.report(ErrorKind::InvalidTopLevelItem, span);
 
           return;
         }
@@ -3066,8 +3097,13 @@ impl<'a> Executor<'a> {
 
               if !matches!(resolved, Ty::Bool | Ty::Infer(_)) {
                 let span = self.tree.spans[idx];
+                let fid = self.current_file_id;
 
-                report_error(Error::new(ErrorKind::TypeMismatch, span));
+                report_error(Error::with_file(
+                  ErrorKind::TypeMismatch,
+                  span,
+                  fid,
+                ));
               }
             }
 
@@ -3230,7 +3266,7 @@ impl<'a> Executor<'a> {
                 && body_ty != unit_ty
                 && fun_ctx.has_return_type_annotation
               {
-                report_error(Error::new(ErrorKind::TypeMismatch, fn_span));
+                self.report(ErrorKind::TypeMismatch, fn_span);
               }
 
               (None, unit_ty)
@@ -3251,7 +3287,7 @@ impl<'a> Executor<'a> {
               // surfacing a spurious type-mismatch.
               (None, unit_ty)
             } else {
-              report_error(Error::new(ErrorKind::TypeMismatch, fn_span));
+              self.report(ErrorKind::TypeMismatch, fn_span);
 
               (None, unit_ty)
             };
@@ -3755,7 +3791,7 @@ impl<'a> Executor<'a> {
                     seg_vids.push(conv_dst);
                   }
                 } else {
-                  report_error(Error::new(ErrorKind::UndefinedVariable, span));
+                  self.report(ErrorKind::UndefinedVariable, span);
                 }
               }
             }
@@ -4256,7 +4292,7 @@ impl<'a> Executor<'a> {
             {
               let span = self.tree.spans[idx];
 
-              report_error(Error::new(ErrorKind::UndefinedVariable, span));
+              self.report(ErrorKind::UndefinedVariable, span);
 
               let error_id = self.values.store_runtime(u32::MAX);
 
@@ -4384,7 +4420,7 @@ impl<'a> Executor<'a> {
                   matches!(self.ty_checker.resolve_ty(idx_ty), Ty::Int { .. });
 
                 if !idx_is_int {
-                  report_error(Error::new(ErrorKind::InvalidIndex, span));
+                  self.report(ErrorKind::InvalidIndex, span);
                 }
 
                 let dst = ValueId(self.sir.next_value_id);
@@ -4401,7 +4437,7 @@ impl<'a> Executor<'a> {
                   },
                   Ty::Str => self.ty_checker.char_type(),
                   _ => {
-                    report_error(Error::new(ErrorKind::InvalidIndex, span));
+                    self.report(ErrorKind::InvalidIndex, span);
 
                     int_ty
                   }
@@ -4438,7 +4474,7 @@ impl<'a> Executor<'a> {
               let post = total.saturating_sub(prefix);
 
               if prefix == 0 {
-                report_error(Error::new(ErrorKind::ExpectedExpression, span));
+                self.report(ErrorKind::ExpectedExpression, span);
 
                 (0, 0)
               } else if post == 1 {
@@ -4464,17 +4500,11 @@ impl<'a> Executor<'a> {
                 match n {
                   Some(n) if (n as usize) >= prefix => (prefix, n as usize),
                   Some(_) => {
-                    report_error(Error::new(
-                      ErrorKind::RepeatLengthMismatch,
-                      span,
-                    ));
+                    self.report(ErrorKind::RepeatLengthMismatch, span);
                     (prefix, prefix)
                   }
                   None => {
-                    report_error(Error::new(
-                      ErrorKind::RepeatCountNotConst,
-                      span,
-                    ));
+                    self.report(ErrorKind::RepeatCountNotConst, span);
                     (prefix, prefix)
                   }
                 }
@@ -4497,24 +4527,18 @@ impl<'a> Executor<'a> {
                 match n {
                   Some(n) if n >= prefix => (prefix, n),
                   Some(_) => {
-                    report_error(Error::new(
-                      ErrorKind::RepeatLengthMismatch,
-                      span,
-                    ));
+                    self.report(ErrorKind::RepeatLengthMismatch, span);
                     (prefix, prefix)
                   }
                   None => {
-                    report_error(Error::new(
-                      ErrorKind::RepeatRequiresKnownLength,
-                      span,
-                    ));
+                    self.report(ErrorKind::RepeatRequiresKnownLength, span);
                     (prefix, prefix)
                   }
                 }
               } else {
                 // > 1 nodes after `...`: parser should reject
                 // this, but be defensive.
-                report_error(Error::new(ErrorKind::UnexpectedToken, span));
+                self.report(ErrorKind::UnexpectedToken, span);
                 (prefix, prefix)
               }
             } else {
@@ -4726,7 +4750,7 @@ impl<'a> Executor<'a> {
               // Out of bounds — compile error.
               let span = self.tree.spans[idx];
 
-              report_error(Error::new(ErrorKind::TypeMismatch, span));
+              self.report(ErrorKind::TypeMismatch, span);
               self.ty_checker.error_type()
             }
           } else {
@@ -4758,7 +4782,7 @@ impl<'a> Executor<'a> {
                   // Unknown field.
                   let span = self.tree.spans[idx];
 
-                  report_error(Error::new(ErrorKind::InvalidFieldAccess, span));
+                  self.report(ErrorKind::InvalidFieldAccess, span);
 
                   self.ty_checker.unit_type()
                 }
@@ -4821,7 +4845,7 @@ impl<'a> Executor<'a> {
 
           let span = self.tree.spans[idx];
 
-          report_error(Error::new(ErrorKind::InvalidFieldAccess, span));
+          self.report(ErrorKind::InvalidFieldAccess, span);
 
           self.ty_checker.unit_type()
         } else if matches!(self.ty_checker.kind_of(tup_ty), Ty::Str) {
@@ -4893,7 +4917,7 @@ impl<'a> Executor<'a> {
 
           let span = self.tree.spans[idx];
 
-          report_error(Error::new(ErrorKind::InvalidFieldAccess, span));
+          self.report(ErrorKind::InvalidFieldAccess, span);
 
           self.ty_checker.unit_type()
         } else {
@@ -5267,7 +5291,7 @@ impl<'a> Executor<'a> {
         {
           let span = self.tree.spans[idx];
 
-          report_error(Error::new(ErrorKind::InvalidTopLevelItem, span));
+          self.report(ErrorKind::InvalidTopLevelItem, span);
         }
 
         // If nothing consumed the stacks, discard the
@@ -5894,7 +5918,7 @@ impl<'a> Executor<'a> {
               return;
             }
             FoldResult::Error(error) => {
-              report_error(error);
+              report_error(error.tagged(self.current_file_id));
 
               // [note] — push error values to maintain stack consistency.
               let error_id = self.values.store_runtime(u32::MAX);
@@ -6336,7 +6360,7 @@ impl<'a> Executor<'a> {
           return;
         }
         FoldResult::Error(error) => {
-          report_error(error);
+          report_error(error.tagged(self.current_file_id));
 
           // [note] — push error values to maintain stack consistency.
           let error_id = self.values.store_runtime(u32::MAX);
@@ -6565,7 +6589,7 @@ impl<'a> Executor<'a> {
       if !self.register_pack(name, pubness) {
         let span = self.tree.spans[name_idx.unwrap_or(start_idx)];
 
-        report_error(Error::new(ErrorKind::DuplicateDefinition, span));
+        self.report(ErrorKind::DuplicateDefinition, span);
       }
     }
 
@@ -6881,7 +6905,7 @@ impl<'a> Executor<'a> {
               if !self.prescan_only {
                 let span = self.tree.spans[idx];
 
-                report_error(Error::new(ErrorKind::UndefinedTypeParam, span));
+                self.report(ErrorKind::UndefinedTypeParam, span);
               }
 
               self.ty_checker.fresh_var()
@@ -6951,10 +6975,7 @@ impl<'a> Executor<'a> {
             .is_some_and(|d| !d.dyn_safe);
 
           if unsafe_dyn {
-            report_error(Error::new(
-              ErrorKind::AbstractNotDynSafe,
-              self.tree.spans[idx],
-            ));
+            self.report(ErrorKind::AbstractNotDynSafe, self.tree.spans[idx]);
 
             return None;
           }
@@ -8229,7 +8250,7 @@ impl<'a> Executor<'a> {
           // `:` after `)` is wrong — user meant `->`.
           let span = self.tree.spans[idx];
 
-          report_error(Error::new(ErrorKind::ExpectedArrow, span));
+          self.report(ErrorKind::ExpectedArrow, span);
 
           // Recover: treat as `->` so codegen proceeds.
           if idx + 1 < _end_idx {
@@ -8272,19 +8293,19 @@ impl<'a> Executor<'a> {
 
     if is_test {
       if !params.is_empty() {
-        report_error(Error::new(
+        self.report(
           ErrorKind::TestFnMustBeParameterless,
           self.tree.span(start_idx as u32),
-        ));
+        );
       }
 
       let unit_type = self.ty_checker.unit_type();
 
       if return_ty != unit_type {
-        report_error(Error::new(
+        self.report(
           ErrorKind::TestFnMustReturnUnit,
           self.tree.span(start_idx as u32),
-        ));
+        );
       }
     }
 
@@ -8353,7 +8374,7 @@ impl<'a> Executor<'a> {
         .find_return_type_span(start_idx, _end_idx)
         .unwrap_or(self.tree.spans[start_idx]);
 
-      report_error(Error::new(ErrorKind::InvalidReturnType, span));
+      self.report(ErrorKind::InvalidReturnType, span);
 
       return_ty = unit_ty;
     }
@@ -8505,7 +8526,7 @@ impl<'a> Executor<'a> {
           // defining site rather than silently shipping a
           // body the importer can't decode.
           let span = self.tree.spans[range_start as usize];
-          report_error(Error::new(ErrorKind::UnsupportedGenericLiteral, span));
+          self.report(ErrorKind::UnsupportedGenericLiteral, span);
         } else {
           let type_params: Vec<Symbol> =
             self.type_params.iter().map(|(sym, _)| *sym).collect();
@@ -8728,7 +8749,7 @@ impl<'a> Executor<'a> {
         if self.tree.nodes[i].token == Token::Eq && annotated_ty.is_none() {
           let span = self.tree.spans[i];
 
-          report_error(Error::new(ErrorKind::ExpectedTypeAnnotation, span));
+          self.report(ErrorKind::ExpectedTypeAnnotation, span);
         }
 
         i += 1;
@@ -8797,10 +8818,7 @@ impl<'a> Executor<'a> {
           if is_constant {
             let span = self.tree.spans[i];
 
-            report_error(Error::new(
-              ErrorKind::ValRequiresTypeAnnotation,
-              span,
-            ));
+            self.report(ErrorKind::ValRequiresTypeAnnotation, span);
 
             self.skip_until = children_end;
 
@@ -8818,7 +8836,7 @@ impl<'a> Executor<'a> {
           if !has_colon && annotated_ty.is_none() {
             let span = self.tree.spans[i];
 
-            report_error(Error::new(ErrorKind::ExpectedTypeAnnotation, span));
+            self.report(ErrorKind::ExpectedTypeAnnotation, span);
           }
 
           skip_to = i + 1;
@@ -9103,7 +9121,7 @@ impl<'a> Executor<'a> {
         .is_some_and(|l| l.mutability == Mutability::Yes);
 
       if !is_mutable {
-        report_error(Error::new(ErrorKind::ImmutableVariable, span));
+        self.report(ErrorKind::ImmutableVariable, span);
 
         return;
       }
@@ -9142,7 +9160,7 @@ impl<'a> Executor<'a> {
         .is_some_and(|l| l.mutability == Mutability::Yes);
 
       if !is_mutable {
-        report_error(Error::new(ErrorKind::ImmutableVariable, span));
+        self.report(ErrorKind::ImmutableVariable, span);
 
         return;
       }
@@ -9177,7 +9195,7 @@ impl<'a> Executor<'a> {
         .and_then(|i| self.locals.get_mut(i as usize))
       {
         if local.mutability != Mutability::Yes {
-          report_error(Error::new(ErrorKind::ImmutableVariable, span));
+          self.report(ErrorKind::ImmutableVariable, span);
 
           return;
         }
@@ -9218,19 +9236,19 @@ impl<'a> Executor<'a> {
       && self.tree.nodes[r_bracket_idx - 1].token == Token::DotDotEq;
 
     let Some((hi_vid, _hi_ty, hi_sir)) = self.pop_stack_triple() else {
-      report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
+      self.report(ErrorKind::StrSliceRequiresConstBounds, span);
 
       return;
     };
 
     let Some((lo_vid, _lo_ty, lo_sir)) = self.pop_stack_triple() else {
-      report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
+      self.report(ErrorKind::StrSliceRequiresConstBounds, span);
 
       return;
     };
 
     let Some((_recv_vid, _recv_ty, recv_sir)) = self.pop_stack_triple() else {
-      report_error(Error::new(ErrorKind::StrSliceRequiresStr, span));
+      self.report(ErrorKind::StrSliceRequiresStr, span);
 
       return;
     };
@@ -9260,7 +9278,7 @@ impl<'a> Executor<'a> {
       };
 
       if lo > hi {
-        report_error(Error::new(ErrorKind::StrSliceInvalidRange, span));
+        self.report(ErrorKind::StrSliceInvalidRange, span);
 
         return;
       }
@@ -9269,7 +9287,7 @@ impl<'a> Executor<'a> {
       let src_bytes = src.as_bytes();
 
       if (hi as usize) > src_bytes.len() {
-        report_error(Error::new(ErrorKind::StrSliceOutOfBounds, span));
+        self.report(ErrorKind::StrSliceOutOfBounds, span);
 
         return;
       }
@@ -9278,7 +9296,7 @@ impl<'a> Executor<'a> {
       let slice_str = match std::str::from_utf8(slice_bytes) {
         Ok(s) => s.to_owned(),
         Err(_) => {
-          report_error(Error::new(ErrorKind::StrSliceOutOfBounds, span));
+          self.report(ErrorKind::StrSliceOutOfBounds, span);
 
           return;
         }
@@ -9311,7 +9329,7 @@ impl<'a> Executor<'a> {
     // `BinOp Add(hi, 1)` before the StrSlice when
     // `inclusive` is true.
     if inclusive {
-      report_error(Error::new(ErrorKind::StrSliceRequiresConstBounds, span));
+      self.report(ErrorKind::StrSliceRequiresConstBounds, span);
 
       return;
     }
@@ -9662,7 +9680,7 @@ impl<'a> Executor<'a> {
           .unwrap_or_default();
 
         if names.len() != elems.len() {
-          report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+          self.report(ErrorKind::TypeMismatch, decl.span);
 
           return;
         }
@@ -9684,7 +9702,7 @@ impl<'a> Executor<'a> {
         let arr = match self.ty_checker.ty_table.array(aid).copied() {
           Some(a) => a,
           None => {
-            report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+            self.report(ErrorKind::TypeMismatch, decl.span);
 
             return;
           }
@@ -9693,7 +9711,7 @@ impl<'a> Executor<'a> {
         if let Some(n) = arr.size
           && names.len() != n as usize
         {
-          report_error(Error::new(ErrorKind::ArraySizeMismatch, decl.span));
+          self.report(ErrorKind::ArraySizeMismatch, decl.span);
 
           return;
         }
@@ -9708,7 +9726,7 @@ impl<'a> Executor<'a> {
         let st = match self.ty_checker.ty_table.struct_ty(sid) {
           Some(s) => *s,
           None => {
-            report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+            self.report(ErrorKind::TypeMismatch, decl.span);
 
             return;
           }
@@ -9724,7 +9742,7 @@ impl<'a> Executor<'a> {
           match resolved {
             Some((i, f)) => out.push((i as u32, f.ty_id)),
             None => {
-              report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+              self.report(ErrorKind::TypeMismatch, decl.span);
 
               return;
             }
@@ -9734,7 +9752,7 @@ impl<'a> Executor<'a> {
         out
       }
       _ => {
-        report_error(Error::new(ErrorKind::TypeMismatch, decl.span));
+        self.report(ErrorKind::TypeMismatch, decl.span);
 
         return;
       }
@@ -9926,10 +9944,7 @@ impl<'a> Executor<'a> {
           );
 
         if !is_const {
-          report_error(Error::new(
-            ErrorKind::ValRequiresConstantInit,
-            decl.span,
-          ));
+          self.report(ErrorKind::ValRequiresConstantInit, decl.span);
 
           return;
         }
@@ -10502,7 +10517,7 @@ impl<'a> Executor<'a> {
                     {
                       let span = self.tree.spans[idx];
 
-                      report_error(Error::new(ErrorKind::InfiniteType, span));
+                      self.report(ErrorKind::InfiniteType, span);
                     }
 
                     let ty = self.ty_checker.fresh_var();
@@ -11404,10 +11419,7 @@ impl<'a> Executor<'a> {
     let (pat_sym, flag_sym) = self.literals.regex_literals[lit_idx as usize];
 
     let Some(regex_sym) = self.interner.symbol("Regex") else {
-      report_error(Error::new(
-        ErrorKind::UndefinedVariable,
-        self.tree.spans[idx],
-      ));
+      self.report(ErrorKind::UndefinedVariable, self.tree.spans[idx]);
       return;
     };
     let Some(regex_struct_id) = self
@@ -11416,10 +11428,7 @@ impl<'a> Executor<'a> {
       .struct_intern_lookup(regex_sym)
       .copied()
     else {
-      report_error(Error::new(
-        ErrorKind::UndefinedVariable,
-        self.tree.spans[idx],
-      ));
+      self.report(ErrorKind::UndefinedVariable, self.tree.spans[idx]);
       return;
     };
     let regex_ty_id = self.ty_checker.intern_ty(Ty::Struct(regex_struct_id));
@@ -12577,6 +12586,7 @@ impl<'a> Executor<'a> {
     let fn_name_str = format!("{}::to_json", self.interner.get(type_name));
     let fn_name = self.interner.intern(&fn_name_str);
     let out_sym = self.interner.intern("__derive_out");
+    let file_id = self.current_file_id;
 
     self.with_synth_fun(
       fn_name,
@@ -12622,7 +12632,11 @@ impl<'a> Executor<'a> {
           ) else {
             let span = field_spans.get(idx).copied().unwrap_or(fun_span);
 
-            report_error(Error::new(ErrorKind::DeriveUnsupportedField, span));
+            report_error(Error::with_file(
+              ErrorKind::DeriveUnsupportedField,
+              span,
+              file_id,
+            ));
 
             continue;
           };
@@ -13008,6 +13022,7 @@ impl<'a> Executor<'a> {
 
     let fn_name_str = format!("{}::from_json", self.interner.get(type_name));
     let fn_name = self.interner.intern(&fn_name_str);
+    let file_id = self.current_file_id;
 
     self.with_synth_fun(
       fn_name,
@@ -13051,7 +13066,11 @@ impl<'a> Executor<'a> {
           ) else {
             let span = field_spans.get(field_idx).copied().unwrap_or(fun_span);
 
-            report_error(Error::new(ErrorKind::DeriveUnsupportedField, span));
+            report_error(Error::with_file(
+              ErrorKind::DeriveUnsupportedField,
+              span,
+              file_id,
+            ));
 
             continue;
           };
@@ -13673,7 +13692,7 @@ impl<'a> Executor<'a> {
       {
         let span = self.tree.spans[start_idx];
 
-        report_error(Error::new(ErrorKind::DuplicateAbstractImpl, span));
+        self.report(ErrorKind::DuplicateAbstractImpl, span);
 
         self.type_params.clear();
         self.apply_context = outer_apply;
@@ -14480,7 +14499,7 @@ impl<'a> Executor<'a> {
       if matches!(recv_mut, Some(Mutability::No)) {
         let span = self.tree.spans[dot_idx];
 
-        report_error(Error::new(ErrorKind::ImmutableVariable, span));
+        self.report(ErrorKind::ImmutableVariable, span);
       }
     }
 
@@ -14812,7 +14831,7 @@ impl<'a> Executor<'a> {
     if !has_content {
       let span = self.tree.spans[rparen_idx];
 
-      report_error(Error::new(ErrorKind::ArgumentCountMismatch, span));
+      self.report(ErrorKind::ArgumentCountMismatch, span);
 
       return;
     }
@@ -14892,7 +14911,7 @@ impl<'a> Executor<'a> {
     if !has_content {
       let span = self.tree.spans[rparen_idx];
 
-      report_error(Error::new(ErrorKind::ArgumentCountMismatch, span));
+      self.report(ErrorKind::ArgumentCountMismatch, span);
 
       return;
     }
@@ -16648,7 +16667,7 @@ impl<'a> Executor<'a> {
             if tok.is_ty() {
               let span = self.tree.spans[bind_idx];
 
-              report_error(Error::new(ErrorKind::ExpectedIdentifier, span));
+              self.report(ErrorKind::ExpectedIdentifier, span);
 
               bind_idx += 1;
               field_i += 1;
@@ -17232,7 +17251,7 @@ impl<'a> Executor<'a> {
     // the loop so SIR emission inside the loop doesn't fight
     // the borrow checker over `report_error`.
     for span in dead_arm_pending_warnings {
-      report_error(Error::new(ErrorKind::UnreachableCode, span));
+      self.report(ErrorKind::UnreachableCode, span);
     }
 
     // -- Exhaustiveness --------------------------------------
@@ -17243,10 +17262,8 @@ impl<'a> Executor<'a> {
     if !seen_wildcard {
       match self.ty_checker.kind_of(scrutinee_ty) {
         Ty::Bool if !(seen_true && seen_false) => {
-          report_error(Error::new(
-            ErrorKind::NonExhaustiveMatch,
-            self.tree.spans[lbrace_idx],
-          ));
+          self
+            .report(ErrorKind::NonExhaustiveMatch, self.tree.spans[lbrace_idx]);
         }
         Ty::Enum(eid) => {
           if let Some(et) = self.ty_checker.ty_table.enum_ty(eid) {
@@ -17256,18 +17273,16 @@ impl<'a> Executor<'a> {
               variants.iter().any(|v| !seen_variants.contains(&v.name));
 
             if missing {
-              report_error(Error::new(
+              self.report(
                 ErrorKind::NonExhaustiveMatch,
                 self.tree.spans[lbrace_idx],
-              ));
+              );
             }
           }
         }
         Ty::Int { .. } | Ty::Float(_) | Ty::Str | Ty::Char | Ty::Bytes => {
-          report_error(Error::new(
-            ErrorKind::NonExhaustiveMatch,
-            self.tree.spans[lbrace_idx],
-          ));
+          self
+            .report(ErrorKind::NonExhaustiveMatch, self.tree.spans[lbrace_idx]);
         }
         _ => {}
       }
@@ -18473,7 +18488,7 @@ impl<'a> Executor<'a> {
       };
 
       if recv_mut != Mutability::Yes {
-        report_error(Error::new(ErrorKind::ImmutableVariable, span));
+        self.report(ErrorKind::ImmutableVariable, span);
         return;
       }
 
@@ -18564,7 +18579,7 @@ impl<'a> Executor<'a> {
     };
 
     if local.mutability != Mutability::Yes {
-      report_error(Error::new(ErrorKind::ImmutableVariable, span));
+      self.report(ErrorKind::ImmutableVariable, span);
       return;
     }
 
@@ -18669,7 +18684,7 @@ impl<'a> Executor<'a> {
     if self.nursery_stack.is_empty() {
       let span = self.tree.spans[idx];
 
-      report_error(Error::new(ErrorKind::SpawnOutsideNursery, span));
+      self.report(ErrorKind::SpawnOutsideNursery, span);
 
       return;
     }
@@ -18729,7 +18744,7 @@ impl<'a> Executor<'a> {
       _ => {
         let span = self.tree.spans[idx];
 
-        report_error(Error::new(ErrorKind::AwaitOnNonTask, span));
+        self.report(ErrorKind::AwaitOnNonTask, span);
 
         return;
       }
@@ -19960,10 +19975,7 @@ impl<'a> Executor<'a> {
                     Ty::ChannelRx(_) => {
                       let span = self.tree.spans[fun_idx];
 
-                      report_error(Error::new(
-                        ErrorKind::InvalidMethodCall,
-                        span,
-                      ));
+                      self.report(ErrorKind::InvalidMethodCall, span);
 
                       return;
                     }
@@ -19983,10 +19995,7 @@ impl<'a> Executor<'a> {
                     Ty::ChannelTx(_) => {
                       let span = self.tree.spans[fun_idx];
 
-                      report_error(Error::new(
-                        ErrorKind::InvalidMethodCall,
-                        span,
-                      ));
+                      self.report(ErrorKind::InvalidMethodCall, span);
 
                       return;
                     }
@@ -20141,7 +20150,7 @@ impl<'a> Executor<'a> {
                 Ty::ChannelRx(_) => {
                   let span = self.tree.spans[method_idx];
 
-                  report_error(Error::new(ErrorKind::InvalidMethodCall, span));
+                  self.report(ErrorKind::InvalidMethodCall, span);
 
                   return;
                 }
@@ -20161,7 +20170,7 @@ impl<'a> Executor<'a> {
                 Ty::ChannelTx(_) => {
                   let span = self.tree.spans[method_idx];
 
-                  report_error(Error::new(ErrorKind::InvalidMethodCall, span));
+                  self.report(ErrorKind::InvalidMethodCall, span);
 
                   return;
                 }
@@ -20354,7 +20363,7 @@ impl<'a> Executor<'a> {
             });
           } else {
             // Undefined variable in interpolation.
-            report_error(Error::new(ErrorKind::UndefinedVariable, span));
+            self.report(ErrorKind::UndefinedVariable, span);
           }
         }
       }
@@ -20450,7 +20459,7 @@ impl<'a> Executor<'a> {
 
     let span = self.tree.spans[lparen_idx + 1];
 
-    report_error(Error::new(ErrorKind::ChannelCapacityNotLiteral, span));
+    self.report(ErrorKind::ChannelCapacityNotLiteral, span);
 
     Some(0)
   }
@@ -20540,7 +20549,7 @@ impl<'a> Executor<'a> {
       if func.kind != FunctionKind::Intrinsic && arg_count != expected_args {
         let span = self.tree.spans[rparen_idx];
 
-        report_error(Error::new(ErrorKind::ArgumentCountMismatch, span));
+        self.report(ErrorKind::ArgumentCountMismatch, span);
 
         return;
       }
@@ -20732,11 +20741,11 @@ impl<'a> Executor<'a> {
                 arg_sirs[sir_slot] = coerce_sv;
                 arg_types[i] = param_ty;
               } else {
-                report_error(Error::with_secondary(
+                self.report_secondary(
                   ErrorKind::BoundNotSatisfied,
                   span,
                   func.span,
-                ));
+                );
                 return;
               }
             }
@@ -21239,7 +21248,7 @@ impl<'a> Executor<'a> {
       _ => {
         let span = self.tree.spans[rparen_idx];
 
-        report_error(Error::new(ErrorKind::UnexpectedToken, span));
+        self.report(ErrorKind::UnexpectedToken, span);
 
         return;
       }
@@ -22074,11 +22083,11 @@ impl<'a> Executor<'a> {
 
       for &bound in bounds {
         if !self.abstract_impls.contains_key(&(bound, concrete)) {
-          report_error(Error::with_secondary(
+          self.report_secondary(
             ErrorKind::BoundNotSatisfied,
             call_site,
             func.span,
-          ));
+          );
           return base_name;
         }
       }
@@ -23018,7 +23027,7 @@ impl<'a> Executor<'a> {
           idx += 1;
 
           if idx < end_idx && self.tree.nodes[idx].token == Token::RBrace {
-            report_error(Error::new(ErrorKind::ExpectedExpression, brace_span));
+            self.report(ErrorKind::ExpectedExpression, brace_span);
             idx += 1;
             continue;
           }
@@ -23979,7 +23988,7 @@ impl<'a> Executor<'a> {
     }
 
     let Some(sym) = src_sym else {
-      report_error(Error::new(ErrorKind::ExpectedExpression, brace_span));
+      self.report(ErrorKind::ExpectedExpression, brace_span);
 
       return true;
     };
@@ -23987,7 +23996,7 @@ impl<'a> Executor<'a> {
     // Resolve the source — must be an immutable local bound to
     // a string.
     let Some(local) = self.lookup_local(sym) else {
-      report_error(Error::new(ErrorKind::UndefinedVariable, brace_span));
+      self.report(ErrorKind::UndefinedVariable, brace_span);
 
       return true;
     };
@@ -23996,7 +24005,7 @@ impl<'a> Executor<'a> {
       // MVP: dynamic #html is not yet supported. The error
       // kind is a close-enough semantic fit — a dedicated
       // variant can be added later.
-      report_error(Error::new(ErrorKind::TypeMismatch, brace_span));
+      self.report(ErrorKind::TypeMismatch, brace_span);
 
       return true;
     }

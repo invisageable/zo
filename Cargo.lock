@@ -7926,6 +7926,7 @@ dependencies = [
  "criterion",
  "hashbrown 0.16.1",
  "rustc-hash 2.1.2",
+ "tempfile",
  "zo-analyzer",
  "zo-codegen",
  "zo-codegen-backend",

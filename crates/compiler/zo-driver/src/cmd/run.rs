@@ -72,7 +72,7 @@ impl Run {
       explain_decisions: self.args.explain_decisions,
     });
 
-    let (semantic, _tokenization, _parsing, session) =
+    let (semantic, _tokenization, _parsing, session, _file_table) =
       compiler.analyze_source(&source, input_path);
 
     // Collect the set of template ValueIds targeted by `#dom`

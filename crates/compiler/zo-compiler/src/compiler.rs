@@ -75,6 +75,7 @@ pub fn default_core_search_paths() -> Vec<PathBuf> {
 /// `extract`).
 struct PendingPack {
   path: PathBuf,
+  source: String,
   tokenization: TokenizationResult,
   parsing: ParsingResult,
   loads: Vec<LoadRef>,
@@ -485,6 +486,15 @@ struct DfsCtx {
   /// Pack symbol → absolute source path for every module
   /// compiled during this `analyze_source` call.
   pack_paths: HashMap<Symbol, PathBuf>,
+  /// File table: file_id → (path, source). Index 0 is the
+  /// entry file; indices 1+ are loaded modules in
+  /// compilation order. Fed to the renderer so each error
+  /// resolves against its own file's source text.
+  file_table: Vec<(PathBuf, String)>,
+  /// Reverse index: filesystem path → file_id. Prevents
+  /// double-registration when the same file is reached
+  /// through different module paths.
+  file_id_by_path: HashMap<PathBuf, u16>,
 }
 
 impl DfsCtx {
@@ -503,7 +513,25 @@ impl DfsCtx {
       folder_packs: HashSet::default(),
       pending_packs: HashMap::default(),
       pack_paths: HashMap::default(),
+      file_table: Vec::new(),
+      file_id_by_path: HashMap::default(),
     }
+  }
+
+  /// Registers a source file and returns its file_id.
+  /// Idempotent — returns the existing id if the path
+  /// was already registered.
+  fn register_file(&mut self, path: PathBuf, source: String) -> u16 {
+    if let Some(&id) = self.file_id_by_path.get(&path) {
+      return id;
+    }
+
+    let id = self.file_table.len() as u16;
+
+    self.file_id_by_path.insert(path.clone(), id);
+    self.file_table.push((path, source));
+
+    id
   }
 }
 
@@ -549,6 +577,11 @@ impl Compiler {
 
   pub fn set_test_mode(&mut self, enabled: bool) {
     self.test_mode = enabled;
+  }
+
+  /// Collected errors from the last compilation.
+  pub fn reporter_errors(&self) -> &[zo_error::Error] {
+    self.reporter.errors()
   }
 
   /// Applies a [`DiagnosticsConfig`] to this compiler. Bound
@@ -673,7 +706,13 @@ impl Compiler {
     &mut self,
     source: &str,
     file_path: &Path,
-  ) -> (SemanticResult, TokenizationResult, ParsingResult, Session) {
+  ) -> (
+    SemanticResult,
+    TokenizationResult,
+    ParsingResult,
+    Session,
+    Vec<(PathBuf, String)>,
+  ) {
     self.profiler.start_phase(TOKENIZER_NAME);
     let mut session = Session::new();
     let tokenizer = Tokenizer::new(source, &mut session.interner);
@@ -686,6 +725,8 @@ impl Compiler {
     self.profiler.end_phase(PARSER_NAME);
 
     let mut ctx = DfsCtx::new();
+
+    ctx.register_file(file_path.to_path_buf(), source.to_string());
 
     // Discover lib.zo and parse each pub-pack ONCE here.
     // Compilation is deferred until each pack is actually
@@ -739,6 +780,7 @@ impl Compiler {
             sym,
             PendingPack {
               path: pack_file,
+              source: pack_source,
               tokenization: pack_tok,
               parsing: pack_par,
               loads: pack_loads,
@@ -820,6 +862,9 @@ impl Compiler {
       if let Some(m) = resolved {
         let src = m.source.clone();
         let resolved_path = m.path.clone();
+
+        ctx.register_file(resolved_path.clone(), src.clone());
+
         let mut mod_tok =
           Tokenizer::new(&src, &mut session.interner).tokenize();
         let mut mod_par = Parser::new(&mod_tok, &src).parse();
@@ -876,6 +921,7 @@ impl Compiler {
           imports: mod_imports,
           implicit_pack: implicit_sym,
           source_path: Some(resolved_path.clone()),
+          file_id: ctx.file_id_by_path[&resolved_path],
           ..AnalyzerConfig::default()
         })
         .analyze();
@@ -1034,6 +1080,7 @@ impl Compiler {
         implicit_pack: implicit_sym,
         in_scope_packs,
         is_entry: true,
+        file_id: 0,
       })
       .analyze();
     self.profiler.end_phase(ANALYZER_NAME);
@@ -1098,7 +1145,9 @@ impl Compiler {
 
     semantic.pack_paths = ctx.pack_paths;
 
-    (semantic, tokenization, parsing, session)
+    let file_table = ctx.file_table;
+
+    (semantic, tokenization, parsing, session, file_table)
   }
 
   /// Recursive DFS post-order driver. Compiles every
@@ -1213,6 +1262,8 @@ impl Compiler {
         // compiles exactly once, so it's never read again.
         let mut pack = ctx.pending_packs.remove(&top).expect("just verified");
 
+        ctx.register_file(pack.path.clone(), std::mem::take(&mut pack.source));
+
         let implicit_sym =
           implicit_pack_for(&pack.path, self.module_resolver.search_paths())
             .map(|stem| session.interner.intern(&stem));
@@ -1238,6 +1289,7 @@ impl Compiler {
         .with_config(AnalyzerConfig {
           imports: pack_imports,
           implicit_pack: implicit_sym,
+          file_id: ctx.file_id_by_path[&pack.path],
           source_path: Some(pack.path.clone()),
           ..AnalyzerConfig::default()
         })
@@ -1401,6 +1453,8 @@ impl Compiler {
         resolved_path.clone(),
         (tok, par, tree_baseline, lit_baseline),
       );
+
+      ctx.register_file(resolved_path.clone(), mod_source);
     }
 
     // Rewind any splice from a previous analyze pass on
@@ -1521,6 +1575,7 @@ impl Compiler {
     .with_config(AnalyzerConfig {
       imports: mod_imports,
       implicit_pack: implicit_sym,
+      file_id: ctx.file_id_by_path.get(resolved_path).copied().unwrap_or(0),
       source_path: Some(resolved_path.to_path_buf()),
       ..AnalyzerConfig::default()
     })
@@ -1634,9 +1689,13 @@ impl Compiler {
       }
     };
 
+    let mut file_table = Vec::new();
+
     for (path, code) in files.iter() {
-      let (semantic, tokenization, parsing, session) =
+      let (semantic, tokenization, parsing, session, ft) =
         self.analyze_source(code, path);
+
+      file_table = ft;
 
       self.stats.numtokens += tokenization.tokens.len();
       self.stats.numnodes += parsing.tree.nodes.len();
@@ -1780,18 +1839,11 @@ impl Compiler {
 
       aggregator.add_errors(errors);
 
-      for (path, source) in files.iter() {
-        let filename = path
-          .file_name()
-          .map(|n| n.to_string_lossy())
-          .unwrap_or_else(|| path.to_string_lossy());
-
-        let _ = if self.emit_json {
-          json::to_stdout(&aggregator, source, &filename, self.snippet_context)
-        } else {
-          render_errors_to_stderr(&aggregator, source, &filename)
-        };
-      }
+      let _ = if self.emit_json {
+        json::to_stdout(&aggregator, &file_table, self.snippet_context)
+      } else {
+        render_errors_to_stderr(&aggregator, &file_table)
+      };
 
       aggregator.clear();
 
@@ -1838,7 +1890,7 @@ impl Compiler {
     self.test_mode = true;
 
     let (path, code) = &files[0];
-    let (mut semantic, _tokenization, _parsing, mut session) =
+    let (mut semantic, _tokenization, _parsing, mut session, file_table) =
       self.analyze_source(code, path);
 
     // Collect test functions from post-DCE SIR.
@@ -1936,14 +1988,7 @@ impl Compiler {
 
       aggregator.add_errors(errors);
 
-      for (file_path, source) in files.iter() {
-        let filename = file_path
-          .file_name()
-          .map(|n| n.to_string_lossy())
-          .unwrap_or_else(|| file_path.to_string_lossy());
-
-        let _ = render_errors_to_stderr(&aggregator, source, &filename);
-      }
+      let _ = render_errors_to_stderr(&aggregator, &file_table);
 
       aggregator.clear();
 

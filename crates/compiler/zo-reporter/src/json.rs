@@ -69,6 +69,7 @@ use zo_error::Error;
 use serde_json::{Map, Value, json};
 
 use std::io::{self, Write};
+use std::path::PathBuf;
 
 /// Schema version. Bump on incompatible shape changes
 /// (removing a field, renaming a field, narrowing a closed
@@ -86,15 +87,20 @@ const SCHEMA_VERSION: u32 = 1;
 /// name placed in `span.file` (typically the basename).
 pub fn to_json<W: Write>(
   aggregator: &ErrorAggregator,
-  source: &str,
-  filename: &str,
+  files: &[(PathBuf, String)],
   snippet_context: usize,
   out: &mut W,
 ) -> io::Result<()> {
   for phase_errors in aggregator.errors() {
     for error in &phase_errors.errors {
-      let obj =
-        encode(error, phase_errors.phase, source, filename, snippet_context);
+      let (source, filename) = file_for_error(error, files);
+      let obj = encode(
+        error,
+        phase_errors.phase,
+        source,
+        &filename,
+        snippet_context,
+      );
       let line = serde_json::to_string(&obj)?;
 
       writeln!(out, "{line}")?;
@@ -110,14 +116,34 @@ pub fn to_json<W: Write>(
 /// dispatch on `--format` with one branch.
 pub fn to_stdout(
   aggregator: &ErrorAggregator,
-  source: &str,
-  filename: &str,
+  files: &[(PathBuf, String)],
   snippet_context: usize,
 ) -> io::Result<()> {
   let stdout = io::stdout();
   let mut handle = stdout.lock();
 
-  to_json(aggregator, source, filename, snippet_context, &mut handle)
+  to_json(aggregator, files, snippet_context, &mut handle)
+}
+
+/// Resolves an error's source text and display filename.
+fn file_for_error<'a>(
+  error: &Error,
+  files: &'a [(PathBuf, String)],
+) -> (&'a str, String) {
+  let idx = error
+    .file_id()
+    .map(|id| id as usize)
+    .unwrap_or(0)
+    .min(files.len().saturating_sub(1));
+
+  let (path, source) = &files[idx];
+
+  let filename = path
+    .file_name()
+    .map(|n| n.to_string_lossy().into_owned())
+    .unwrap_or_else(|| path.to_string_lossy().into_owned());
+
+  (source.as_str(), filename)
 }
 
 /// Build the NDJSON object for one diagnostic. With the
@@ -435,6 +461,10 @@ mod tests {
     agg
   }
 
+  fn files(name: &str, source: &str) -> Vec<(PathBuf, String)> {
+    vec![(PathBuf::from(name), source.to_string())]
+  }
+
   #[test]
   fn extract_snippet_returns_context_lines() {
     let source = "line1\nline2\nline3\nline4\nline5\n";
@@ -501,7 +531,7 @@ mod tests {
     let agg = aggregate(err);
     let mut buf = Vec::new();
 
-    to_json(&agg, &source, "foo.zo", 2, &mut buf).unwrap();
+    to_json(&agg, &files("foo.zo", &source), 2, &mut buf).unwrap();
 
     let text = String::from_utf8(buf).unwrap();
     assert_eq!(
@@ -522,7 +552,7 @@ mod tests {
     let agg = aggregate(err);
     let mut buf = Vec::new();
 
-    to_json(&agg, &source, "foo.zo", 2, &mut buf).unwrap();
+    to_json(&agg, &files("foo.zo", &source), 2, &mut buf).unwrap();
     let line = String::from_utf8(buf).unwrap();
     let v: Value = serde_json::from_str(line.trim()).unwrap();
 
@@ -548,7 +578,7 @@ mod tests {
     let agg = aggregate(err);
     let mut buf = Vec::new();
 
-    to_json(&agg, source, "foo.zo", 0, &mut buf).unwrap();
+    to_json(&agg, &files("foo.zo", source), 0, &mut buf).unwrap();
     let line = String::from_utf8(buf).unwrap();
     let v: Value = serde_json::from_str(line.trim()).unwrap();
 
@@ -579,8 +609,8 @@ mod tests {
 
     let mut buf1 = Vec::new();
     let mut buf2 = Vec::new();
-    to_json(&agg, source, "foo.zo", 2, &mut buf1).unwrap();
-    to_json(&agg, source, "foo.zo", 2, &mut buf2).unwrap();
+    to_json(&agg, &files("foo.zo", source), 2, &mut buf1).unwrap();
+    to_json(&agg, &files("foo.zo", source), 2, &mut buf2).unwrap();
 
     assert_eq!(
       buf1, buf2,
@@ -607,7 +637,7 @@ mod tests {
     agg.add_errors(&[analyzer, parser, tokenizer]);
 
     let mut buf = Vec::new();
-    to_json(&agg, source, "foo.zo", 0, &mut buf).unwrap();
+    to_json(&agg, &files("foo.zo", source), 0, &mut buf).unwrap();
     let text = String::from_utf8(buf).unwrap();
     let phases: Vec<String> = text
       .lines()
@@ -638,7 +668,7 @@ mod tests {
     let agg = aggregate(err);
     let mut buf = Vec::new();
 
-    to_json(&agg, "''", "foo.zo", 0, &mut buf).unwrap();
+    to_json(&agg, &files("foo.zo", "''"), 0, &mut buf).unwrap();
     let v: Value =
       serde_json::from_str(String::from_utf8(buf).unwrap().trim()).unwrap();
 
@@ -658,7 +688,7 @@ mod tests {
     let agg = aggregate(err);
     let mut buf = Vec::new();
 
-    to_json(&agg, "", "foo.zo", 0, &mut buf).unwrap();
+    to_json(&agg, &files("foo.zo", ""), 0, &mut buf).unwrap();
     let v: Value =
       serde_json::from_str(String::from_utf8(buf).unwrap().trim()).unwrap();
 
@@ -671,7 +701,7 @@ mod tests {
     let agg = aggregate(err);
     let mut buf = Vec::new();
 
-    to_json(&agg, "", "foo.zo", 0, &mut buf).unwrap();
+    to_json(&agg, &files("foo.zo", ""), 0, &mut buf).unwrap();
     let v: Value =
       serde_json::from_str(String::from_utf8(buf).unwrap().trim()).unwrap();
 
@@ -696,8 +726,8 @@ mod tests {
 
     let mut buf_a = Vec::new();
     let mut buf_b = Vec::new();
-    to_json(&agg_a, "", "f.zo", 2, &mut buf_a).unwrap();
-    to_json(&agg_b, "", "f.zo", 2, &mut buf_b).unwrap();
+    to_json(&agg_a, &files("f.zo", ""), 2, &mut buf_a).unwrap();
+    to_json(&agg_b, &files("f.zo", ""), 2, &mut buf_b).unwrap();
 
     let keys_a: Vec<_> = serde_json::from_slice::<Map<String, Value>>(
       buf_a.split(|&c| c == b'\n').next().unwrap(),

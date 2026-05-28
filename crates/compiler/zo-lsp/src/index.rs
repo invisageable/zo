@@ -50,7 +50,7 @@ impl SymbolIndex {
 
     let mut compiler = Compiler::with_search_paths(search_paths);
 
-    let (semantic, _tokenization, parsing, _session) =
+    let (semantic, _tokenization, parsing, _session, _file_table) =
       compiler.analyze_source(source, path);
 
     log::info!(
