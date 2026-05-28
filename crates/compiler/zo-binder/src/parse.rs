@@ -2,31 +2,52 @@
 //!
 //! @note — keeps only `extern "C"` functions carrying
 //! `#[no_mangle]` or `#[unsafe(no_mangle)]`; everything else
-//! is skipped.
+//! is skipped. `type X = Y;` aliases are resolved so the type
+//! mapper sees concrete types.
 
 use crate::model::{BindError, FfiItem, Param, RustTy};
 
 use quote::ToTokens;
 use syn::{
-  Attribute, Expr, ExprLit, FnArg, Item, ItemFn, Lit, Meta, Pat, ReturnType,
-  Type,
+  Attribute, Expr, ExprLit, File, FnArg, Item, ItemFn, Lit, Meta, Pat,
+  ReturnType, Type,
 };
+
+use std::collections::HashMap;
+
+/// Bound on alias resolution depth — guards cyclic `type`
+/// definitions without panicking.
+const MAX_ALIAS_DEPTH: usize = 16;
 
 /// Extract every C-ABI, `no_mangle` function from `src`.
 pub fn parse_ffi_items(src: &str) -> Result<Vec<FfiItem>, BindError> {
   let file =
     syn::parse_file(src).map_err(|err| BindError::Syntax(err.to_string()))?;
 
+  let aliases = collect_aliases(&file);
+
   let items = file
     .items
     .iter()
     .filter_map(|item| match item {
-      Item::Fn(fun) if is_ffi_fn(fun) => Some(ffi_item(fun)),
+      Item::Fn(fun) if is_ffi_fn(fun) => Some(ffi_item(fun, &aliases)),
       _ => None,
     })
     .collect();
 
   Ok(items)
+}
+
+/// Collect `type X = Y;` aliases into a name → type map.
+fn collect_aliases(file: &File) -> HashMap<String, RustTy> {
+  file
+    .items
+    .iter()
+    .filter_map(|item| match item {
+      Item::Type(alias) => Some((alias.ident.to_string(), rust_ty(&alias.ty))),
+      _ => None,
+    })
+    .collect()
 }
 
 /// True when `fun` is `extern "C"` and `no_mangle`.
@@ -38,7 +59,7 @@ fn is_ffi_fn(fun: &ItemFn) -> bool {
 fn is_extern_c(fun: &ItemFn) -> bool {
   match &fun.sig.abi {
     // bare `extern` defaults to the C ABI.
-    Some(abi) => abi.name.as_ref().is_none_or(|n| n.value() == "C"),
+    Some(abi) => abi.name.as_ref().is_none_or(|name| name.value() == "C"),
     None => false,
   }
 }
@@ -62,18 +83,18 @@ fn has_no_mangle(attrs: &[Attribute]) -> bool {
   })
 }
 
-/// Build an [`FfiItem`] from a validated function.
-fn ffi_item(fun: &ItemFn) -> FfiItem {
+/// Build an [`FfiItem`], resolving aliases in its types.
+fn ffi_item(fun: &ItemFn, aliases: &HashMap<String, RustTy>) -> FfiItem {
   FfiItem {
     name: fun.sig.ident.to_string(),
-    params: params(fun),
-    ret: ret_ty(&fun.sig.output),
+    params: params(fun, aliases),
+    ret: resolve(&ret_ty(&fun.sig.output), aliases),
     doc: doc_lines(&fun.attrs),
   }
 }
 
 /// Collect the typed parameters, skipping any `self`.
-fn params(fun: &ItemFn) -> Vec<Param> {
+fn params(fun: &ItemFn, aliases: &HashMap<String, RustTy>) -> Vec<Param> {
   fun
     .sig
     .inputs
@@ -81,7 +102,7 @@ fn params(fun: &ItemFn) -> Vec<Param> {
     .filter_map(|arg| match arg {
       FnArg::Typed(pat) => Some(Param {
         name: pat_name(&pat.pat),
-        ty: rust_ty(&pat.ty),
+        ty: resolve(&rust_ty(&pat.ty), aliases),
       }),
       FnArg::Receiver(_) => None,
     })
@@ -118,6 +139,34 @@ fn rust_ty(ty: &Type) -> RustTy {
     },
     Type::Tuple(tuple) if tuple.elems.is_empty() => RustTy::Unit,
     other => RustTy::Other(other.to_token_stream().to_string()),
+  }
+}
+
+/// Resolve `type` aliases in `ty` to their concrete types.
+fn resolve(ty: &RustTy, aliases: &HashMap<String, RustTy>) -> RustTy {
+  resolve_guarded(ty, aliases, 0)
+}
+
+/// Resolve aliases with a depth guard against cycles.
+fn resolve_guarded(
+  ty: &RustTy,
+  aliases: &HashMap<String, RustTy>,
+  depth: usize,
+) -> RustTy {
+  if depth > MAX_ALIAS_DEPTH {
+    return ty.clone();
+  }
+
+  match ty {
+    RustTy::Path(name) => match aliases.get(name) {
+      Some(target) => resolve_guarded(target, aliases, depth + 1),
+      None => ty.clone(),
+    },
+    RustTy::Ptr { mutable, inner } => RustTy::Ptr {
+      mutable: *mutable,
+      inner: Box::new(resolve_guarded(inner, aliases, depth + 1)),
+    },
+    other => other.clone(),
   }
 }
 

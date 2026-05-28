@@ -5,6 +5,7 @@
 //! pipeline consumes. Ahead-of-time only — never on the
 //! `zo run` path.
 
+pub mod bind;
 pub mod emit;
 pub mod model;
 pub mod parse;

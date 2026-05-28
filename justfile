@@ -122,6 +122,11 @@ zo_test:
 zo_lsp:
   cargo run -p zo-lsp
 
+# zo: Generate provider FFI bindings from a Rust shim
+[group("zo")]
+bind lib:
+  cargo run -p zo-binder -- {{lib}}
+
 # Run zo program integration tests
 [group("zo")]
 [group('test')]

@@ -108,3 +108,19 @@ fn captures_doc_lines() {
 
   assert_eq!(items[0].doc, vec!["First line.", "Second line."]);
 }
+
+/// `type X = Y;` aliases resolve to their concrete type.
+#[test]
+fn resolves_type_aliases() {
+  let src = r#"
+    type ZoHandle = i64;
+
+    #[no_mangle]
+    pub extern "C" fn f(h: ZoHandle) -> ZoHandle { h }
+  "#;
+
+  let items = parse_ffi_items(src).unwrap();
+
+  assert_eq!(items[0].params[0].ty, RustTy::Path("i64".to_string()));
+  assert_eq!(items[0].ret, RustTy::Path("i64".to_string()));
+}
