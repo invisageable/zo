@@ -1,6 +1,6 @@
 //! Emit the four-language stress_fun_10k bench inputs from
 //! a single source-of-truth pattern:
-//! `stress_fun_10k.{zo,c,rs,odin}`. Each file is the same
+//! `stress_fun_10k.{zo,c,go,rs,odin}`. Each file is the same
 //! 1000-function chain — `func_i` calls `func_(i-1)`, and
 //! main computes `func_999(1)`. Compile time across
 //! compilers is what we measure.
@@ -18,7 +18,7 @@
 //! ```
 //!
 //! Outputs land at
-//! `../zo-benches/benches/stress_fun_10k/stress_fun_10k.{zo,c,rs,odin}`.
+//! `../zo-benches/benches/stress_fun_10k/stress_fun_10k.{zo,c,go,rs,odin}`.
 
 use std::fs;
 use std::path::PathBuf;
@@ -98,6 +98,30 @@ fn emit_rust() -> String {
   s
 }
 
+fn emit_go() -> String {
+  let mut s = String::with_capacity(150 * 1024);
+
+  s.push_str("// generated bench source. ~10K lines.\n\n");
+  s.push_str("package main\n\n");
+  s.push_str("import \"fmt\"\n\n");
+  s.push_str("func func000(x int64) int64 { return x + 1 }\n\n");
+
+  for i in 1..NUM_FUNCTIONS {
+    s.push_str(&format!(
+      "func func{i:03}(x int64) int64 {{\n\ty := func{prev:03}(x)\n\tz := y*2 - 1\n\tif z > 0 {{\n\t\treturn z\n\t}} else {{\n\t\treturn -z\n\t}}\n}}\n\n",
+      i = i,
+      prev = i - 1
+    ));
+  }
+
+  s.push_str(&format!(
+    "func main() {{\n\tr := func{:03}(1)\n\tfmt.Println(r)\n}}\n",
+    NUM_FUNCTIONS - 1
+  ));
+
+  s
+}
+
 fn emit_odin() -> String {
   let mut s = String::with_capacity(150 * 1024);
 
@@ -130,26 +154,30 @@ fn main() {
 
   fs::create_dir_all(&dir).unwrap();
 
-  let zo_path = dir.join("stress_fun_10k.zo");
   let c_path = dir.join("stress_fun_10k.c");
-  let rs_path = dir.join("stress_fun_10k.rs");
+  let go_path = dir.join("stress_fun_10k.go");
   let odin_path = dir.join("stress_fun_10k.odin");
+  let rs_path = dir.join("stress_fun_10k.rs");
+  let zo_path = dir.join("stress_fun_10k.zo");
 
-  let zo = emit_zo();
   let c = emit_c();
-  let rs = emit_rust();
+  let go = emit_go();
   let odin = emit_odin();
+  let rs = emit_rust();
+  let zo = emit_zo();
 
-  fs::write(&zo_path, &zo).unwrap();
   fs::write(&c_path, &c).unwrap();
-  fs::write(&rs_path, &rs).unwrap();
+  fs::write(&go_path, &go).unwrap();
   fs::write(&odin_path, &odin).unwrap();
+  fs::write(&rs_path, &rs).unwrap();
+  fs::write(&zo_path, &zo).unwrap();
 
   for (path, src) in [
-    (&zo_path, &zo),
     (&c_path, &c),
-    (&rs_path, &rs),
+    (&go_path, &go),
     (&odin_path, &odin),
+    (&rs_path, &rs),
+    (&zo_path, &zo),
   ] {
     println!(
       "wrote {} ({} lines, {} bytes)",

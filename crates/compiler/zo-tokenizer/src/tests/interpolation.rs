@@ -15,7 +15,7 @@ fn non_ident_strategy() -> impl Strategy<Value = String> {
   prop_oneof![
     "[0-9][a-z]{0,10}",
     "[a-z]+ [a-z]+",
-    "[a-z]+[^a-zA-Z0-9_{}]+[a-z]*",
+    "[a-z]+[^a-zA-Z0-9_{}\\\\]+[a-z]*",
     Just(String::new()),
   ]
 }
@@ -369,6 +369,20 @@ fn closing_brace_splits_before_ident_check() {
 
 #[test]
 fn literal_closing_brace_via_escape() {
-  // `\}` produces a literal `}` — no structural meaning.
   assert!(roundtrip("\\}"), "escaped closing brace failed");
+}
+
+#[test]
+fn backslash_in_braces_not_variable() {
+  // Source `"{a\\}"` — unescape turns `\\` into literal
+  // `\`. Segment parser sees `{a\}`, variable name is
+  // `a\` which fails `is_valid_ident`. Stays literal.
+  let segments = segments_for("{a\\\\}");
+
+  for seg in &segments {
+    assert!(
+      !matches!(seg, InterpSegment::Variable(_)),
+      "backslash in braces should not produce Variable"
+    );
+  }
 }
