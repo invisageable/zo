@@ -31,8 +31,8 @@
   ```
 
 <p align="center">
-  <img width="344px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui.png">
-  <img width="344px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-web.png">
+  <img width="354px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui.png">
+  <img width="354px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-web.png">
 </p>
 
 ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. NATiVE GPU OR THE WEB — SAME SOURCE.
@@ -57,6 +57,32 @@ ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. NATiVE GPU OR THE WEB — SA
       }
     }                                                                            
   }
+  ```
+
+SUCCESFULLY BUiLD AN EXECUTABLE AND DiSPLAY A CLEAR OUTPUT ABOUT THE COMPiLATiON PROCESS:
+
+  ```
+  [zo] lines processed (including blank lines and comments) — 31.
+  │
+  ├── "Why accept slow compilers? Just make them faster." — Jonathan Blow
+  │
+  ├── ✓ [zo@front-end] time — 767.792 μs (19.8%).
+  │   ├── ⏺ [zo@tokenizer] time — 98.042 μs (2.5%).
+  │   │   └── ⏺ processed — 120 tokens.
+  │   ├── ⏺ [zo@parser] time — 36.625 μs (0.9%).
+  │   │   └── ⏺ parsed — 772 nodes.
+  │   └── ⏺ [zo@analyzer] time — 633.125 μs (16.3%).
+  │       └── ⏺ annotated — 8 nodes.
+  ├── ✓ [zo@back-end] time — 3.106 ms (80.2%).
+  │   ├── ⏺ [zo@codegen:arm64-apple-darwin] time — 1.332 ms (34.4%).
+  │   │   └── ⏺ generated — 1 artifacts.
+  │   └── ⏺ [zo@linker] time — 1.774 ms (45.8%).
+  │       └── ⏺ linked — 1 files.
+  └── ✓ [zo@total] time — 3.874 ms (100.0%).
+
+  ⚡ speed: 8.00K LoC/s.
+
+  chan1: 10
   ```
 
 ## why zo?

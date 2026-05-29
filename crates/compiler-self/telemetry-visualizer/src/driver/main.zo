@@ -147,7 +147,7 @@ fun main() {
   showln("===================");
 
   -- Build synthetic source files.
-  imu entrys: []CompileUnit = [
+  imu entries: []CompileUnit = [
     make_source("math.zo", 80),
     make_source("io.zo", 60),
     make_source("net.zo", 100),
@@ -163,9 +163,9 @@ fun main() {
   ];
 
   imu total_lines: int =
-    80 + 60 + 100 + 40 + 70 + 90 + 120 + 50 + 30 + 45 + 55 + 75;
+    80 + 60 + 100 + 40 + 70 + 90 + 120 + 50 + 30 + 45 + 55 + 75; -- TODO: WTF?! must use `.sum`
 
-  imu file_count: int = entrys.len;
+  imu file_count: int = entries.len;
   showln("Files: {file_count}");
   showln("Total lines: {total_lines}");
 

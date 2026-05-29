@@ -114,15 +114,24 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
 
 **-compilers**
 
+  - **[rust-prehistory](https://github.com/graydon/rust-prehistory)** — Graydon Hoare, Andreas Gal, Brendan Eich, Dave Herman, Michael Bebenita, Patrick Walton and Roy Frostig
   - **[l4c](https://github.com/alexcrichton/l4c)** — Alex Crichton
   - **[yak](https://github.com/grippy/yak)** — Greg Melton
   - **[haze](https://github.com/lunacookies/haze)** — Luna Razzaghipour
-  - **[es4](https://github.com/bkero/es4)** — Graydon Hoare, Jeff Dyer, Lars T Hansen,  Dave Herman, Brendan Eich, Brian Crowder and Blake Kaplan.
+  - **[es4](https://github.com/bkero/es4)** — Graydon Hoare, Jeff Dyer, Lars T Hansen,  Dave Herman, Brendan Eich, Brian Crowder and Blake Kaplan
   - **[ivy](https://github.com/kenmcmil/ivy)** — Ken McMillan
   - **[jinko](https://github.com/jinko-core/jinko)** — Cohen Arthur
+  - **[rue](https://github.com/rue-language/rue)** —  Steve Klabnik
+  - **[cup](https://github.com/mustafaquraish/cup)** — Mustafa Quraish
+  - **[dōji](https://github.com/ravern/doji)** — Ravern Koh
+  - **[imba](https://github.com/imba/imba)** — Sindre Aarsaether
 
 **runtime**
 
   - **[lunatic](https://github.com/lunatic-solutions/lunatic)** — Bernard Kolobara
   - **[jquery](https://api.jquery.com)** — OpenJS Foundation
   - **[goquery](https://github.com/PuerkitoBio/goquery) — Martin Angers
+
+**type system**
+
+  - **[typical](https://github.com/ravern/typical)** — Ravern Koh

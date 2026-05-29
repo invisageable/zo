@@ -393,7 +393,7 @@ fn splice_one(
     if clone.child_count > 0 {
       let new_child_start = clone.child_start as i64 + offset;
 
-      // Debug-only canary against a mis-recorded body whose
+      // Debug-only canary against a misrecorded body whose
       // internal child indices lie outside the body's own
       // subrange. `child_start` is u32, so the only real
       // ceiling is u32::MAX nodes.

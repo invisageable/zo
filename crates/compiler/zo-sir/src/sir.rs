@@ -298,7 +298,7 @@ impl Sir {
   /// @note — the `u32::MAX` sentinel (produced by `push`
   /// for non-value-producing instructions) is preserved
   /// unchanged. Offsetting it would overflow AND lose
-  /// the sentinel property, mis-classifying the value
+  /// the sentinel property, misclassifying the value
   /// slot downstream.
   pub fn offset_value_ids(instructions: &mut [Insn], offset: u32) {
     for insn in instructions.iter_mut() {

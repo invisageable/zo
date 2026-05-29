@@ -1021,7 +1021,7 @@ fn do_accept(fd: RawFd) -> RawFd {
 /// Parse `(host: CStr, port: i64)` into a `SocketAddr`.
 /// `host` is a plain IPv4 / IPv6 literal (no port,
 /// no brackets); `port` must fit in `u16`. Returns
-/// `None` for null host, non-UTF-8, unparseable IP,
+/// `None` for null host, non-UTF-8, unparsable IP,
 /// or out-of-range port.
 unsafe fn parse_host_port(
   host: *const c_char,
