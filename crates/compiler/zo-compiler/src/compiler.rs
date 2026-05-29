@@ -18,6 +18,7 @@ use zo_module_resolver::{
   ImportedSymbols, ModuleExports, ModuleResolver, extract_exports,
   splice_generic_bodies,
 };
+use zo_ownership::Ownership;
 use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
@@ -339,6 +340,7 @@ fn module_exports_to_imports(exports: &ModuleExports) -> ImportedSymbols {
       owning_pack: var.owning_pack,
       span: Span::ZERO,
     });
+
     var_literals.push(var.literal.clone());
   }
 
@@ -1135,6 +1137,7 @@ impl Compiler {
     }
 
     Dce::new(&mut semantic.sir, dce_roots, &session.interner).eliminate();
+    Ownership::new(&semantic.sir).check();
 
     // Single drain after every analyze-time pass (analyzer,
     // module loads, DCE). One TLS access, not one per pass.

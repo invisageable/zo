@@ -68,6 +68,24 @@ impl BitVec {
   }
 
   #[inline]
+  pub fn unset(&mut self, bit: usize) {
+    match self {
+      Self::Inline(w) => {
+        if bit < 64 {
+          *w &= !(1u64 << bit);
+        }
+      }
+      Self::Heap(words) => {
+        let i = bit / 64;
+
+        if i < words.len() {
+          words[i] &= !(1u64 << (bit % 64));
+        }
+      }
+    }
+  }
+
+  #[inline]
   pub fn test(&self, bit: usize) -> bool {
     match self {
       Self::Inline(w) => bit < 64 && (*w >> bit) & 1 == 1,

@@ -1,0 +1,11 @@
+-! Use-after-free: `.free()` consumes the Vec, so the later
+-! `.len()` reads a moved value.
+fun main() {
+  mut v: Vec<int> = Vec::new();
+  v.push(1);
+  v.free();
+  imu n: int = v.len();
+  showln(n);
+}
+
+-- EXPECTED ERROR: E0350

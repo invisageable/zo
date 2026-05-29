@@ -7955,6 +7955,7 @@ dependencies = [
  "zo-linker",
  "zo-misato",
  "zo-module-resolver",
+ "zo-ownership",
  "zo-parser",
  "zo-pp",
  "zo-profiler",
@@ -8179,6 +8180,21 @@ dependencies = [
  "zo-tree",
  "zo-ty",
  "zo-ty-checker",
+ "zo-value",
+]
+
+[[package]]
+name = "zo-ownership"
+version = "0.3.11"
+dependencies = [
+ "rustc-hash 2.1.2",
+ "zo-error",
+ "zo-interner",
+ "zo-liveness",
+ "zo-reporter",
+ "zo-sir",
+ "zo-span",
+ "zo-ty",
  "zo-value",
 ]
 

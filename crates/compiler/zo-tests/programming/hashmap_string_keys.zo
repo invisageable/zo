@@ -57,7 +57,6 @@ fun main() {
 
   showln(hashmap);
   hashmap.free();
-  showln(hashmap);
 
   showln("DONE");
 }
@@ -65,5 +64,4 @@ fun main() {
 -- EXPECTED OUTPUT:
 -- {"carol": 300, "bob": 200, "alice": 100}
 -- {"carol": 300, "alice": 100}
--- {}
 -- DONE

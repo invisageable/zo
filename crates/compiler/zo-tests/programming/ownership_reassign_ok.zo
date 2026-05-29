@@ -1,0 +1,11 @@
+-! After `.free()` consumes `v`, reassigning it resurrects the
+-! binding — the later use is valid, no use-after-move.
+fun main() {
+  mut v: Vec<int> = Vec::new();
+  v.push(1);
+  v.free();
+  v = Vec::new();
+  v.push(2);
+  imu n: int = v.len();
+  showln(n);
+}
