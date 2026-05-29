@@ -7,7 +7,7 @@ use zo_error::ErrorKind;
 use zo_interner::Symbol;
 use zo_sir::{Insn, LoadSource};
 use zo_span::Span;
-use zo_ty::TyId;
+use zo_ty::{SelfKind, TyId};
 use zo_value::ValueId;
 
 #[test]
@@ -26,7 +26,7 @@ fn test_if_simple() {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
@@ -83,7 +83,7 @@ fun main() {}"#,
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
@@ -140,7 +140,7 @@ fun main() {}"#,
         body_start: 13,
         kind: FunctionKind::Intrinsic,
         pubness: Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::new(63, 3),
@@ -213,7 +213,7 @@ fn test_while_loop() {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
@@ -256,7 +256,7 @@ fn test_implicit_return_literal() {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),

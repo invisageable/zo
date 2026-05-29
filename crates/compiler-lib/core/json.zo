@@ -101,7 +101,7 @@ apply Json {
   }
 
   -! Drop the underlying root + handle. Idempotent.
-  pub fun free(self) {
+  pub fun free(own self) {
     zo_json_free(self.handle);
   }
 

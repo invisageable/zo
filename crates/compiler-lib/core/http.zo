@@ -62,7 +62,7 @@ apply Response {
   }
 
   -! Release the backing map allocation.
-  pub fun free(self) {
+  pub fun free(own self) {
     self.headers.free();
   }
 }

@@ -6,7 +6,7 @@ use zo_dce::Dce;
 use zo_interner::Interner;
 use zo_sir::{Insn, Sir};
 use zo_span::Span;
-use zo_ty::TyId;
+use zo_ty::{SelfKind, TyId};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
@@ -24,7 +24,7 @@ fn make_fun(
     body_start: 0,
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
-    mut_self: false,
+    self_kind: SelfKind::None,
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,

@@ -17,7 +17,7 @@ use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{InterpSegment, LiteralStore, Token};
 use zo_tree::{NodeHeader, NodeValue, Tree};
-use zo_ty::{Annotation, FloatWidth, Mutability, Ty, TyId};
+use zo_ty::{Annotation, FloatWidth, Mutability, SelfKind, Ty, TyId};
 use zo_ty_checker::TyChecker;
 use zo_ui_protocol::{
   Attr, ElementTag, EventKind, PropValue, StyleScope, UiCommand,
@@ -3023,7 +3023,7 @@ impl<'a> Executor<'a> {
             body_start,
             kind: FunctionKind::UserDefined,
             pubness: pending_func.pubness,
-            mut_self: pending_func.mut_self,
+            self_kind: pending_func.self_kind,
             link_name: None,
             // Read from `pending_func`, NOT `self.top_pack`.
             // The two diverge for monomorphized generics:
@@ -7598,7 +7598,7 @@ impl<'a> Executor<'a> {
       body_start,
       kind: FunctionKind::Closure { capture_count },
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
@@ -7616,7 +7616,7 @@ impl<'a> Executor<'a> {
       type_params: Vec::new(),
       type_param_bounds: Vec::new(),
       return_type_args: Vec::new(),
-      mut_self: false,
+      self_kind: SelfKind::None,
       owning_pack: None,
       span: Span::ZERO,
       is_test: false,
@@ -7967,6 +7967,8 @@ impl<'a> Executor<'a> {
 
     // Parse parameters: (name, type, mutability).
     let mut params: Vec<(Symbol, TyId, Mutability)> = Vec::new();
+    // Receiver mode, set when the `self` param is seen below.
+    let mut self_kind = SelfKind::None;
     let mut return_ty = self.ty_checker.unit_type();
     let mut return_type_args: Vec<TyId> = Vec::new();
     let mut idx = start_idx + 2; // Skip Fun and name
@@ -8081,13 +8083,18 @@ impl<'a> Executor<'a> {
 
       // Parse parameters until we hit RParen
       while idx < _end_idx {
-        // Check for `mut` modifier before the param name.
-        let is_mut = self.tree.nodes[idx].token == Token::Mut;
+        // Receiver/param modifier: `mut`, `imu`, or `own`.
+        // `mut` writes; `imu` reads (the default); `own`
+        // consumes — meaningful only on `self` (A1).
+        let modifier = self.tree.nodes[idx].token;
+        let is_modifier =
+          matches!(modifier, Token::Mut | Token::Imu | Token::Own);
 
-        if is_mut {
+        if is_modifier {
           idx += 1;
         }
 
+        let is_mut = modifier == Token::Mut;
         let token = self.tree.nodes[idx].token;
 
         match token {
@@ -8110,7 +8117,16 @@ impl<'a> Executor<'a> {
                 .resolve_apply_self_ty(type_name)
                 .unwrap_or_else(|| self.ty_checker.unit_type());
 
-              let mutability = if is_mut {
+              self_kind = match modifier {
+                Token::Own => SelfKind::Consume,
+                Token::Mut => SelfKind::Write,
+                _ => SelfKind::Read,
+              };
+
+              // `own self` is owned by the callee, so its
+              // body may mutate it (builder patterns); `mut
+              // self` is a write-borrow. Both bind mutably.
+              let mutability = if matches!(modifier, Token::Mut | Token::Own) {
                 Mutability::Yes
               } else {
                 Mutability::No
@@ -8341,16 +8357,6 @@ impl<'a> Executor<'a> {
     let sir_params =
       params.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>();
 
-    // Receiver mutability bit: `true` only when the first
-    // parameter is `mut self`. Read by every dot-call site to
-    // reject `imu m; m.mutating_method(...)`.
-    let mut_self = matches!(
-      params.first(),
-      Some((s, _, m))
-        if *s == zo_interner::Symbol::SELF_LOWER
-          && *m == Mutability::Yes
-    );
-
     // Signature-only pre-scan path. Registers the FunDef so
     // forward references (mutual recursion, out-of-order
     // calls) resolve correctly during the main pass, then
@@ -8374,7 +8380,7 @@ impl<'a> Executor<'a> {
           .iter()
           .map(|t| self.ty_checker.resolve_ty(*t))
           .collect(),
-        mut_self,
+        self_kind,
         owning_pack: self.top_pack,
         span: fun_span,
         is_test,
@@ -8600,7 +8606,7 @@ impl<'a> Executor<'a> {
           .iter()
           .map(|t| self.ty_checker.resolve_ty(*t))
           .collect(),
-        mut_self,
+        self_kind,
         owning_pack: self.top_pack,
         span: fun_span,
         is_test,
@@ -8639,7 +8645,7 @@ impl<'a> Executor<'a> {
         .iter()
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
-      mut_self,
+      self_kind,
       owning_pack: self.top_pack,
       span: fun_span,
       is_test,
@@ -10414,7 +10420,7 @@ impl<'a> Executor<'a> {
       body_start: 0,
       kind: FunctionKind::Intrinsic,
       pubness,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name,
       owning_pack: self.top_pack,
       span: fun_span,
@@ -10435,7 +10441,7 @@ impl<'a> Executor<'a> {
         .iter()
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
-      mut_self: false,
+      self_kind: SelfKind::None,
       owning_pack: self.top_pack,
       span: fun_span,
       is_test: false,
@@ -11316,7 +11322,7 @@ impl<'a> Executor<'a> {
         body_start,
         kind: FunctionKind::UserDefined,
         pubness,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: self.top_pack,
         span: fun_span,
@@ -11424,7 +11430,7 @@ impl<'a> Executor<'a> {
         type_params: vec![],
         type_param_bounds: Vec::new(),
         return_type_args: vec![],
-        mut_self: false,
+        self_kind: SelfKind::None,
         owning_pack: self.top_pack,
         span: fun_span,
         is_test: false,
@@ -11628,7 +11634,7 @@ impl<'a> Executor<'a> {
       body_start,
       kind: FunctionKind::UserDefined,
       pubness,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: self.top_pack,
       span,
@@ -11652,7 +11658,7 @@ impl<'a> Executor<'a> {
       type_params: vec![],
       type_param_bounds: Vec::new(),
       return_type_args: vec![],
-      mut_self: false,
+      self_kind: SelfKind::None,
       owning_pack: self.top_pack,
       span,
       is_test: false,
@@ -14512,7 +14518,7 @@ impl<'a> Executor<'a> {
     // (`f().m()`, `s[0].m()`) carry no recoverable binding
     // and are intentionally exempt — the language can't see
     // a binding to check.
-    if func.mut_self
+    if func.self_kind == SelfKind::Write
       && let Some(&(_recv_ty, Some(recv_sym))) =
         self.dot_method_recv_ty.get(&dot_idx)
     {
@@ -23303,7 +23309,7 @@ impl<'a> Executor<'a> {
             body_start,
             kind: FunctionKind::Closure { capture_count },
             pubness: Pubness::No,
-            mut_self: false,
+            self_kind: SelfKind::None,
             link_name: None,
             owning_pack: None,
             span: Span::ZERO,
@@ -23320,7 +23326,7 @@ impl<'a> Executor<'a> {
             type_params: Vec::new(),
             type_param_bounds: Vec::new(),
             return_type_args: Vec::new(),
-            mut_self: false,
+            self_kind: SelfKind::None,
             owning_pack: None,
             span: Span::ZERO,
             is_test: false,

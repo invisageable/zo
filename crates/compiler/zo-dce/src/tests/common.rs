@@ -1,6 +1,6 @@
 use zo_sir::{Insn, Sir};
 use zo_span::Span;
-use zo_ty::TyId;
+use zo_ty::{SelfKind, TyId};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 /// Build a SIR from a list of instructions.
@@ -29,7 +29,7 @@ pub fn fun(
     body_start: 0,
     kind: FunctionKind::UserDefined,
     pubness,
-    mut_self: false,
+    self_kind: SelfKind::None,
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,

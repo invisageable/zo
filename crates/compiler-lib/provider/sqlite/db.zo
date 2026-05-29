@@ -20,7 +20,7 @@ apply Database {
   }
 
   -! Close the database connection.
-  pub fun close(self) {
+  pub fun close(own self) {
     zo_sqlite_close(self.handle);
   }
 

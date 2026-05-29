@@ -111,7 +111,7 @@ apply TcpStream {
 
   -! Close the stream fd. After this, no further reads /
   -! writes may be made on this value.
-  pub fun close(self) -> Result<int, int> {
+  pub fun close(own self) -> Result<int, int> {
     imu rc: int = zo_net_close(self.fd);
 
     if rc >= 0 {
@@ -174,7 +174,7 @@ apply TcpListener {
 
   -! Close the listener fd. After this, no further
   -! accept calls may be made on this value.
-  pub fun close(self) -> Result<int, int> {
+  pub fun close(own self) -> Result<int, int> {
     imu rc: int = zo_net_close(self.fd);
 
     if rc >= 0 {

@@ -588,6 +588,7 @@ mod tests {
   use crate::{BinOp, NurseryKind, SpawnKind};
 
   use zo_span::Span;
+  use zo_ty::SelfKind;
   use zo_value::FunctionKind;
 
   fn vid(n: u32) -> ValueId {
@@ -697,7 +698,7 @@ mod tests {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: zo_value::Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::ZERO,

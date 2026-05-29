@@ -112,7 +112,7 @@ apply File {
   }
 
   -! Close the file descriptor.
-  pub fun close(self) -> Result<int, int> {
+  pub fun close(own self) -> Result<int, int> {
     imu result: int = zo_file_close(self.fd);
 
     if result < 0 {

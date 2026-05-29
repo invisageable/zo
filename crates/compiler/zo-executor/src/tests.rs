@@ -33,7 +33,7 @@ use crate::tests::common::{
 use zo_interner::Symbol;
 use zo_sir::{BinOp, Insn, LoadSource};
 use zo_span::Span;
-use zo_ty::{IntWidth, Ty, TyId};
+use zo_ty::{IntWidth, SelfKind, Ty, TyId};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 #[test]
@@ -194,7 +194,7 @@ fn test_simple_function() {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
@@ -248,7 +248,7 @@ fn test_function_call() {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::new(7, 3),
@@ -287,7 +287,7 @@ fn test_function_call() {
         body_start: 6,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::new(54, 3),
@@ -335,7 +335,7 @@ fn test_main_with_show() {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
@@ -380,7 +380,7 @@ fn test_function_with_return() {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::new(0, 3),
@@ -433,7 +433,7 @@ fn test_directives() {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::ZERO,

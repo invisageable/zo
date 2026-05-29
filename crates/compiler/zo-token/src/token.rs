@@ -28,6 +28,7 @@ pub enum Token {
   Fn, // For closures
   Mut,
   Imu,
+  Own, // `own self` — consuming receiver
   If,
   Else,
   While,
@@ -286,6 +287,7 @@ impl Token {
       Self::Fun
         | Self::Imu
         | Self::Mut
+        | Self::Own
         | Self::Val
         | Self::Return
         | Self::If

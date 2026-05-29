@@ -2,6 +2,7 @@ use zo_interner::Symbol;
 use zo_span::Span;
 use zo_token::Token;
 use zo_ty::Mutability;
+use zo_ty::SelfKind;
 use zo_ty::TyId;
 use zo_ui_protocol::{Attr, StyleScope, UiCommand};
 use zo_value::{FunctionKind, Pubness, ValueId};
@@ -695,12 +696,12 @@ pub enum Insn {
     body_start: u32,
     kind: FunctionKind,
     pubness: Pubness,
-    /// `true` when the first parameter was declared as
-    /// `mut self`. Set only on apply-context methods —
-    /// non-method functions and `self`-only methods are
-    /// `false`. Consumed at every dot-call site to enforce
-    /// that the receiver's binding is `mut`.
-    mut_self: bool,
+    /// Receiver mode of the first parameter. `Write`
+    /// (`mut self`) is consumed at every dot-call site to
+    /// enforce that the receiver's binding is `mut`;
+    /// `Consume` (`own self`) moves the receiver. Non-methods
+    /// and `self`-only methods are `None` / `Read`.
+    self_kind: SelfKind,
     /// C symbol override from a `%% link_name = "X".`
     /// attribute. `Some(sym)` directs codegen to use the
     /// interned string verbatim as the C symbol (after

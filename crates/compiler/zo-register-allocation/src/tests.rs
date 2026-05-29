@@ -5,7 +5,7 @@ use zo_interner::Interner;
 use zo_liveness::compute_value_ids;
 use zo_sir::Insn;
 use zo_span::Span;
-use zo_ty::TyId;
+use zo_ty::{SelfKind, TyId};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 use rustc_hash::FxHashMap as HashMap;
@@ -48,7 +48,7 @@ fn fundef(
     body_start,
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
-    mut_self: false,
+    self_kind: SelfKind::None,
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,

@@ -31,7 +31,7 @@ use zo_span::Span;
 use zo_token::{LiteralStoreBaseline, Token};
 use zo_tokenizer::{TokenizationResult, Tokenizer};
 use zo_tree::{NodeValue, Tree, TreeBaseline};
-use zo_ty::Mutability;
+use zo_ty::{Mutability, SelfKind};
 use zo_value::ValueId;
 use zo_value::{FunctionKind, Local, LocalKind, Pubness};
 
@@ -1937,7 +1937,7 @@ impl Compiler {
       body_start: harness_body_start,
       kind: FunctionKind::UserDefined,
       pubness: Pubness::Yes,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
