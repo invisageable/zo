@@ -174,3 +174,40 @@ fn skips_functions_with_unsupported_types() {
   assert!(!result.output.contains("set_trace_log_callback"));
   assert_eq!(result.skipped, vec!["SetTraceLogCallback".to_string()]);
 }
+
+/// A struct that embeds a skipped struct by value is skipped
+/// too, so no generated struct carries a dangling field type.
+#[test]
+fn skips_struct_referencing_a_skipped_struct() {
+  let json = r#"{
+    "structs": [
+      {
+        "name": "Inner",
+        "description": "unmappable array field",
+        "fields": [
+          { "type": "float[4]", "name": "data", "description": "" }
+        ]
+      },
+      {
+        "name": "Outer",
+        "description": "embeds Inner by value",
+        "fields": [
+          { "type": "Inner", "name": "inner", "description": "" }
+        ]
+      }
+    ],
+    "enums": [],
+    "aliases": [],
+    "functions": []
+  }"#;
+
+  let api = parse_c_api(json).unwrap();
+  let result = bind_c_api("demo", system_link(), &api);
+
+  assert!(!result.output.contains("struct Inner"));
+  assert!(!result.output.contains("struct Outer"));
+  assert_eq!(
+    result.skipped,
+    vec!["struct Inner".to_string(), "struct Outer".to_string()]
+  );
+}
