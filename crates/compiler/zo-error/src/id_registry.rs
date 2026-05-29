@@ -130,6 +130,7 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
     ErrorKind::InvalidAssignment => ("invalid-assignment", 308),
     ErrorKind::ImmutableVariable => ("immutable-variable", 309),
     ErrorKind::UseAfterMove => ("use-after-move", 350),
+    ErrorKind::DoubleFree => ("double-free", 351),
     ErrorKind::InvalidReturn => ("invalid-return", 310),
     ErrorKind::InvalidReturnType => ("invalid-return-type", 311),
     ErrorKind::InvalidBreak => ("invalid-break", 312),

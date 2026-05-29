@@ -301,6 +301,7 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::InvalidAssignment => "Invalid assignment",
     ErrorKind::ImmutableVariable => "Cannot mutate immutable variable",
     ErrorKind::UseAfterMove => "Use of moved value",
+    ErrorKind::DoubleFree => "Double free",
     ErrorKind::ValRequiresTypeAnnotation => {
       "`val` requires explicit type annotation"
     }
@@ -482,6 +483,7 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::DuplicateDefinition => "already defined",
     ErrorKind::ImmutableVariable => "cannot assign to immutable variable",
     ErrorKind::UseAfterMove => "value used here after it was moved",
+    ErrorKind::DoubleFree => "consumed again here",
     ErrorKind::ValRequiresTypeAnnotation => {
       "`val` requires `val x: Type = value`, not `:=`"
     }
@@ -606,6 +608,9 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
     }
     ErrorKind::UseAfterMove => {
       Some("The value was consumed by an `own self` method; bind a fresh value before using it again")
+    }
+    ErrorKind::DoubleFree => {
+      Some("This value was already consumed by an `own self` method; remove the duplicate consume")
     }
     ErrorKind::UndefinedTypeParam => {
       Some("Add `$U` to the type parameter list: `<$T, $U>`")

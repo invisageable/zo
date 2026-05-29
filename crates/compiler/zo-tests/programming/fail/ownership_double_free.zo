@@ -7,4 +7,4 @@ fun main() {
   v.free();
 }
 
--- EXPECTED ERROR: E0350
+-- EXPECTED ERROR: E0351

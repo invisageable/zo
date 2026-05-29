@@ -1,12 +1,16 @@
-//! Affine ownership / move checking — PLAN_MEMORY_MANAGEMENT A2.
+//! Affine ownership / move checking.
 //!
 //! Forward bitvector dataflow over the SIR. One fact per affine
 //! binding — "the value was moved" — set when the binding is the
 //! receiver of a consuming (`own self`) call, cleared on
-//! reassignment, joined by union (moved on any path ⇒ moved). A
-//! read of a moved binding is `UseAfterMove`. This catches
-//! double-free and use-after-free on the manual `.free()` /
-//! `.close()` destructors.
+//! reassignment, joined by union (moved on any path ⇒ moved).
+//!
+//! Two violations, distinguished by what the offending use is:
+//! - consuming an already-moved binding → `DoubleFree`,
+//! - reading an already-moved binding → `UseAfterMove`.
+//!
+//! Both report two spans: the offending use (primary) and the
+//! consume that moved it (secondary), read from `Sir::spans`.
 
 use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
@@ -17,7 +21,7 @@ use zo_span::Span;
 use zo_ty::SelfKind;
 use zo_value::ValueId;
 
-use rustc_hash::FxHashMap as HashMap;
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 /// The move-checking pass over a whole SIR program.
 pub struct Ownership<'sir> {
@@ -30,18 +34,28 @@ impl<'sir> Ownership<'sir> {
     Self { sir }
   }
 
-  /// Checks every function body and reports `UseAfterMove`.
+  /// Checks every function body and reports move violations.
   pub fn check(&self) {
+    // The span side-table must stay aligned with instructions
+    // before any span lookup. A mismatch is a compiler bug,
+    // not a user error — surface it as such rather than read a
+    // desynced array.
+    if self.sir.instructions.len() != self.sir.spans.len() {
+      report_error(Error::new(ErrorKind::InternalCompilerError, Span::ZERO));
+
+      return;
+    }
+
     let kinds = self.self_kinds();
     let insns = &self.sir.instructions;
     let n = insns.len();
     let mut i = 0;
 
     while i < n {
-      let Insn::FunDef { span, .. } = &insns[i] else {
+      if !matches!(insns[i], Insn::FunDef { .. }) {
         i += 1;
         continue;
-      };
+      }
 
       // Body range `[start, end)` — `end` is the next `FunDef`.
       let start = i;
@@ -50,7 +64,7 @@ impl<'sir> Ownership<'sir> {
         end += 1;
       }
 
-      self.check_fn(start, end, *span, &kinds);
+      self.check_fn(start, end, &kinds);
       i = end;
     }
   }
@@ -77,10 +91,10 @@ impl<'sir> Ownership<'sir> {
     &self,
     start: usize,
     end: usize,
-    fn_span: Span,
     kinds: &HashMap<Symbol, SelfKind>,
   ) {
     let insns = &self.sir.instructions;
+    let spans = &self.sir.spans;
 
     // Def-site index for this body: value → defining insn. A
     // per-function map, not a value-sized dense array — merged
@@ -93,10 +107,16 @@ impl<'sir> Ownership<'sir> {
       }
     }
 
-    // Consuming call sites: insn index → moved binding. Each
-    // distinct affine binding also gets a dense bit index.
+    // Consuming call sites. Each distinct affine binding gets a
+    // dense bit index; `moved_by` maps a consuming call to the
+    // binding it moves; `move_span` records where a binding was
+    // first moved (the secondary diagnostic span);
+    // `consume_recv_loads` marks the receiver `Load`s so they
+    // are reported as `DoubleFree` at the call, not twice.
     let mut bit_of: HashMap<Symbol, usize> = HashMap::default();
     let mut moved_by: HashMap<usize, Symbol> = HashMap::default();
+    let mut move_span: HashMap<Symbol, Span> = HashMap::default();
+    let mut consume_recv_loads: HashSet<usize> = HashSet::default();
 
     for (offset, insn) in insns[(start + 1)..end].iter().enumerate() {
       let Insn::Call { name, args, .. } = insn else {
@@ -119,10 +139,13 @@ impl<'sir> Ownership<'sir> {
         ..
       } = &insns[def_idx]
       {
+        let call_idx = start + 1 + offset;
         let next = bit_of.len();
 
         bit_of.entry(*sym).or_insert(next);
-        moved_by.insert(start + 1 + offset, *sym);
+        moved_by.insert(call_idx, *sym);
+        move_span.entry(*sym).or_insert(spans[call_idx]);
+        consume_recv_loads.insert(def_idx);
       }
     }
 
@@ -165,24 +188,46 @@ impl<'sir> Ownership<'sir> {
       }
     }
 
-    // Reporting pass: replay each block from its in-state and
-    // flag a read of a moved binding. Runs once per block, so an
-    // offending use is reported exactly once.
+    // Reporting pass: replay each block from its in-state. Runs
+    // once per block, so an offending use is reported once.
     for (cur_in, block) in in_set.iter().zip(&cfg.blocks) {
       let mut cur = cur_in.clone();
 
       for (offset, insn) in insns[block.start..block.end].iter().enumerate() {
-        if let Insn::Load {
-          src: LoadSource::Local(sym),
-          ..
-        } = insn
+        let idx = block.start + offset;
+
+        if let Some(sym) = moved_by.get(&idx)
           && let Some(&bit) = bit_of.get(sym)
           && cur.test(bit)
         {
-          report_error(Error::new(ErrorKind::UseAfterMove, fn_span));
+          // Consuming a binding that was already moved.
+          let moved_at = move_span.get(sym).copied().unwrap_or(spans[idx]);
+
+          report_error(Error::with_secondary(
+            ErrorKind::DoubleFree,
+            spans[idx],
+            moved_at,
+          ));
+        } else if let Insn::Load {
+          src: LoadSource::Local(sym),
+          ..
+        } = insn
+          && !consume_recv_loads.contains(&idx)
+          && let Some(&bit) = bit_of.get(sym)
+          && cur.test(bit)
+        {
+          // Reading a moved binding (the consume-receiver reads
+          // are handled as `DoubleFree` at the call above).
+          let moved_at = move_span.get(sym).copied().unwrap_or(spans[idx]);
+
+          report_error(Error::with_secondary(
+            ErrorKind::UseAfterMove,
+            spans[idx],
+            moved_at,
+          ));
         }
 
-        self.transfer(insn, block.start + offset, &bit_of, &moved_by, &mut cur);
+        self.transfer(insn, idx, &bit_of, &moved_by, &mut cur);
       }
     }
   }

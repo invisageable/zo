@@ -4,6 +4,7 @@
 
 use zo_dce::Dce;
 use zo_interner::Interner;
+use zo_interner::Symbol;
 use zo_sir::{Insn, Sir};
 use zo_span::Span;
 use zo_ty::{SelfKind, TyId};
@@ -13,10 +14,7 @@ use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 
 use std::hint::black_box;
 
-fn make_fun(
-  name: zo_interner::Symbol,
-  calls: Vec<zo_interner::Symbol>,
-) -> Vec<Insn> {
+fn make_fun(name: Symbol, calls: Vec<Symbol>) -> Vec<Insn> {
   let mut insns = vec![Insn::FunDef {
     name,
     params: vec![],
@@ -71,10 +69,14 @@ fn bench_eliminate(c: &mut Criterion) {
 
       insns.extend(make_fun(main, calls));
 
+      let spans = vec![Span::ZERO; insns.len()];
       let mut sir = Sir {
         instructions: insns,
+        spans,
+        node_idxs: Vec::new(),
         next_value_id: 100,
         next_label_id: 0,
+        node_cursor: 0,
       };
 
       Dce::new(&mut sir, vec![main], &interner).eliminate();
@@ -107,10 +109,14 @@ fn bench_eliminate(c: &mut Criterion) {
 
       insns.extend(make_fun(main, vec![names[50]]));
 
+      let spans = vec![Span::ZERO; insns.len()];
       let mut sir = Sir {
         instructions: insns,
+        spans,
+        node_idxs: Vec::new(),
         next_value_id: 200,
         next_label_id: 0,
+        node_cursor: 0,
       };
 
       Dce::new(&mut sir, vec![main], &interner).eliminate();
@@ -141,10 +147,14 @@ fn bench_eliminate(c: &mut Criterion) {
 
       insns.extend(make_fun(main, vec![names[500]]));
 
+      let spans = vec![Span::ZERO; insns.len()];
       let mut sir = Sir {
         instructions: insns,
+        spans,
+        node_idxs: Vec::new(),
         next_value_id: 2000,
         next_label_id: 0,
+        node_cursor: 0,
       };
 
       Dce::new(&mut sir, vec![main], &interner).eliminate();
@@ -188,10 +198,14 @@ fn bench_scaling(c: &mut Criterion) {
 
         insns.extend(make_fun(main, vec![names[half]]));
 
+        let spans = vec![Span::ZERO; insns.len()];
         let mut sir = Sir {
           instructions: insns,
+          spans,
+          node_idxs: Vec::new(),
           next_value_id: (n * 2) as u32,
           next_label_id: 0,
+          node_cursor: 0,
         };
 
         Dce::new(&mut sir, vec![main], &interner).eliminate();

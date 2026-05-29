@@ -558,6 +558,10 @@ pub struct Executor<'a> {
   /// to `self.sir` after the enclosing function's Return
   /// so DCE sees them as separate, non-nested functions.
   deferred_closures: Vec<Insn>,
+  /// Parse-node indices for `deferred_closures`, kept 1:1 so
+  /// the flush preserves `Sir`'s node-idx/instruction
+  /// alignment (resolved to spans with the rest at the end).
+  deferred_closure_node_idxs: Vec<u32>,
   /// RParen index of a pending call detected via operator-
   /// skipping at LParen (`Ident Op LParen`). The main loop
   /// suppresses deferred binops until this RParen is reached,
@@ -876,6 +880,7 @@ impl<'a> Executor<'a> {
       generic_aliases: HashMap::default(),
       template_interp_counter: 0,
       deferred_closures: Vec::new(),
+      deferred_closure_node_idxs: Vec::new(),
       pending_call_rparen: None,
       direct_call_depth: 0,
       pending_styles: Vec::new(),
@@ -2072,8 +2077,11 @@ impl<'a> Executor<'a> {
     // Safety net: flush any remaining deferred closures.
     if !self.deferred_closures.is_empty() {
       let closures = std::mem::take(&mut self.deferred_closures);
+      let closure_node_idxs =
+        std::mem::take(&mut self.deferred_closure_node_idxs);
 
       self.sir.instructions.extend(closures);
+      self.sir.node_idxs.extend(closure_node_idxs);
     }
 
     // Re-execute the Tree subtree of each queued
@@ -2131,6 +2139,13 @@ impl<'a> Executor<'a> {
     // FFI usage — a pack with a broken `#link` for a
     // library no one calls shouldn't fail the build.
     self.report_used_link_failures();
+
+    // Resolve buffered node indices to spans in one linear
+    // pass now that all instructions (including synthetic
+    // tail emits) are present and this module's tree is in
+    // hand. Done before the SIR leaves the executor, so the
+    // merged stream carries final spans.
+    self.sir.resolve_spans(&self.tree.spans);
 
     (
       self.sir,
@@ -2339,6 +2354,16 @@ impl<'a> Executor<'a> {
   /// Executes a single node from the parse tree.
   /// This is the core of the execution-based compilation model
   fn execute_node(&mut self, header: &NodeHeader, idx: usize) {
+    // Stamp the current source location onto every SIR insn
+    // emitted while processing this node. Drives SIR-level
+    // span diagnostics (use-after-move, …); each parse node is
+    // dispatched individually, so an expression's `Load` /
+    // `Call` carries that expression's span.
+    // Record the node index (a register write, no tree read);
+    // `resolve_spans` maps it to a source span in bulk at the
+    // end of execution.
+    self.sir.set_node(idx as u32);
+
     // Enforce grammar: `program = { item }`.
     // Statement introducers are only valid inside function
     // bodies. Reject them at top level.
@@ -3342,6 +3367,8 @@ impl<'a> Executor<'a> {
           // process them first (no forward references).
           if !self.deferred_closures.is_empty() {
             let mut closures = std::mem::take(&mut self.deferred_closures);
+            let closure_node_idxs =
+              std::mem::take(&mut self.deferred_closure_node_idxs);
 
             // Fix body_start offsets: they were relative to
             // the temporary SIR (FunDef at 0, body at 1).
@@ -3361,6 +3388,10 @@ impl<'a> Executor<'a> {
               .sir
               .instructions
               .splice(insert_pos..insert_pos, closures);
+            self
+              .sir
+              .node_idxs
+              .splice(insert_pos..insert_pos, closure_node_idxs);
 
             // Adjust the enclosing function's fundef_idx
             // and body_start since we shifted instructions.
@@ -3392,6 +3423,7 @@ impl<'a> Executor<'a> {
             self.sir.next_value_id = nested_sir.next_value_id;
             self.sir.next_label_id = nested_sir.next_label_id;
             self.deferred_closures.extend(nested_sir.instructions);
+            self.deferred_closure_node_idxs.extend(nested_sir.node_idxs);
 
             self.current_function = saved.function;
             self.value_stack = saved.value_stack;
@@ -7800,6 +7832,7 @@ impl<'a> Executor<'a> {
 
     self.sir.next_value_id = closure_sir.next_value_id;
     self.deferred_closures.extend(closure_sir.instructions);
+    self.deferred_closure_node_idxs.extend(closure_sir.node_idxs);
 
     self.current_function = outer_function;
     self.skip_until = saved_skip;
@@ -23444,6 +23477,7 @@ impl<'a> Executor<'a> {
 
           self.sir.next_value_id = closure_sir.next_value_id;
           self.deferred_closures.extend(closure_sir.instructions);
+          self.deferred_closure_node_idxs.extend(closure_sir.node_idxs);
 
           // Restore outer state.
           self.current_function = outer_function;

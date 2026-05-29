@@ -10,11 +10,19 @@ use zo_value::{FunctionKind, Pubness, ValueId};
 
 fn make_sir(instructions: Vec<Insn>) -> Sir {
   let next_value_id = instructions.len() as u32;
+  // Synthetic test SIR has no source — ZERO is the
+  // "no location" sentinel. These tests assert on error
+  // kind, not spans; the span-precision test below builds
+  // its own distinct spans.
+  let spans = vec![Span::ZERO; instructions.len()];
 
   Sir {
     instructions,
+    spans,
+    node_idxs: Vec::new(),
     next_value_id,
     next_label_id: 0,
+    node_cursor: 0,
   }
 }
 
@@ -78,7 +86,7 @@ fn run(sir: &Sir) -> Vec<ErrorKind> {
 }
 
 #[test]
-fn double_free_is_use_after_move() {
+fn double_free_is_reported() {
   let mut interner = Interner::new();
   let free = interner.intern("Vec::free");
   let caller = interner.intern("caller");
@@ -95,7 +103,56 @@ fn double_free_is_use_after_move() {
     ret(),
   ]);
 
-  assert_eq!(run(&sir), vec![ErrorKind::UseAfterMove]);
+  // Consuming an already-moved binding is a double-free, not a
+  // plain use-after-move.
+  assert_eq!(run(&sir), vec![ErrorKind::DoubleFree]);
+}
+
+#[test]
+fn diagnostic_points_at_use_site_and_move_site() {
+  let mut interner = Interner::new();
+  let free = interner.intern("Vec::free");
+  let caller = interner.intern("caller");
+  let v = interner.intern("v");
+
+  // Distinct spans so we can assert which is the primary
+  // (offending use) and which is the secondary (first move).
+  let first_free = Span::new(10, 6);
+  let second_free = Span::new(20, 6);
+
+  let instructions = vec![
+    fundef(free, SelfKind::Consume),
+    ret(),
+    fundef(caller, SelfKind::None),
+    load(0, v),
+    call(1, free, vec![0]), // first free  — idx 4
+    load(2, v),
+    call(3, free, vec![2]), // second free — idx 6
+    ret(),
+  ];
+  let mut spans = vec![Span::ZERO; instructions.len()];
+  spans[4] = first_free;
+  spans[6] = second_free;
+
+  let sir = Sir {
+    instructions,
+    spans,
+    node_idxs: Vec::new(),
+    next_value_id: 8,
+    next_label_id: 0,
+    node_cursor: 0,
+  };
+
+  let _ = collect_errors();
+  Ownership::new(&sir).check();
+  let errors = collect_errors();
+
+  assert_eq!(errors.len(), 1);
+  assert_eq!(errors[0].kind(), ErrorKind::DoubleFree);
+  // Primary points at the offending (second) consume.
+  assert_eq!(errors[0].span(), second_free);
+  // Secondary points at where it was first moved.
+  assert_eq!(errors[0].secondary_span(), Some(first_free));
 }
 
 #[test]

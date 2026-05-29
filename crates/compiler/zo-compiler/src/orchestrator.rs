@@ -16,6 +16,7 @@ use zo_span::Span;
 
 use hashbrown::HashMap;
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -64,7 +65,7 @@ impl Orchestrator {
     let files_vec = sources.into_iter().collect::<Vec<_>>();
 
     if let Some(dir) = out_dir
-      && std::fs::create_dir_all(dir).is_err()
+      && fs::create_dir_all(dir).is_err()
     {
       let duration = start_time.elapsed();
       let error = Error::new(ErrorKind::InternalCompilerError, Span::ZERO);

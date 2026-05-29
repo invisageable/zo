@@ -210,10 +210,27 @@ pub enum ImportKind {
 pub struct Sir {
   /// The linear array of SIR instructions.
   pub instructions: Vec<Insn>,
+  /// Source span per instruction, aligned 1:1 with
+  /// `instructions`. Invariant: `spans.len() ==
+  /// instructions.len()`. Empty during execution — `emit`
+  /// records a node index in `node_idxs` instead; `resolve_
+  /// spans` fills this in one linear pass at the end. Every
+  /// later site that mutates `instructions` mutates `spans`
+  /// identically. Drives SIR-level diagnostics.
+  pub spans: Vec<Span>,
+  /// Parse-node index per instruction, recorded by `emit`
+  /// from `node_cursor`. Transient: resolved into `spans`
+  /// and dropped by `resolve_spans` at the end of execution.
+  /// Avoids reading the tree's span side-array on every node.
+  pub node_idxs: Vec<u32>,
   /// The next value ID for SSA.
   pub next_value_id: u32,
   /// The next label ID for branch targets.
   pub next_label_id: u32,
+  /// Current parse-node index, stamped onto each emitted
+  /// instruction. The executor sets it per node — a register
+  /// write, no memory read — and spans resolve in bulk later.
+  pub node_cursor: u32,
 }
 
 impl Sir {
@@ -221,9 +238,37 @@ impl Sir {
   pub fn new() -> Self {
     Self {
       instructions: Vec::with_capacity(1024),
+      spans: Vec::new(),
+      node_idxs: Vec::with_capacity(1024),
       next_value_id: 0,
       next_label_id: 0,
+      node_cursor: 0,
     }
+  }
+
+  /// Sets the parse-node index stamped onto subsequent emits.
+  #[inline]
+  pub fn set_node(&mut self, node_idx: u32) {
+    self.node_cursor = node_idx;
+  }
+
+  /// Resolves the buffered node indices into source spans in a
+  /// single linear pass against the owning tree's span array,
+  /// then drops the transient buffer. Called once at the end
+  /// of execution, before merge — sequential access on both
+  /// sides, prefetcher-friendly.
+  pub fn resolve_spans(&mut self, tree_spans: &[Span]) {
+    self.spans.clear();
+    self.spans.reserve(self.node_idxs.len());
+
+    for &node_idx in &self.node_idxs {
+      let span =
+        tree_spans.get(node_idx as usize).copied().unwrap_or(Span::ZERO);
+
+      self.spans.push(span);
+    }
+
+    self.node_idxs = Vec::new();
   }
 
   /// Allocates a fresh label ID.
@@ -289,6 +334,7 @@ impl Sir {
     };
 
     self.instructions.push(insn);
+    self.node_idxs.push(self.node_cursor);
 
     value_id
   }

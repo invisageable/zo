@@ -21,6 +21,9 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
   - **CSS Snapshot**
     - https://www.w3.org/TR/css — W3C
 
+  - **The Go Programming Language**
+    - https://www.youtube.com/watch?v=rKnDgT73v8s — Rob Pike (2009)
+
 ## tokenizer.
 
   - **Beating the Fastest Lexer Generator in Rust**
@@ -120,6 +123,11 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
 
   - **What I think about when I edit**
     - https://eva-parish.squarespace.com/blog/how-i-edit — Eva Parish (2019)
+
+## error-handling.
+
+  - How Should Compilers Explain Problems to Developers?
+    - https://static.barik.net/barik/publications/fse2018/barik_fse18.pdf — Titus Barik, Denae Ford, Emerson Murphy-Hill and Chris Parnin (2018)
 
 ## repository.
 

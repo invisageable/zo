@@ -6,11 +6,15 @@ use zo_value::{FunctionKind, Pubness, ValueId};
 /// Build a SIR from a list of instructions.
 pub fn make_sir(instructions: Vec<Insn>) -> Sir {
   let next_value_id = instructions.len() as u32;
+  let spans = vec![Span::ZERO; instructions.len()];
 
   Sir {
     instructions,
+    spans,
+    node_idxs: Vec::new(),
     next_value_id,
     next_label_id: 0,
+    node_cursor: 0,
   }
 }
 
