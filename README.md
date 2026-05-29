@@ -31,8 +31,8 @@
   ```
 
 <p align="center">
-  <img width="354px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui.png">
-  <img width="354px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-web.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-web.png">
 </p>
 
 ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. NATiVE GPU OR THE WEB — SAME SOURCE.
