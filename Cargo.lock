@@ -3119,6 +3119,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "indoc"
+version = "2.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79cf5c93f93228cf8efb3ba362535fb11199ac548a09ce117c9b1adc3030d706"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "inotify"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4740,9 +4749,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.42"
+version = "1.0.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a338cc41d27e6cc6dce6cefc13a0729dfbb81c262b1f519331575dd80ef3067f"
+checksum = "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924"
 dependencies = [
  "proc-macro2",
 ]
@@ -7824,6 +7833,15 @@ dependencies = [
 [[package]]
 name = "zo-binder"
 version = "0.3.11"
+dependencies = [
+ "indoc",
+ "quote",
+ "serde",
+ "serde_json",
+ "swisskit-core",
+ "syn 2.0.113",
+ "zo-buffer",
+]
 
 [[package]]
 name = "zo-buffer"
@@ -8062,7 +8080,6 @@ dependencies = [
  "criterion",
  "rustc-hash 2.1.2",
  "zo-analyzer",
- "zo-binder",
  "zo-constant-folding",
  "zo-constant-propagation",
  "zo-dce",

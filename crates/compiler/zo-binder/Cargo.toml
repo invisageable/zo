@@ -8,7 +8,17 @@ doctest = false
 
 [dependencies]
 # internal:sources.
+swisskit-core = { workspace = true }
 
 # internal:crates.
+zo-buffer = { workspace = true }
 
 # external:crates.
+quote = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+syn = { workspace = true }
+
+[dev-dependencies]
+# external:crates.
+indoc = { workspace = true }

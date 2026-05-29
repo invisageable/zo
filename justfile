@@ -74,6 +74,16 @@ test_crate crate:
 test_filter filter:
   cargo nextest run -E 'test({{filter}})'
 
+# test: Update insta snapshots in place
+[group('test')]
+snapshots:
+  INSTA_UPDATE=always cargo test -p zo-parser -p zo-tokenizer
+
+# test: Check insta snapshots are current (fail on drift)
+[group('test')]
+snapshots_check:
+  INSTA_UPDATE=no cargo test -p zo-parser -p zo-tokenizer
+
 # Build all targets
 build:
   cargo build --all
@@ -121,6 +131,11 @@ zo_test:
 [group("zo")]
 zo_lsp:
   cargo run -p zo-lsp
+
+# zo: Generate provider FFI bindings from a Rust shim
+[group("zo")]
+bind lib:
+  cargo run -p zo-binder -- {{lib}}
 
 # Run zo program integration tests
 [group("zo")]

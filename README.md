@@ -30,6 +30,11 @@
   }
   ```
 
+<p align="center">
+  <img width="344px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui.png">
+  <img width="344px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-web.png">
+</p>
+
 ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. NATiVE GPU OR THE WEB — SAME SOURCE.
 
 **-concurrency**
@@ -62,13 +67,13 @@ zo iS BUiLT FROM THE GROUND UP USiNG DATA-ORiENTED DESiGN. BY HAND-ROLLiNG THE C
 
 ### benchmarks.
 
-*Workload: 10,000 lines of source code compiled to native ARM64 binary (including link step).*
-
 | Compiler  | Hot Average | Throughput      | vs zo             |
 | :-------- | :---------- | :-------------- | :---------------- |
 | **zo**    | **60 ms**   | **~167K LoC/s** | **1x (baseline)** |
 | **clang** | 148 ms      | ~67K LoC/s      | 2.4x slower       |
 | **rustc** | 321 ms      | ~31K LoC/s      | 5.3x slower       |
+
+*Workload: 10,000 lines of code compiled to native ARM64 binary (including Hindley-Milner type inference, monomorphization, type checking, constant folding, propagation, dead code elimination and link passes). No parallelization (for now).*
 
 [@methodology-and-full-numbers](./crates/compiler/zo-benches)
 
@@ -86,17 +91,10 @@ iN THOSE 60 MiLLiSECONDS, THE COMPiLER PERFORMS THE FOLLOWiNG PHASES SEQUENTiALL
 
 ## features.
 
-  - **UNiFiED**
-    - WRiTE Ui ONCE WiTH zsx — TARGET NATiVE <sup>GPU</sup> OR THE WEB <sup>DOM</sup>.
-
-  - **FAST**
-    - BUiLT FROM SCRATCH USiNG MODERN COMPiLER TECHNiQUES FOR iNSTANT EXECUTiON AND RAPiD DEBUGGiNG WiTH HELPFUL ERROR MESSAGES.
-
-  - **SAFE**
-    - STATiCALLY & STRONGLY TYPED — USES GREEN AND OS THREADS WRAPPED iN NURSERY TASK SCOPES. <sup>NO LEAKED THREADS, NO DATA RACES</sup>.
-
-  - **iNTEGRATED**
-    - A COMPLETE WORKSTATiON WiTH BUiLT-iN TOOLS — PACKAGE MANAGER <sup><a href="./crates/packager/fret">fret</a></sup> AND TEXT EDiTOR <sup>codelord</sup>.
+  - **UNiFiED**: WRiTE Ui ONCE WiTH zsx — TARGET NATiVE <sup>GPU</sup> OR THE WEB <sup>DOM</sup>.
+  - **FAST**: BUiLT FROM SCRATCH USiNG MODERN COMPiLER TECHNiQUES FOR iNSTANT EXECUTiON AND RAPiD DEBUGGiNG WiTH HELPFUL ERROR MESSAGES.
+  - **SAFE**: STATiCALLY & STRONGLY TYPED — USES GREEN AND OS THREADS WRAPPED iN NURSERY TASK SCOPES. <sup>NO LEAKED THREADS, NO DATA RACES</sup>.
+  - **iNTEGRATED**: A COMPLETE WORKSTATiON WiTH BUiLT-iN TOOLS — PACKAGE MANAGER <sup><a href="./crates/packager/fret">fret</a></sup> AND TEXT EDiTOR <sup>codelord</sup>.
 
 ## get started.
 
@@ -132,8 +130,8 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 
 **-sources**
 
-| NAME                                               | DESCRiPTiON                                                         |
-| :------------------------------------------------- | :------------------------------------------------------------------ |
+| NAME                                               | DESCRiPTiON                                           |
+| :------------------------------------------------- | :---------------------------------------------------- |
 | [eazy](./sources/tweener/eazy)                     | THE HiGH-PERFORMANCE TWEENiNG & EASiNG FUNCTiONS KiT. |
 | [swisskit](./sources/crafter/swisskit)             | THE SWiSS-ARMY-KNiFE KiT.                             |
 | [tree-sitter-zo](./sources/crafter/tree-sitter-zo) | THE zo tree-sitter GRAMMAR.                           |
@@ -165,7 +163,9 @@ WE ARE AGAiNST ABUNDANT SOFTWARE UNiFORMiTY. zo UNiFiES THE WEB AND THE GPU — 
 
 WE LOVE CONTRiBUTORS. THiS iS A PLAYGROUND FOR COMPiLER __NERDS__, FRONTEND __HACKERS__, AND __CREATIVES__.
 
-OPEN AN iSSUE, OR COME SAY HELLO ON [discord](https://discord.gg/JaNc4Nk5xw). YOU CAN ALSO CONTACT US AT `echo -n 'dGhlQGNvbXBpbG9yZHMuaG91c2U=' | base64 --decode`.
+OPEN AN iSSUE, OR COME SAY HELLO ON [discord](https://discord.gg/JaNc4Nk5xw). YOU CAN ALSO CONTACT US AT `echo -n 'dGhlQGNvbXBpbG9yZHMuaG91c2U=' | base64 --decode`.    
+
+OPEN A [DiSCUSSiON](https://github.com/invisageable/zo/discussions), iF YOU NEED MORE iNFO.
 
 ## sponsors & supports.
 
