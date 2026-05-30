@@ -37,7 +37,7 @@ fun main() {
 -! to debug a "weird value" in production.
 
 -- EXPECTED OUTPUT:
--- [E0304] Error: Type mismatch
+-- [E0304] Error • Type mismatch
 --     ╭─[ 035_binop_right_truthy.zo:19:24 ]
 --     │
 --  19 │   imu x: int = true || "false"; -- This guy failed.
@@ -46,5 +46,5 @@ fun main() {
 --     │                           │
 --     │                           ╰───── incompatible type here
 --     │
---     │ Note: The types of both operands must be compatible
+--     │ Note • The types of both operands must be compatible
 -- ────╯

@@ -30,12 +30,12 @@ fun main() {
 -! 3. **The Philosophy:** One variable, one tree. Total Control.
 
 -- EXPECTED OUTPUT:
--- [E0065] Error: Multiple root elements in ZSX template
+-- [E0065] Error • Multiple root elements in ZSX template
 --    ┌─ 065_zsx_multiple_roots.zo:16:34
 --    │
 -- 16 │   imu view: </> = <div>"One"</div> <div>"Two"</div>;
 --    │                                    ^─── unexpected second root
 --    │
---    = Note: A template variable of type `</>` can only hold one root element.
---    = Help: Wrap these elements in a parent container like `<div>` or `<>`.
+--    = Note • A template variable of type `</>` can only hold one root element.
+--    = Help • Wrap these elements in a parent container like `<div>` or `<>`.
 -- ────╯

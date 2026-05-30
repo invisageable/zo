@@ -6,6 +6,7 @@ use zo_span::Span;
 use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 
 use std::io;
+use std::io::Write;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
@@ -13,6 +14,12 @@ use std::path::{Path, PathBuf};
 /// value a mismatch conflicts with. Contrasts the red primary
 /// so the two conflicting values stay visually distinct.
 const SECONDARY_COLOR: Color = Color::Fixed(155);
+
+/// The SGR reset sequence yansi (via ariadne) emits to close
+/// a colored run. Used to locate ariadne's `Note:` / `Help:`
+/// colons — which always follow a reset — for the bullet
+/// rewrite.
+const ANSI_RESET: &str = "\u{1b}[0m";
 
 /// Configuration for error rendering.
 #[derive(Debug, Clone)]
@@ -108,26 +115,22 @@ impl ErrorRenderer {
     let kind = error.kind();
     let range = span_to_range(span, source);
 
-    // Severity drives the visual style: red `Error:` for hard
-    // errors, yellow `Warning:` for soft diagnostics, blue
-    // `Advice:` for compiler-decision rationale. ariadne owns
-    // the colors per `ReportKind`.
-    let report_kind = match error.severity() {
-      Severity::Error => ReportKind::Error,
-      Severity::Warning => ReportKind::Warning,
-      Severity::Note => ReportKind::Advice,
+    // Severity drives the kind word and its color: red
+    // `Error` for hard errors, yellow `Warning` for soft
+    // diagnostics, blue `Note` for compiler-decision
+    // rationale. The headline message and the primary caret
+    // share the color so the claim and its pointer read as
+    // one unit.
+    let (kind_word, primary_color) = match error.severity() {
+      Severity::Error => ("Error", Color::Red),
+      Severity::Warning => ("Warning", Color::Yellow),
+      Severity::Note => ("Note", Color::Blue),
     };
 
-    // The primary diagnostic wears the severity color — red
-    // for an error. The headline message and the primary
-    // caret share it so the claim and its pointer read as one.
-    let primary_color = match error.severity() {
-      Severity::Error => Color::Red,
-      Severity::Warning => Color::Yellow,
-      Severity::Note => Color::Blue,
-    };
-
-    let mut report = Report::build(report_kind, (filename, range.clone()));
+    let mut report = Report::build(
+      ReportKind::Custom(kind_word, primary_color),
+      (filename, range.clone()),
+    );
 
     // Add error code if configured. Code derived from
     // `zo-error`'s frozen `id_registry` — phase-position
@@ -177,10 +180,32 @@ impl ErrorRenderer {
       report = report.with_note(note);
     }
 
-    // Finish and print the report
+    // Finish the report.
     let report = report.finish();
 
-    report.eprint((filename, Source::from(source)))?;
+    // ariadne hardcodes `:` after the kind, the `Note` label,
+    // and the `Help` label. Render to a buffer and swap those
+    // colons for ` • ` so the whole diagnostic reads
+    // `Kind • …`, `Note • …`, `Help • …`.
+    //
+    // Two distinct rewrites because ariadne colors them
+    // differently:
+    //  - Header: the colon is *inside* the colored kind chunk
+    //    (`…Error:` then reset), so match `{kind_word}:`. It's
+    //    the first line, so the first match is the header.
+    //  - Note / Help: the colon is *outside* the colored label
+    //    (`Note` then reset then `: `), so the colon always
+    //    follows a reset. Source colons sit inside their own
+    //    color span, so `<reset>: ` is unique to these labels.
+    let mut buf = Vec::new();
+
+    report.write((filename, Source::from(source)), &mut buf)?;
+
+    let rendered = String::from_utf8_lossy(&buf)
+      .replacen(&format!("{kind_word}:"), &format!("{kind_word} •"), 1)
+      .replace(&format!("{ANSI_RESET}: "), &format!("{ANSI_RESET} • "));
+
+    io::stderr().write_all(rendered.as_bytes())?;
 
     Ok(())
   }

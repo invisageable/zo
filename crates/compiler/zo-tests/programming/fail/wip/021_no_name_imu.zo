@@ -33,14 +33,14 @@ fun main() {
 -!    information map?
 
 -- EXPECTED OUTPUT:
--- [E0021] Error: Expected identifier after `imu`
+-- [E0021] Error • Expected identifier after `imu`
 --    ┌─ 021_no_name_imu.zo:13:7
 --    │
 -- 13 │   imu : int = 42;
 --    │       ^ expected a name here
 --    │
---    = Note: An immutable local declaration requires a name so you can refer to it.
---    = Help: Insert a name at line 13, column 7. Example: `imu my_value: int = 42;`
+--    = Note • An immutable local declaration requires a name so you can refer to it.
+--    = Help • Insert a name at line 13, column 7. Example: `imu my_value: int = 42;`
 -- ────╯
 
 -- this is the design based `hint`, `title`, `note`, `help` as to be implement in error message.

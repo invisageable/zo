@@ -15,12 +15,12 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- [E0304] Error: Type mismatch
+-- [E0304] Error • Type mismatch
 --     ╭─[ 044_arg_type_mismatch.zo:14:22 ]
 --     │
 --  14 │   imu x: str = greet(42);
 --     │                      ─┬
 --     │                       ╰── incompatible type here
 --     │
---     │ Note: The types of both operands must be compatible
+--     │ Note • The types of both operands must be compatible
 -- ────╯

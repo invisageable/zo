@@ -26,7 +26,7 @@ fun main() {
 -!   - can you nest block comments? try putting one inside another.
 
 -- EXPECTED OUTPUT:
--- [E0003] Error: Unterminated block comment
+-- [E0003] Error • Unterminated block comment
 --     ╭─[ 001_comments_block_unterminated.zo:11:1 ]
 --     │
 --  11 │ ╭─▶ -* This block comment never closes, so everything below is "dead."

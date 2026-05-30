@@ -20,16 +20,16 @@ fun main() {
 -!     programming.
 
 -- EXPECTED OUTPUT:
--- [E0005] Error: Invalid escape sequence
+-- [E0005] Error • Invalid escape sequence
 --     ╭─[ 002_lit_str_bad_escape.zo:11:22 ]
 --     │
 --  11 │   imu s: str = "hello\qworld";
 --     │                      ─┬
 --     │                       ╰── unknown escape code
 --     │
---     │ Help: Check if you have a typo. If you want a literal backslash,
+--     │ Help • Check if you have a typo. If you want a literal backslash,
 --     │       use the double escape `\\` instead
 --     │
---     │ Note: A backslash `\` starts a special sequence like `\n` (newline).
+--     │ Note • A backslash `\` starts a special sequence like `\n` (newline).
 --     │       zo only supports: `\n`, `\r`, `\t`, `\\`, `\'`, `\"`, `\0`
 -- ────╯

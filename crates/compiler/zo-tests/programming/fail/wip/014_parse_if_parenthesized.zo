@@ -28,13 +28,13 @@ fun main() {
 -!      on the screen.
 
 -- EXPECTED OUTPUT:
--- [E0014] Error: Unexpected `(` in conditional
+-- [E0014] Error • Unexpected `(` in conditional
 --    ┌─ 014_parse_if_parenthesized.zo:16:6
 --    │
 -- 16 │   if (x > 0) {
 --    │      ^ unnecessary parenthesis
 --    │
---    │ = Help: Remove the parentheses to match the zo style: `if x > 0 {`.
+--    │ = Help • Remove the parentheses to match the zo style: `if x > 0 {`.
 --    │
---    │ = Note: zo does not require parentheses around `if` or `while` conditions.
+--    │ = Note • zo does not require parentheses around `if` or `while` conditions.
 -- ───╯

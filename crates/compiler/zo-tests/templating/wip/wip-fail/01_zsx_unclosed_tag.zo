@@ -32,12 +32,12 @@ fun main() {
 -!    `<img src="logo.png" />`. Notice how this doesn't need a partner!
 
 -- EXPECTED OUTPUT:
--- [E0061] Error: Unclosed ZSX tag
+-- [E0061] Error • Unclosed ZSX tag
 --    ┌─ 061_zsx_unclosed_tag.zo:15:19
 --    │
 -- 15 │   imu view: </> = <div>
 --    │                   ^─── unclosed tag started here
 --    │
---    = Note: Every ZSX element must be closed with either `</tag>` or a self-closing `/>`.
---    = Help: Add a closing `</div>` tag at line 16, column 1.
+--    = Note • Every ZSX element must be closed with either `</tag>` or a self-closing `/>`.
+--    = Help • Add a closing `</div>` tag at line 16, column 1.
 -- ────╯

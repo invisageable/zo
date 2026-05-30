@@ -34,12 +34,12 @@ fun main() {
 -!    count "space" as an expression? (Hint: No! Only code matters).
 
 -- EXPECTED OUTPUT:
--- [E0064] Error: Empty ZSX interpolation
+-- [E0064] Error • Empty ZSX interpolation
 --    ┌─ 064_zsx_empty_interpolation.zo:15:19
 --    │
 -- 15 │   imu view: </> = <div> {} </div>;
 --    │                         ^^ empty interpolation
 --    │
---    = Note: Interpolation blocks `{}` must contain a valid expression.
---    = Help: Provide a variable or value inside the braces, or remove them.
+--    = Note • Interpolation blocks `{}` must contain a valid expression.
+--    = Help • Provide a variable or value inside the braces, or remove them.
 -- ────╯

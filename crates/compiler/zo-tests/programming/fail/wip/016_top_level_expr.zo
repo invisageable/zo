@@ -29,27 +29,27 @@ fun main() {
 -!      message remains consistent—actions must always be inside functions.
 
 -- EXPECTED OUTPUT:
--- [E0016] Error: Unexpected expression at top-level
+-- [E0016] Error • Unexpected expression at top-level
 --    ┌─ 016_top_level_expr.zo:11:1
 --    │
 -- 11 │ 10 + 20;
 --    │ ^^ floating expression
 --    │
---    = Note: Only declarations (fun, val, struct, enum, apply, type) 
+--    = Note • Only declarations (fun, val, struct, enum, apply, type) 
 --            are allowed at the top-level.
---    = Help: Move the expression `10 + 20;` into a function like `main` 
+--    = Help • Move the expression `10 + 20;` into a function like `main` 
 --            at line 13.
 -- ────╯
 --
 -- EXPECTED OUTPUT:
--- [E0016] Error: Unexpected expression at top-level
+-- [E0016] Error • Unexpected expression at top-level
 --    ┌─ 016_top_level_expr.zo:11:1
 --    │
 -- 14 │ showln(12345);
 --    │ ^^ call expression
 --    │
---    = Note: Only declarations (fun, val, struct, enum, apply, type) are
+--    = Note • Only declarations (fun, val, struct, enum, apply, type) are
 --            allowed at the top-level.
---    = Help: Move the expression `10 + 20;` into a function like `main` 
+--    = Help • Move the expression `10 + 20;` into a function like `main` 
 --            at line 13.
 -- ────╯

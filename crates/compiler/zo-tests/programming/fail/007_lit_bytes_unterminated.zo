@@ -32,15 +32,15 @@ fun main() {
 -!       "parsed" but not yet fully ready for runtime work.
 
 -- EXPECTED OUTPUT:
--- [E0007] Error: Unterminated bytes literal
+-- [E0007] Error • Unterminated bytes literal
 --     ╭─[ 007_lit_bytes_unterminated.zo:16:18 ]
 --     │
 --  16 │   imu b: bytes = `z;
 --     │                  ─┬─
 --     │                   ╰─── unterminated byte literal
 --     │
---     │ Help: Close the literal by adding a backtick at the end
+--     │ Help • Close the literal by adding a backtick at the end
 --     │
---     │ Note: A byte literal represents a single 8-bit value.
+--     │ Note • A byte literal represents a single 8-bit value.
 --     │       It must start and end with a backtick
 -- ────╯

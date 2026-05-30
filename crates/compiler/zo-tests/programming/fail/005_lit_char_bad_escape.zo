@@ -27,16 +27,16 @@ fun main() {
 -!      `\n` counts as exactly **one** character!
 
 -- EXPECTED OUTPUT:
--- [E0005] Error: Invalid escape sequence
+-- [E0005] Error • Invalid escape sequence
 --     ╭─[ 005_lit_char_bad_escape.zo:13:18 ]
 --     │
 --  13 │   imu c: char = '\q';
 --     │                  ─┬
 --     │                   ╰── unknown escape code
 --     │
---     │ Help: Check if you have a typo. If you want a literal backslash,
+--     │ Help • Check if you have a typo. If you want a literal backslash,
 --     │       use the double escape `\\` instead
 --     │
---     │ Note: A backslash `\` starts a special sequence like `\n` (newline).
+--     │ Note • A backslash `\` starts a special sequence like `\n` (newline).
 --     │       zo only supports: `\n`, `\r`, `\t`, `\\`, `\'`, `\"`, `\0`
 -- ────╯

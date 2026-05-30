@@ -30,12 +30,12 @@ fun main() {
 -!      (Hint: Most systems languages require a special syntax for multi-line).
 
 -- EXPECTED OUTPUT:
--- [E0002] Error: Unterminated string literal
+-- [E0002] Error • Unterminated string literal
 --     ╭─[ 003_lit_str_unterminated.zo:15:16 ]
 --     │
 --  15 │   imu x: str = "this string never closes;
 --     │                ─────────────┬────────────
 --     │                             ╰────────────── string literal started here
 --     │
---     │ Help: Add a closing quote to terminate the string
+--     │ Help • Add a closing quote to terminate the string
 -- ────╯

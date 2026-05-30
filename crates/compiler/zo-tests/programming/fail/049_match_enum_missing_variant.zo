@@ -22,7 +22,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- [E0333] Error: Non-exhaustive `match`
+-- [E0333] Error • Non-exhaustive `match`
 --     ╭─[ 049_match_enum_missing_variant.zo:18:11 ]
 --     │
 --  18 │   match c {

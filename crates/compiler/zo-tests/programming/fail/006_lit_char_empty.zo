@@ -24,16 +24,16 @@ fun main() {
 -!   2. If you wanted "nothing" as text, use an empty string: `""`.
 
 -- EXPECTED OUTPUT:
--- [E0008] Error: Empty character literal
+-- [E0008] Error • Empty character literal
 --     ╭─[ 006_lit_char_empty.zo:13:17 ]
 --     │
 --  13 │   imu c: char = '';
 --     │                 ─┬
 --     │                  ╰── empty here
 --     │
---     │ Help: If you meant to use a space, try `' '`.
+--     │ Help • If you meant to use a space, try `' '`.
 --     │       If you need an empty sequence of text, use a string `""` instead
 --     │
---     │ Note: A `char` represents exactly one Unicode scalar.
+--     │ Note • A `char` represents exactly one Unicode scalar.
 --     │       It cannot be empty because it must have a value in memory
 -- ────╯

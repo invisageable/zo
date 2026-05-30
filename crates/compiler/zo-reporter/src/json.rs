@@ -69,7 +69,8 @@ use zo_span::Span;
 
 use serde_json::{Map, Value, json};
 
-use std::io::{self, Write};
+use std::io;
+use std::io::Write;
 use std::path::PathBuf;
 
 /// Schema version. Bump on incompatible shape changes

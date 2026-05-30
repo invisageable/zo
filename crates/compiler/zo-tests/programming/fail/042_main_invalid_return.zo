@@ -23,24 +23,24 @@ fun main() -> str {
 -!      strict to ensure your program exits cleanly.
 
 -- EXPECTED OUTPUT:
--- [E0311] Error: Invalid return type
+-- [E0311] Error • Invalid return type
 --     ╭─[ 042_main_invalid_return.zo:13:15 ]
 --     │
 --  13 │ fun main() -> str {
 --     │               ─┬─
 --     │                ╰─── invalid return type
 --     │
---     │ Help: Remove the return type or use `fun main() {}`
+--     │ Help • Remove the return type or use `fun main() {}`
 --     │
---     │ Note: The `main` function is the program entry point.
+--     │ Note • The `main` function is the program entry point.
 --     │       It must return unit (no value)
 -- ────╯
--- [E0304] Error: Type mismatch
+-- [E0304] Error • Type mismatch
 --     ╭─[ 042_main_invalid_return.zo:14:3 ]
 --     │
 --  14 │   "DONE"
 --     │   ───┬──
 --     │      ╰──── incompatible type here
 --     │
---     │ Note: The types of both operands must be compatible
+--     │ Note • The types of both operands must be compatible
 -- ────╯

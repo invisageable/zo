@@ -11,7 +11,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- [E0304] Error: Type mismatch
+-- [E0304] Error • Type mismatch
 --     ╭─[ 033_int_concat_str.zo:10:16 ]
 --     │
 --  10 │   imu s: str = 42 ++ "hello";
@@ -20,5 +20,5 @@ fun main() {
 --     │                         │
 --     │                         ╰───── conflicts with this type
 --     │
---     │ Note: The types of both operands must be compatible
+--     │ Note • The types of both operands must be compatible
 -- ────╯

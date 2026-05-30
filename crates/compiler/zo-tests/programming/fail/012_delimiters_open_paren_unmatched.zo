@@ -29,7 +29,7 @@ fun main() {
 -!      reflect the different shape of the delimiter.
 
 -- EXPECTED OUTPUT:
--- [E0020] Error: Unmatched opening delimiter
+-- [E0020] Error • Unmatched opening delimiter
 --     ╭─[ 012_delimiters_open_paren_unmatched.zo:14:17 ]
 --     │
 --  14 │   imu result := (10 + 5;
@@ -40,8 +40,8 @@ fun main() {
 --     │ ┬
 --     │ ╰── this closing delimiter skipped over it
 --     │
---     │ Help: Add the corresponding closing delimiter
+--     │ Help • Add the corresponding closing delimiter
 --     │
---     │ Note: Every opening delimiter must be closed by its matching partner.
+--     │ Note • Every opening delimiter must be closed by its matching partner.
 --     │       `(` with `)`, `[` with `]`, `{` with `}`
 -- ────╯

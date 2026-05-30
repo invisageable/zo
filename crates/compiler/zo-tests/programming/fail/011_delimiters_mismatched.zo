@@ -31,7 +31,7 @@ fun main() {
 
 
 -- EXPECTED OUTPUT:
--- [E0020] Error: Unmatched opening delimiter
+-- [E0020] Error • Unmatched opening delimiter
 --     ╭─[ 011_delimiters_mismatched.zo:16:14 ]
 --     │
 --  16 │   imu pos := (10, 20};
@@ -40,12 +40,12 @@ fun main() {
 --     │                     │
 --     │                     ╰── this closing delimiter skipped over it
 --     │
---     │ Help: Add the corresponding closing delimiter
+--     │ Help • Add the corresponding closing delimiter
 --     │
---     │ Note: Every opening delimiter must be closed by its matching partner.
+--     │ Note • Every opening delimiter must be closed by its matching partner.
 --     │       `(` with `)`, `[` with `]`, `{` with `}`
 -- ────╯
--- [E0022] Error: Mismatched delimiter
+-- [E0022] Error • Mismatched delimiter
 --     ╭─[ 011_delimiters_mismatched.zo:17:21 ]
 --     │
 --  17 │   imu pos := [10, 20);
@@ -54,28 +54,28 @@ fun main() {
 --     │                     │
 --     │                     ╰── delimiter type doesn't match opening
 --     │
---     │ Help: Change the closing delimiter to match the opening one
+--     │ Help • Change the closing delimiter to match the opening one
 --     │
---     │ Note: Every opening delimiter must be closed by its matching partner.
+--     │ Note • Every opening delimiter must be closed by its matching partner.
 --     │       `(` with `)`, `[` with `]`, `{` with `}`
 -- ────╯
--- [E0021] Error: Unmatched closing delimiter
+-- [E0021] Error • Unmatched closing delimiter
 --     ╭─[ 011_delimiters_mismatched.zo:18:1 ]
 --     │
 --  18 │ }
 --     │ ┬
 --     │ ╰── no matching opening delimiter for this
 --     │
---     │ Help: Remove this delimiter or add its opening pair
+--     │ Help • Remove this delimiter or add its opening pair
 -- ────╯
--- [E0106] Error: Invalid top-level item
+-- [E0106] Error • Invalid top-level item
 --     ╭─[ 011_delimiters_mismatched.zo:17:3 ]
 --     │
 --  17 │   imu pos := [10, 20);
 --     │   ─┬─
 --     │    ╰─── here
 -- ────╯
--- [E0106] Error: Invalid top-level item
+-- [E0106] Error • Invalid top-level item
 --     ╭─[ 011_delimiters_mismatched.zo:17:22 ]
 --     │
 --  17 │   imu pos := [10, 20);

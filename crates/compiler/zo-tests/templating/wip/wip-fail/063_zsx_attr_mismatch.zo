@@ -33,12 +33,12 @@ fun main() {
 -! 3. **The Goal:** Match the data type to the attribute's intent.
 
 -- EXPECTED OUTPUT:
--- [E0063] Error: Type mismatch in ZSX attribute
+-- [E0063] Error • Type mismatch in ZSX attribute
 --    ┌─ 063_zsx_attr_type_mismatch.zo:16:34
 --    │
 -- 16 │   imu btn: </> = <button onclick="showln('hi')">"Click"</button>;
 --    │                                  ^^^^^^^^^^^^^^ expected a function block {}, found a string
 --    │
---    = Note: Event handlers like `onclick` require executable code inside braces.
---    = Help: Use braces for the attribute: `onclick={showln("hi")}`.
+--    = Note • Event handlers like `onclick` require executable code inside braces.
+--    = Help • Use braces for the attribute: `onclick={showln("hi")}`.
 -- ────╯
