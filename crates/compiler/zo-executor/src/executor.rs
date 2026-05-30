@@ -2627,6 +2627,7 @@ impl<'a> Executor<'a> {
 
         self.branch_stack.push(BranchCtx {
           kind: BranchKind::Ternary,
+          span: self.tree.spans[idx],
           end_label,
           else_label: Some(else_label),
           // Store stack depth at When for deferred
@@ -15471,11 +15472,13 @@ impl<'a> Executor<'a> {
     };
 
     // First arm to Store sets the sink type; later arms
-    // unify against it. type mismatch reports through
-    // the existing error path.
+    // unify against it. A mismatch reports at the branch
+    // construct's span so the diagnostic has a caret.
     let sink_ty = if let Some(prev) = ctx.value_sink_ty {
-      let span = Span::ZERO;
-      self.ty_checker.unify(prev, top_ty, span).unwrap_or(prev)
+      self
+        .ty_checker
+        .unify(prev, top_ty, ctx.span)
+        .unwrap_or(prev)
     } else {
       if let Some(c) = self.branch_stack.get_mut(ctx_idx) {
         c.value_sink_ty = Some(top_ty);
@@ -15533,7 +15536,7 @@ impl<'a> Executor<'a> {
     self.sir_values.push(sv);
   }
 
-  fn execute_if(&mut self, _start_idx: usize, _end_idx: usize) {
+  fn execute_if(&mut self, start_idx: usize, _end_idx: usize) {
     let end_label = self.sir.next_label();
     let else_label = self.sir.next_label();
 
@@ -15542,6 +15545,7 @@ impl<'a> Executor<'a> {
 
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::If,
+      span: self.tree.spans[start_idx],
       end_label,
       else_label: Some(else_label),
       loop_label: None,
@@ -17583,6 +17587,7 @@ impl<'a> Executor<'a> {
 
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::While,
+      span: self.tree.spans[start_idx],
       end_label,
       else_label: None,
       loop_label: Some(loop_label),
@@ -17733,7 +17738,7 @@ impl<'a> Executor<'a> {
   /// `branch_emitted = true` from the start so the LBrace
   /// handler knows there's nothing to emit and never
   /// touches the value stack expecting a condition.
-  fn execute_loop(&mut self, _start_idx: usize, _end_idx: usize) {
+  fn execute_loop(&mut self, start_idx: usize, _end_idx: usize) {
     let loop_label = self.sir.next_label();
     let end_label = self.sir.next_label();
 
@@ -17741,6 +17746,7 @@ impl<'a> Executor<'a> {
 
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::While,
+      span: self.tree.spans[start_idx],
       end_label,
       else_label: None,
       loop_label: Some(loop_label),
@@ -18070,6 +18076,7 @@ impl<'a> Executor<'a> {
     // Push branch context — RBrace will emit increment + jump.
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::For,
+      span: self.tree.spans[start_idx],
       end_label,
       else_label: None,
       loop_label: Some(loop_label),
@@ -18487,6 +18494,7 @@ impl<'a> Executor<'a> {
     // Branch context: close path increments `idx_sym`.
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::For,
+      span: self.tree.spans[colon_eq_idx],
       end_label,
       else_label: None,
       loop_label: Some(loop_label),
@@ -24378,6 +24386,11 @@ enum BranchKind {
 struct BranchCtx {
   /// The kind of branch.
   kind: BranchKind,
+  /// Source span of the branch construct. A type mismatch
+  /// between arm result values reports here, so the
+  /// diagnostic points at the offending expression instead
+  /// of nowhere.
+  span: Span,
   /// The label id for the end of the construct.
   end_label: u32,
   /// The label id for the else block (if only).

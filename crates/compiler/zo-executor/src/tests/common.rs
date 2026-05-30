@@ -1,6 +1,6 @@
 use crate::Executor;
 
-use zo_error::ErrorKind;
+use zo_error::{Error, ErrorKind};
 use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_reporter::collect_errors;
@@ -162,6 +162,28 @@ pub(crate) fn assert_execution_error(source: &str, expected_error: ErrorKind) {
     expected_error,
     errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
   );
+}
+
+/// Execute source and return every collected error.
+pub(crate) fn execution_errors(source: &str) -> Vec<Error> {
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
+
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  executor.execute();
+  collect_errors()
 }
 
 /// Execute source and return raw (SIR instructions, annotations).

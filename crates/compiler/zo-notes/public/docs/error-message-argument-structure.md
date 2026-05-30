@@ -1,0 +1,154 @@
+# Error Messages as Arguments
+
+How zo structures compiler diagnostics, based on Barik et al., *"How Should Compilers Explain Problems to Developers?"* (ESEC/FSE 2018).
+
+The paper studies why developers leave a compiler error and search Stack Overflow instead. The finding: accepted Stack Overflow answers are **arguments** (Toulmin's model) — claim, grounds, warrant, resolution. Most compiler errors are a bare **claim** with nothing behind it. We adopt the argument model so a zo error stands on its own and the user never has to leave.
+
+## Table 4 — Argument Layout Components
+
+The components every diagnostic can carry. Simple components form the
+baseline; extended components are opt-in depth.
+
+### Simple argument components
+
+| Component      | What it is                                                        |
+|----------------|-------------------------------------------------------------------|
+| **Claim**      | The concluding judgment about the problem in the code.            |
+| **Resolution** | A concrete action on the source that fixes the problem.           |
+| **Grounds**    | Facts, rules, and evidence that support the claim.                |
+| **Warrant**    | The bridge — *why* the grounds support the claim ("because …").   |
+
+### Extended argument components
+
+| Component     | What it is                                                         |
+|---------------|-------------------------------------------------------------------|
+| **Backing**   | Extra evidence for the warrant, when the warrant isn't accepted.  |
+| **Qualifier** | Degree of belief in the claim ("likely", "probably") — weakens it.|
+| **Rebuttal**  | Exceptions to the claim or to another component.                  |
+
+## The four layouts (Figure 3)
+
+Diagnostics fall into four shapes. The paper measured how often each appears in real compiler errors (CEM) versus accepted answers (SO):
+
+  - **(a) Claim-only** — claim, nothing else. *Compilers: 191. SO: 0.* The problematic default. Avoid.
+  - **(b) Claim-resolution** — claim + fix. Right when the fix is obvious (a missing `;`).
+  - **(c) Simple argument** — grounds + warrant ⇒ claim, plus resolution. The target for judgment-call errors (type mismatches, ownership).
+  - **(d) Extended argument** — adds backing. Reserve for opt-in depth.
+
+The lesson: **never ship layout (a)**. Every zo diagnostic carries at least a resolution or grounds.
+
+## Three design principles (we apply all three)
+
+**I — Give the user autonomy to elaborate the argument.**
+
+Novices want the explanation; experts want the fix. Ship a *simple* argument by default and let the user pull *backing* on demand. zo already gates depth: `--explain-decisions` opens the rationale channel, `--format json` exposes the full structure for tools and agents.
+
+**II — Distinguish fixes from explanations.**
+
+A *resolution* (quick fix) and an *argument* (explanation) are different things. A missing semicolon needs only the fix. A type mismatch needs the grounds and warrant — the fix alone leaves the user not knowing *why*. Keep the two channels separate; don't collapse a fix into prose or bury a fix inside an explanation.
+
+**III — Use argument structure to design and review errors.**
+
+When writing or reviewing a diagnostic, name each component. If you can't point at the claim, the message is incomplete.
+
+## The trap: a ground masquerading as a claim
+
+The paper's sharpest lesson. Haskell's `ghci` on `[True, 'a']`:
+
+```
+Couldn't match expected type 'Bool' with actual type 'Char'
+```
+
+That is a **ground**, not a claim — it states a fact without the judgment it supports. F# states the **claim** first, then backs it:
+
+```
+error FS0001: All elements of a list constructor expression must have the same type. This expression was expected to have type 'bool', but here has type 'char'.
+              ^^^^
+```
+
+F# also points at the location with a caret; `ghci` narrates it through "In the expression …" lines. Carets beat narration.
+
+**Apply to zo:** lead `TypeMismatch` and friends with the *rule that was violated* (the claim), then present the conflicting types as grounds. Don't open with "expected X, found Y" — that's a ground.
+
+## How the components map onto zo's reporter
+
+zo's `Error` is a compact 16-byte value (kind + primary span + secondary span + file). The `ErrorKind` is the key into static side-tables that supply the rest of the argument — zero cost on the hot path, full structure when rendering:
+
+| Argument component | zo mechanism                                                      |
+|--------------------|-------------------------------------------------------------------|
+| **Claim**          | `ErrorKind` headline + primary span (ariadne caret on the source).|
+| **Grounds**        | Secondary span (the conflicting site) + the concrete values.      |
+| **Warrant**        | `error_help(kind)` — the "because …" prose in `zo-reporter`.      |
+| **Resolution**     | `fixes_for(kind)` — machine-applicable `FixIt` edits.             |
+| **Backing**        | Rationale channel, gated by `--explain-decisions`.                |
+| **Qualifier**      | Avoid. A compiler asserts; it does not hedge with "probably".     |
+| **Rebuttal**       | Rare. Use only for genuine, documented exceptions.                |
+
+The infrastructure already exists. The work is **content**: making each `ErrorKind` carry a true claim, real grounds, and — for judgment-call errors — a warrant.
+
+## A real zo diagnostic, decomposed
+
+Compiling this program:
+
+```zo
+fun main() {
+  imu count: int = 0;
+  count = 1;
+}
+```
+
+produces:
+
+```
+[E0309] Error: Cannot mutate immutable variable
+   ╭─[ immutable.zo:3:3 ]
+   │
+ 3 │   count = 1;
+   │   ──┬──
+   │     ╰──── cannot assign to immutable variable
+   │
+   │ Help: Use 'mut' to declare a mutable variable
+───╯
+```
+
+Reading it through Table 4:
+
+| Component      | In this diagnostic                                                       |
+|----------------|--------------------------------------------------------------------------|
+| **Claim**      | `[E0309] Cannot mutate immutable variable`.                              |
+| **Grounds**    | The source line + caret under `count`, labelled "cannot assign …".       |
+| **Resolution** | `Help: Use 'mut' to declare a mutable variable`.                         |
+| **Warrant**    | *Missing* — the *why* (`imu` binds immutably) is left implicit.          |
+
+This is a **claim-resolution** layout (b): a clear claim, a caret on the grounds, and a fix. The gap is the **warrant** — it never says *because `count` was bound with `imu`, not `mut`*. For a one-keyword fix that's acceptable; for judgment-call errors it isn't, and the warrant must be stated.
+
+`--format json` emits the same structure machine-readably — `code`, `message`, `span`, `fixes` (the `FixIt`), `notes` — so an agent applies the resolution without parsing prose:
+
+```json
+{ "id": "immutable-variable", "code": "E0309", "severity": "error",
+  "message": "Cannot mutate immutable variable",
+  "fixes": [ { "kind": "insert", "text": "mut ",
+    "description": "Declare the variable as mutable with `mut`" } ] }
+```
+
+## Why locations matter: the `Span::ZERO` rule
+
+A claim with no location is a degraded claim — the user can't see what the compiler is pointing at, the very failure F# fixes with its caret. So **a user-facing diagnostic must never be built with `Span::ZERO`**.
+
+`Span::ZERO` is legitimate only for synthetic nodes and for `InternalCompilerError` sentinels (a compiler bug has no user source location). Any other diagnostic must thread a real span from the tree.
+
+Worked example: branch-arm sink-type unification in `zo-executor` used to report a type mismatch through `Span::ZERO`, so the claim landed with no caret. `BranchCtx` now carries the branch construct's span, set at every push site, and the arm unify reports there — so `when`/`if`/`else` arms that disagree on type point at the construct instead of byte 0.
+
+## Checklist for any new diagnostic
+
+  1. **State the claim** — the rule that was violated, not a raw fact.
+  2. **Point at it** — a real span, never `Span::ZERO`. Caret, not prose.
+  3. **Give grounds** — the conflicting values / the second span.
+  4. **Add a warrant** (`error_help`) when the *why* isn't obvious.
+  5. **Offer a resolution** (`FixIt`) when the fix is mechanical.
+  6. **Keep backing opt-in** — depth behind `--explain-decisions`.
+  7. **Never ship claim-only.** At minimum: claim + resolution, or claim + grounds.
+
+## Source
+
+Titus Barik, Denae Ford, Emerson Murphy-Hill, Chris Parnin. *How Should Compilers Explain Problems to Developers?* ESEC/FSE 2018. <https://static.barik.net/barik/publications/fse2018/barik_fse18.pdf>

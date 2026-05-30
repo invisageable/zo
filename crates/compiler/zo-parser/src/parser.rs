@@ -110,6 +110,11 @@ impl<'a> Parser<'a> {
         start: self.tokens.starts[self.pos],
         len: self.tokens.lengths[self.pos],
       }
+    } else if let Some(&start) = self.tokens.starts.last() {
+      // Past the `Eof` token: anchor a zero-length caret at
+      // end of source instead of byte 0, so a diagnostic
+      // reported here still points where the input runs out.
+      Span { start, len: 0 }
     } else {
       Span::ZERO
     }

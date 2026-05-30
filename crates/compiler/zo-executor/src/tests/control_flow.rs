@@ -1,7 +1,7 @@
 use crate::tests::common::{
   assert_execution_error, assert_sir_stream, assert_sir_structure, execute_raw,
+  execution_errors,
 };
-use zo_value::{FunctionKind, Pubness};
 
 use zo_error::ErrorKind;
 use zo_interner::Symbol;
@@ -9,6 +9,7 @@ use zo_sir::{Insn, LoadSource};
 use zo_span::Span;
 use zo_ty::{SelfKind, TyId};
 use zo_value::ValueId;
+use zo_value::{FunctionKind, Pubness};
 
 #[test]
 fn test_if_simple() {
@@ -295,6 +296,86 @@ fn test_void_function_with_annotation_is_type_error() {
   // `fun foo() -> int { }` declares `-> int` but body is
   // empty — this should be a TypeMismatch.
   assert_execution_error("fun foo() -> int { }", ErrorKind::TypeMismatch);
+}
+
+#[test]
+fn test_branch_arm_mismatch_has_real_span() {
+  // Arms of a value-position `when` disagree: `1` is int,
+  // `true` is bool. The mismatch must report at the `when`
+  // construct's span, never `Span::ZERO` (a caret at byte 0
+  // would point at the top of the file).
+  let source = "fun main() {\n  imu y := when true ? 1 : true;\n}";
+
+  let mismatch = execution_errors(source)
+    .into_iter()
+    .find(|e| e.kind() == ErrorKind::TypeMismatch)
+    .expect("expected a TypeMismatch between the branch arms");
+
+  assert_ne!(mismatch.span(), Span::ZERO);
+
+  let when_start = source.find("when").unwrap() as u32;
+
+  assert_eq!(mismatch.span().start, when_start);
+}
+
+#[test]
+fn test_if_expr_arm_mismatch_has_real_span() {
+  // An `if/else` in value position (the function's tail
+  // expression): the then-arm is int, the else-arm is
+  // bool. The mismatch must report at the `if` span.
+  let source = "fun pick() -> int {\n  if true {\n    1\n  } else {\n    true\n  }\n}\nfun main() {}";
+
+  let mismatch = execution_errors(source)
+    .into_iter()
+    .find(|e| e.kind() == ErrorKind::TypeMismatch)
+    .expect("expected a TypeMismatch between the if/else arms");
+
+  assert_ne!(mismatch.span(), Span::ZERO);
+
+  let if_start = source.find("if").unwrap() as u32;
+
+  assert_eq!(mismatch.span().start, if_start);
+}
+
+#[test]
+fn test_if_expr_let_binding_mismatch_has_real_span() {
+  // An `if/else` expression bound to an annotated local
+  // (`imu foo: int = if ...`): the then-arm is int, the
+  // else-arm is bool. The arm mismatch must report at the
+  // `if` span, never `Span::ZERO`.
+  let source = "fun main() {\n  imu foo: int = if true { 1 } else { true };\n}";
+
+  let mismatch = execution_errors(source)
+    .into_iter()
+    .find(|e| e.kind() == ErrorKind::TypeMismatch)
+    .expect("expected a TypeMismatch between the if/else arms");
+
+  assert_ne!(mismatch.span(), Span::ZERO);
+
+  let if_start = source.find("if").unwrap() as u32;
+
+  assert_eq!(mismatch.span().start, if_start);
+}
+
+#[test]
+fn test_if_else_statement_mismatch_has_real_span() {
+  // An `if/else` used as a statement (followed by another
+  // statement) inside a non-unit function eagerly mints a
+  // value sink, so both arms store — then-arm int, else-arm
+  // bool. The arm-unification mismatch must report at the
+  // `if` span, not `Span::ZERO`.
+  let source = "fun pick() -> int {\n  if true {\n    1\n  } else {\n    true\n  }\n  return 0;\n}\nfun main() {}";
+
+  let mismatch = execution_errors(source)
+    .into_iter()
+    .find(|e| e.kind() == ErrorKind::TypeMismatch)
+    .expect("expected a TypeMismatch from the if/else arms");
+
+  assert_ne!(mismatch.span(), Span::ZERO);
+
+  let if_start = source.find("if").unwrap() as u32;
+
+  assert_eq!(mismatch.span().start, if_start);
 }
 
 #[test]
