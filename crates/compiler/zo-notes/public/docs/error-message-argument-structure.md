@@ -122,7 +122,7 @@ Reading it through Table 4:
 
 This is a **claim-resolution** layout (b): a clear claim, a caret on the grounds, and a fix. The gap is the **warrant** — it never says *because `count` was bound with `imu`, not `mut`*. For a one-keyword fix that's acceptable; for judgment-call errors it isn't, and the warrant must be stated.
 
-`--format json` emits the same structure machine-readably — `code`, `message`, `span`, `fixes` (the `FixIt`), `notes` — so an agent applies the resolution without parsing prose:
+`--format json` emits the same structure machine-readably — `code`, `message`, `span`, `fixes` (the `FixIt`), `notes`, and `secondary` (the conflicting span, present when a diagnostic carries two — e.g. a type mismatch) — so an agent applies the resolution without parsing prose:
 
 ```json
 { "id": "immutable-variable", "code": "E0309", "severity": "error",
@@ -137,7 +137,32 @@ A claim with no location is a degraded claim — the user can't see what the com
 
 `Span::ZERO` is legitimate only for synthetic nodes and for `InternalCompilerError` sentinels (a compiler bug has no user source location). Any other diagnostic must thread a real span from the tree.
 
-Worked example: branch-arm sink-type unification in `zo-executor` used to report a type mismatch through `Span::ZERO`, so the claim landed with no caret. `BranchCtx` now carries the branch construct's span, set at every push site, and the arm unify reports there — so `when`/`if`/`else` arms that disagree on type point at the construct instead of byte 0.
+### A type mismatch highlights the conflicting values
+
+The grounds for a type mismatch are the *values whose types disagree* — so every `TypeMismatch` points its carets at those values, never at the operator or keyword that joined them. A caret on `++` or `if` is a ground masquerading as a claim: it names the operation, not the evidence.
+
+For `42 ++ "hello"`:
+
+```
+[E0304] Error: Type mismatch
+   ╭─[ concat.zo:2:16 ]
+   │
+ 2 │   imu s: str = 42 ++ "hello";
+   │                ─┬    ───┬───
+   │                 ╰───────────── incompatible type here
+   │                         ╰───── conflicts with this type
+   │
+   │ Note: The types of both operands must be compatible
+───╯
+```
+
+Both values are lit: `42` (primary) and `"hello"` (secondary). The same holds for branch arms (`when c ? 1 : true` → carets on `1` and `true`), logical operators (`true || "false"`), and a function body that contradicts its return type (`fun main() -> str { "DONE" }` points at `"DONE"`, not `fun`).
+
+How it works, with zero happy-path cost:
+
+- Each value's source span is recovered only on the error path. `Sir::node_of_value` finds the value's defining instruction and reads back its parse-node span — no per-value bookkeeping during normal execution.
+- `TyChecker::unify_silent` runs the unification without self-reporting, so the executor owns the diagnostic and emits both spans via `report_value_mismatch` (primary = offending value, secondary = the value it conflicts with).
+- The operator / construct span is only a fallback when a value has no recoverable span (a synthetic with no defining instruction).
 
 ## Checklist for any new diagnostic
 

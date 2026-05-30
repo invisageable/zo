@@ -118,7 +118,7 @@ BUiLD TiME iS LiNEAR, THE MORE LiNES YOU HAVE, THE MORE SPEED YOU GET. FOR EXAMP
   }
   ```
 
-WE'RE GLAD TO SUPPORT [`raylib`](https://www.raylib.com/) FROM [Ray](https://github.com/raysan5).
+WE'RE GLAD TO SUPPORT [`raylib`](https://www.raylib.com) FROM [Ray](https://github.com/raysan5).
 
 ## why zo?
 
@@ -134,7 +134,7 @@ zo iS BUiLT FROM THE GROUND UP USiNG DATA-ORiENTED DESiGN. BY HAND-ROLLiNG THE C
 | **clang** | 148 ms      | ~67K LoC/s      | 2.4x slower       |
 | **rustc** | 321 ms      | ~31K LoC/s      | 5.3x slower       |
 
-*Workload: 10,000 lines of code compiled to native ARM64 binary (including Hindley-Milner type inference, monomorphization, type checking, constant folding, propagation, dead code elimination and link passes). No parallelization (for now).*
+*Workload: 10,000 lines of code compiled to native ARM64 binary (including Hindley-Milner type inference, monomorphization, type checking, constant folding, propagation, dead code elimination and link passes).*
 
 [@methodology-and-full-numbers](./crates/compiler/zo-benches)
 

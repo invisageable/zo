@@ -1529,6 +1529,33 @@ impl<'a> Executor<'a> {
     ));
   }
 
+  /// Source span of the expression that produced `value`,
+  /// or `None` for a synthetic / sentinel value with no
+  /// defining instruction. The diagnostic path uses it to
+  /// blame the conflicting value in a type mismatch.
+  fn span_of_value(&self, value: ValueId) -> Option<Span> {
+    self
+      .sir
+      .node_of_value(value)
+      .and_then(|node| self.tree.spans.get(node as usize).copied())
+  }
+
+  /// Report a type mismatch between two values, pointing the
+  /// primary caret at `value` and the secondary at `other`.
+  /// Falls back to `fallback` for whichever value has no
+  /// recoverable source span.
+  fn report_value_mismatch(
+    &self,
+    value: ValueId,
+    other: ValueId,
+    fallback: Span,
+  ) {
+    let primary = self.span_of_value(value).unwrap_or(fallback);
+    let secondary = self.span_of_value(other).unwrap_or(fallback);
+
+    self.report_secondary(ErrorKind::TypeMismatch, primary, secondary);
+  }
+
   /// Emit `Insn::PackDecl`, mark the pack name in scope,
   /// and seed `top_pack`. Returns `true` when the name was
   /// new — callers can branch on the return to decide
@@ -2639,6 +2666,7 @@ impl<'a> Executor<'a> {
           scope_depth: self.scope_stack.len(),
           value_sink,
           value_sink_ty: None,
+          value_sink_value: None,
           stack_depth_at_entry: self.sir_values.len() as u32,
         });
       }
@@ -3422,7 +3450,18 @@ impl<'a> Executor<'a> {
                 && body_ty != unit_ty
                 && fun_ctx.has_return_type_annotation
               {
-                self.report(ErrorKind::TypeMismatch, fn_span);
+                // Point at the returned value (the `"DONE"`
+                // in `fun main() -> str { "DONE" }`), not the
+                // `fun` keyword.
+                let value_span = self
+                  .sir_values
+                  .last()
+                  .copied()
+                  .filter(|v| v.0 != u32::MAX)
+                  .and_then(|v| self.span_of_value(v))
+                  .unwrap_or(fn_span);
+
+                self.report(ErrorKind::TypeMismatch, value_span);
               }
 
               (None, unit_ty)
@@ -5983,7 +6022,7 @@ impl<'a> Executor<'a> {
     let (lhs_ty, lhs_sir, rhs_ty, rhs_sir) =
       self.widen_mixed_float_binop(lhs_ty, lhs_sir, rhs_ty, rhs_sir);
 
-    match self.ty_checker.unify(lhs_ty, rhs_ty, span) {
+    match self.ty_checker.unify_silent(lhs_ty, rhs_ty) {
       Some(ty_id) => {
         // Try constant folding — but only if both operands
         // are compile-time constants. Skip when either is a
@@ -6324,10 +6363,13 @@ impl<'a> Executor<'a> {
         });
       }
       None => {
-        // `TyChecker::unify` has already reported
-        // `TypeMismatch` with the proper span; we just have
-        // to bail out without emitting a `BinOp` and push
-        // sentinel values so the stacks stay balanced.
+        // Point the carets at the two operands — `1` and
+        // `true` in `1 + true` — not at the operator. Primary
+        // on the right operand, secondary on the left. Bail
+        // without emitting a `BinOp` and push sentinels so
+        // the stacks stay balanced.
+        self.report_value_mismatch(rhs_sir, lhs_sir, span);
+
         let error_id = self.values.store_runtime(u32::MAX);
 
         self.value_stack.push(error_id);
@@ -6361,10 +6403,21 @@ impl<'a> Executor<'a> {
     let span = self.tree.spans[node_idx];
     let str_ty = self.ty_checker.str_type();
 
-    // Type check: both must be str.
-    if self.ty_checker.unify(lhs_ty, str_ty, span).is_none()
-      || self.ty_checker.unify(rhs_ty, str_ty, span).is_none()
-    {
+    // Type check: both must be str. Blame the non-str
+    // operand (primary) and point the other as secondary —
+    // `42` and `"hi"` in `42 ++ "hi"`, not the `++`.
+    let lhs_ok = self.ty_checker.unify_silent(lhs_ty, str_ty).is_some();
+    let rhs_ok = self.ty_checker.unify_silent(rhs_ty, str_ty).is_some();
+
+    if !lhs_ok || !rhs_ok {
+      let (primary_sir, secondary_sir) = if !lhs_ok {
+        (lhs_sir, rhs_sir)
+      } else {
+        (rhs_sir, lhs_sir)
+      };
+
+      self.report_value_mismatch(primary_sir, secondary_sir, span);
+
       let error_id = self.values.store_runtime(u32::MAX);
 
       self.value_stack.push(error_id);
@@ -15472,16 +15525,25 @@ impl<'a> Executor<'a> {
     };
 
     // First arm to Store sets the sink type; later arms
-    // unify against it. A mismatch reports at the branch
-    // construct's span so the diagnostic has a caret.
+    // unify against it. On a mismatch, point the primary
+    // caret at this arm's value and the secondary at the
+    // first arm's — the two conflicting values, not the
+    // construct keyword.
     let sink_ty = if let Some(prev) = ctx.value_sink_ty {
-      self
-        .ty_checker
-        .unify(prev, top_ty, ctx.span)
-        .unwrap_or(prev)
+      match self.ty_checker.unify_silent(prev, top_ty) {
+        Some(ty_id) => ty_id,
+        None => {
+          let first = ctx.value_sink_value.unwrap_or(top_sir);
+
+          self.report_value_mismatch(top_sir, first, ctx.span);
+
+          prev
+        }
+      }
     } else {
       if let Some(c) = self.branch_stack.get_mut(ctx_idx) {
         c.value_sink_ty = Some(top_ty);
+        c.value_sink_value = Some(top_sir);
       }
 
       top_ty
@@ -15555,6 +15617,7 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       value_sink,
       value_sink_ty: None,
+      value_sink_value: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
     });
   }
@@ -17599,6 +17662,7 @@ impl<'a> Executor<'a> {
       // `loop { break value }` expression form yet.
       value_sink: None,
       value_sink_ty: None,
+      value_sink_value: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
     });
 
@@ -17756,6 +17820,7 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       value_sink: None,
       value_sink_ty: None,
+      value_sink_value: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
     });
   }
@@ -18086,6 +18151,7 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       value_sink: None,
       value_sink_ty: None,
+      value_sink_value: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
     });
 
@@ -18504,6 +18570,7 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       value_sink: None,
       value_sink_ty: None,
+      value_sink_value: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
     });
 
@@ -24425,6 +24492,11 @@ struct BranchCtx {
   /// first arm to `Store` into the sink; subsequent
   /// arms unify against it.
   value_sink_ty: Option<TyId>,
+  /// SIR value of the first arm's result, captured alongside
+  /// `value_sink_ty`. A later arm that fails to unify recovers
+  /// its source span as the secondary — the grounds pointing
+  /// at the type the branch already committed to.
+  value_sink_value: Option<ValueId>,
   /// `sir_values.len()` captured when the branch was
   /// pushed. `emit_branch_sink_store` uses this to tell
   /// "this arm produced a new value on top of the stack"

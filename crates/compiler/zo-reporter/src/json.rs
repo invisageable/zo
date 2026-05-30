@@ -65,6 +65,7 @@ use crate::fixes::{FixIt, FixKind, fixes_for};
 use crate::render::{error_message, error_note};
 
 use zo_error::Error;
+use zo_span::Span;
 
 use serde_json::{Map, Value, json};
 
@@ -167,8 +168,6 @@ fn encode(
   let span = error.span();
   let byte_start = (span.start as usize).min(source.len());
   let byte_end = (span.end() as usize).min(source.len());
-  let ((line_start, col_start), (line_end, col_end)) =
-    line_col_pair(source, byte_start, byte_end);
   let snippet = extract_snippet(source, byte_start, byte_end, snippet_context);
   let fixes = encode_fixes(fixes_for(kind), filename, span.start, span.end());
 
@@ -179,15 +178,7 @@ fn encode(
     None => Vec::new(),
   };
 
-  let mut obj = Map::with_capacity(10);
-
-  let mut span_obj = span_json(filename, span.start, span.end());
-  if let Value::Object(map) = &mut span_obj {
-    map.insert("line_start".into(), json!(line_start));
-    map.insert("line_end".into(), json!(line_end));
-    map.insert("col_start".into(), json!(col_start));
-    map.insert("col_end".into(), json!(col_end));
-  }
+  let mut obj = Map::with_capacity(11);
 
   obj.insert("$schema".into(), json!(SCHEMA_VERSION));
   obj.insert("id".into(), json!(kind.id()));
@@ -205,9 +196,40 @@ fn encode(
       "after":  snippet.2,
     }),
   );
-  obj.insert("span".into(), span_obj);
+  obj.insert("span".into(), full_span_json(filename, span, source));
+
+  // The conflicting value in a type mismatch (the green
+  // secondary in the human render). Present only when the
+  // diagnostic carries two spans.
+  if let Some(secondary) = error.secondary_span() {
+    obj.insert(
+      "secondary".into(),
+      full_span_json(filename, secondary, source),
+    );
+  }
 
   Value::Object(obj)
+}
+
+/// Full span object — byte offsets plus 1-indexed line/col —
+/// for the primary span and the secondary (the value a
+/// mismatch conflicts with).
+fn full_span_json(filename: &str, span: Span, source: &str) -> Value {
+  let byte_start = (span.start as usize).min(source.len());
+  let byte_end = (span.end() as usize).min(source.len());
+  let ((line_start, col_start), (line_end, col_end)) =
+    line_col_pair(source, byte_start, byte_end);
+
+  let mut obj = span_json(filename, span.start, span.end());
+
+  if let Value::Object(map) = &mut obj {
+    map.insert("line_start".into(), json!(line_start));
+    map.insert("line_end".into(), json!(line_end));
+    map.insert("col_start".into(), json!(col_start));
+    map.insert("col_end".into(), json!(col_end));
+  }
+
+  obj
 }
 
 /// Builds the `span` sub-object shared by the diagnostic's
@@ -568,6 +590,36 @@ mod tests {
     assert_eq!(v["span"]["line_end"], json!(1));
     assert_eq!(v["span"]["col_start"], json!(71));
     assert_eq!(v["span"]["col_end"], json!(71));
+    // No secondary span on a single-span diagnostic.
+    assert!(v.get("secondary").is_none());
+  }
+
+  #[test]
+  fn type_mismatch_emits_secondary_span() {
+    // `1 + true`: primary caret on `true` (byte 4..8), the
+    // secondary on `1` (byte 0..1) — both values lit.
+    let source = "1 + true";
+    let err = Error::with_secondary(
+      ErrorKind::TypeMismatch,
+      Span::new(4, 4),
+      Span::new(0, 1),
+    );
+    let agg = aggregate(err);
+    let mut buf = Vec::new();
+
+    to_json(&agg, &files("foo.zo", source), 0, &mut buf).unwrap();
+    let v: Value =
+      serde_json::from_str(String::from_utf8(buf).unwrap().trim()).unwrap();
+
+    assert_eq!(v["span"]["byte_start"], json!(4));
+    assert_eq!(v["span"]["byte_end"], json!(8));
+
+    let sec = &v["secondary"];
+    assert_eq!(sec["file"], json!("foo.zo"));
+    assert_eq!(sec["byte_start"], json!(0));
+    assert_eq!(sec["byte_end"], json!(1));
+    assert_eq!(sec["line_start"], json!(1));
+    assert_eq!(sec["col_start"], json!(1));
   }
 
   #[test]

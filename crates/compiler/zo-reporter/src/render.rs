@@ -3,11 +3,16 @@ use crate::aggregator::ErrorAggregator;
 use zo_error::{Error, ErrorKind, Severity};
 use zo_span::Span;
 
-use ariadne::{ColorGenerator, Label, Report, ReportKind, Source};
+use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 
 use std::io;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+
+/// Green (256-color palette) for a secondary span — the
+/// value a mismatch conflicts with. Contrasts the red primary
+/// so the two conflicting values stay visually distinct.
+const SECONDARY_COLOR: Color = Color::Fixed(155);
 
 /// Configuration for error rendering.
 #[derive(Debug, Clone)]
@@ -62,8 +67,6 @@ impl ErrorRenderer {
     aggregator: &ErrorAggregator,
     files: &[(PathBuf, String)],
   ) -> io::Result<()> {
-    let mut colors = ColorGenerator::new();
-
     for phase_errors in aggregator.errors() {
       let errors_to_show = phase_errors
         .errors
@@ -79,7 +82,7 @@ impl ErrorRenderer {
           continue;
         }
 
-        self.render_error(error, source, &filename, &mut colors)?;
+        self.render_error(error, source, &filename)?;
       }
 
       if phase_errors.errors.len() > self.config.max_errors_per_phase {
@@ -100,7 +103,6 @@ impl ErrorRenderer {
     error: &Error,
     source: &str,
     filename: &str,
-    colors: &mut ColorGenerator,
   ) -> io::Result<()> {
     let span = error.span();
     let kind = error.kind();
@@ -116,6 +118,15 @@ impl ErrorRenderer {
       Severity::Note => ReportKind::Advice,
     };
 
+    // The primary diagnostic wears the severity color — red
+    // for an error. The headline message and the primary
+    // caret share it so the claim and its pointer read as one.
+    let primary_color = match error.severity() {
+      Severity::Error => Color::Red,
+      Severity::Warning => Color::Yellow,
+      Severity::Note => Color::Blue,
+    };
+
     let mut report = Report::build(report_kind, (filename, range.clone()));
 
     // Add error code if configured. Code derived from
@@ -125,39 +136,40 @@ impl ErrorRenderer {
       report = report.with_code(format!("E{:04}", kind.code()));
     }
 
-    // Set the main error message
-    report = report.with_message(error_message(kind));
+    // Headline message in the primary color.
+    report = report.with_message(error_message(kind).fg(primary_color));
 
-    // Add the error label at the span location
-    // For binary operations, this will point to the operator itself
+    // Primary label — the offending value. Caret AND message
+    // share the primary color (ariadne paints the caret;
+    // `.fg` paints the message to match).
     let label_msg = match kind {
-      ErrorKind::TypeMismatch => "incompatible types for this operation",
+      ErrorKind::TypeMismatch => "incompatible type here",
       _ => error_label(kind),
     };
-    let color = colors.next();
     report = report.with_label(
       Label::new((filename, range.clone()))
-        .with_message(label_msg)
-        .with_color(color),
+        .with_message(label_msg.fg(primary_color))
+        .with_color(primary_color),
     );
 
-    // Add secondary label if the error has two spans.
+    // Secondary label — the value the primary conflicts with.
+    // Fixed green to contrast the red primary; message colored
+    // to match its own caret.
     if let Some(secondary) = error.secondary_span() {
       let sec_range = span_to_range(secondary, source);
-      let sec_color = colors.next();
 
       report = report.with_label(
         Label::new((filename, sec_range))
-          .with_message(secondary_label(kind))
-          .with_color(sec_color),
+          .with_message(secondary_label(kind).fg(SECONDARY_COLOR))
+          .with_color(SECONDARY_COLOR),
       );
     }
 
-    // Add help message if configured
+    // Add help message if configured, in the severity color.
     if self.config.show_help
       && let Some(help) = error_help(kind)
     {
-      report = report.with_help(help);
+      report = report.with_help(help.fg(primary_color));
     }
 
     // Add notes for specific error kinds
@@ -584,6 +596,7 @@ fn secondary_label(kind: ErrorKind) -> &'static str {
       "vendor fallback also missing — expected under `<exe-dir>/../lib/vendor/`"
     }
     ErrorKind::BoundNotSatisfied => "bound declared here on this parameter",
+    ErrorKind::TypeMismatch => "conflicts with this type",
     _ => "related location",
   }
 }

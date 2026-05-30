@@ -36,11 +36,11 @@ fun main() -> str {
 --     │       It must return unit (no value)
 -- ────╯
 -- [E0304] Error: Type mismatch
---     ╭─[ 042_main_invalid_return.zo:13:1 ]
+--     ╭─[ 042_main_invalid_return.zo:14:3 ]
 --     │
---  13 │ fun main() -> str {
---     │ ─┬─
---     │  ╰─── incompatible types for this operation
+--  14 │   "DONE"
+--     │   ───┬──
+--     │      ╰──── incompatible type here
 --     │
 --     │ Note: The types of both operands must be compatible
 -- ────╯

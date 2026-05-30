@@ -37,6 +37,7 @@ impl ThreadLocalReporter {
     if self.count < MAX_ERRORS {
       self.errors[self.count] = error;
       self.count += 1;
+
       true
     } else {
       false

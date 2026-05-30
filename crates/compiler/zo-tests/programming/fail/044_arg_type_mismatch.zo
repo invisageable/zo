@@ -20,7 +20,7 @@ fun main() {
 --     │
 --  14 │   imu x: str = greet(42);
 --     │                      ─┬
---     │                       ╰── incompatible types for this operation
+--     │                       ╰── incompatible type here
 --     │
 --     │ Note: The types of both operands must be compatible
 -- ────╯

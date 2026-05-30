@@ -38,11 +38,13 @@ fun main() {
 
 -- EXPECTED OUTPUT:
 -- [E0304] Error: Type mismatch
---     ╭─[ 035_binop_right_truthy.zo:19:21 ]
+--     ╭─[ 035_binop_right_truthy.zo:19:24 ]
 --     │
---  19 │   imu x: int = true || "false";
---     │                     ─┬
---     │                      ╰── incompatible types for this operation
+--  19 │   imu x: int = true || "false"; -- This guy failed.
+--     │                ──┬─    ───┬───
+--     │                  ╰────────────── conflicts with this type
+--     │                           │
+--     │                           ╰───── incompatible type here
 --     │
 --     │ Note: The types of both operands must be compatible
 -- ────╯
