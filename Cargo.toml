@@ -64,6 +64,7 @@ zo-codegen = { path = "crates/compiler/zo-codegen", version = "0.3.11" }
 zo-codegen-arm = { path = "crates/compiler/zo-codegen-arm", version = "0.3.11" }
 zo-codegen-backend = { path = "crates/compiler/zo-codegen-backend", version = "0.3.11" }
 zo-codegen-clif = { path = "crates/compiler/zo-codegen-clif", version = "0.3.11" }
+zo-codegen-x86 = { path = "crates/compiler/zo-codegen-x86", version = "0.3.11" }
 zo-compiler = { path = "crates/compiler/zo-compiler", version = "0.3.11" }
 zo-constant-folding = { path = "crates/compiler/zo-constant-folding", version = "0.3.11" }
 zo-constant-propagation = { path = "crates/compiler/zo-constant-propagation", version = "0.3.11" }
@@ -72,6 +73,7 @@ zo-driver = { path = "crates/compiler/zo-driver", version = "0.3.11" }
 zo-ecs = { path = "crates/compiler/zo-ecs", version = "0.3.11" }
 zo-emitter = { path = "crates/compiler/zo-emitter", version = "0.3.11" }
 zo-emitter-arm = { path = "crates/compiler/zo-emitter-arm", version = "0.3.11" }
+zo-emitter-x86 = { path = "crates/compiler/zo-emitter-x86", version = "0.3.11" }
 zo-error = { path = "crates/compiler/zo-error", version = "0.3.11" }
 zo-executor = { path = "crates/compiler/zo-executor", version = "0.3.11" }
 zo-host-paths = { path = "crates/compiler/zo-host-paths", version = "0.3.11" }

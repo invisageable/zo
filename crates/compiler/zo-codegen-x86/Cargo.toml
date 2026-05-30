@@ -1,0 +1,17 @@
+[package]
+name = "zo-codegen-x86"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+
+# internal:crates.
+zo-codegen-backend = { workspace = true }
+zo-emitter-x86 = { workspace = true }
+zo-sir = { workspace = true }
+
+# external:crates.
