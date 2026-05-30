@@ -61,7 +61,7 @@
 //! is the only escape hatch for incompatible changes.
 
 use crate::aggregator::{ErrorAggregator, Phase};
-use crate::collector::TyNames;
+use crate::collector::Detail;
 use crate::fixes::{FixIt, FixKind, fixes_for};
 use crate::render::{error_message, error_note};
 
@@ -166,7 +166,7 @@ fn encode(
   source: &str,
   filename: &str,
   snippet_context: usize,
-  detail: Option<&TyNames>,
+  detail: Option<&Detail>,
 ) -> Value {
   let kind = error.kind();
   let span = error.span();
@@ -212,11 +212,29 @@ fn encode(
     );
   }
 
-  // The conflicting type names, when the diagnostic carries
-  // them (a type mismatch) — the grounds, machine-readable.
-  if let Some(names) = detail {
-    obj.insert("primary_type".into(), json!(&*names.primary));
-    obj.insert("secondary_type".into(), json!(&*names.secondary));
+  // Dynamic detail, machine-readable. Type names are the
+  // grounds of a mismatch; a suggestion is the closest
+  // in-scope name for a typo, which also yields a replace fix.
+  match detail {
+    Some(Detail::Types(names)) => {
+      obj.insert("primary_type".into(), json!(&*names.primary));
+      obj.insert("secondary_type".into(), json!(&*names.secondary));
+    }
+    Some(Detail::Suggestion(name)) => {
+      obj.insert("suggestion".into(), json!(&**name));
+
+      // Append a machine-applicable fix: replace the
+      // undefined name with the suggestion.
+      if let Some(Value::Array(fixes)) = obj.get_mut("fixes") {
+        fixes.push(json!({
+          "kind":        FixKind::Replace.as_str(),
+          "text":        &**name,
+          "description": format!("replace with `{name}`"),
+          "span":        span_json(filename, span.start, span.end()),
+        }));
+      }
+    }
+    None => {}
   }
 
   Value::Object(obj)
@@ -484,6 +502,7 @@ mod tests {
   use super::*;
 
   use crate::aggregator::ErrorAggregator;
+  use crate::collector::TyNames;
 
   use zo_error::{Error, ErrorKind};
   use zo_span::Span;
@@ -645,15 +664,34 @@ mod tests {
       Span::new(4, 4),
       Span::new(0, 1),
     );
-    let names = TyNames {
+    let detail = Detail::Types(TyNames {
       primary: "bool".into(),
       secondary: "int".into(),
-    };
+    });
 
-    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&names));
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&detail));
 
     assert_eq!(v["primary_type"], json!("bool"));
     assert_eq!(v["secondary_type"], json!("int"));
+  }
+
+  #[test]
+  fn undefined_variable_emits_suggestion_and_fix() {
+    // `cont` at byte 7..11, suggested fix `count`.
+    let source = "showln(cont)";
+    let err = Error::new(ErrorKind::UndefinedVariable, Span::new(7, 4));
+    let detail = Detail::Suggestion("count".into());
+
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&detail));
+
+    assert_eq!(v["suggestion"], json!("count"));
+
+    let fixes = v["fixes"].as_array().expect("`fixes` is an array");
+    assert_eq!(fixes.len(), 1, "the suggestion adds one replace fix");
+    assert_eq!(fixes[0]["kind"], json!("replace"));
+    assert_eq!(fixes[0]["text"], json!("count"));
+    assert_eq!(fixes[0]["span"]["byte_start"], json!(7));
+    assert_eq!(fixes[0]["span"]["byte_end"], json!(11));
   }
 
   #[test]

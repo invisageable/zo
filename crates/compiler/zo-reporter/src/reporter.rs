@@ -1,10 +1,10 @@
-use crate::collector::TyNames;
+use crate::collector::Detail;
 
 use zo_error::Error;
 
 pub struct Reporter {
   errors: Vec<Error>,
-  details: Vec<(Error, TyNames)>,
+  details: Vec<(Error, Detail)>,
 }
 
 impl Reporter {
@@ -21,7 +21,7 @@ impl Reporter {
 
   /// Accumulate type-name detail drained from a thread-local
   /// reporter, alongside its errors.
-  pub fn collect_details(&mut self, details: Vec<(Error, TyNames)>) {
+  pub fn collect_details(&mut self, details: Vec<(Error, Detail)>) {
     self.details.extend(details);
   }
 
@@ -29,7 +29,7 @@ impl Reporter {
     &self.errors
   }
 
-  pub fn details(&self) -> &[(Error, TyNames)] {
+  pub fn details(&self) -> &[(Error, Detail)] {
     &self.details
   }
 }

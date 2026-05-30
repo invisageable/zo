@@ -1,5 +1,5 @@
 use crate::aggregator::ErrorAggregator;
-use crate::collector::TyNames;
+use crate::collector::Detail;
 
 use zo_error::{Error, ErrorKind, Severity};
 use zo_span::Span;
@@ -116,8 +116,17 @@ impl ErrorRenderer {
     error: &Error,
     source: &str,
     filename: &str,
-    detail: Option<&TyNames>,
+    detail: Option<&Detail>,
   ) -> io::Result<()> {
+    // Split the detail into the shapes each section consumes.
+    let types = match detail {
+      Some(Detail::Types(names)) => Some(names),
+      _ => None,
+    };
+    let suggestion = match detail {
+      Some(Detail::Suggestion(name)) => Some(name),
+      _ => None,
+    };
     let span = error.span();
     let kind = error.kind();
     let range = span_to_range(span, source);
@@ -153,9 +162,9 @@ impl ErrorRenderer {
     // share the primary color (ariadne paints the caret;
     // `.fg` paints the message to match). A `TypeMismatch`
     // names the value's type when the detail is present.
-    let label_msg = match (kind, detail) {
-      (ErrorKind::TypeMismatch, Some(d)) => {
-        format!("incompatible type `{}` here", d.primary)
+    let label_msg = match (kind, types) {
+      (ErrorKind::TypeMismatch, Some(t)) => {
+        format!("incompatible type `{}` here", t.primary)
       }
       (ErrorKind::TypeMismatch, None) => "incompatible type here".to_owned(),
       _ => error_label(kind).to_owned(),
@@ -172,9 +181,9 @@ impl ErrorRenderer {
     if let Some(secondary) = error.secondary_span() {
       let sec_range = span_to_range(secondary, source);
 
-      let sec_msg = match (kind, detail) {
-        (ErrorKind::TypeMismatch, Some(d)) => {
-          format!("conflicts with this type `{}`", d.secondary)
+      let sec_msg = match (kind, types) {
+        (ErrorKind::TypeMismatch, Some(t)) => {
+          format!("conflicts with this type `{}`", t.secondary)
         }
         _ => secondary_label(kind).to_owned(),
       };
@@ -186,11 +195,18 @@ impl ErrorRenderer {
       );
     }
 
-    // Add help message if configured, in the severity color.
-    if self.config.show_help
-      && let Some(help) = error_help(kind)
-    {
-      report = report.with_help(help.fg(primary_color));
+    // Add help, in the severity color. A name suggestion (a
+    // typo's closest in-scope match) takes precedence over the
+    // static help; otherwise fall back to the per-kind prose.
+    if self.config.show_help {
+      let help = match suggestion {
+        Some(name) => Some(format!("did you mean `{name}`?")),
+        None => error_help(kind).map(str::to_owned),
+      };
+
+      if let Some(help) = help {
+        report = report.with_help(help.fg(primary_color));
+      }
     }
 
     // Add notes for specific error kinds

@@ -3,7 +3,7 @@ use crate::Executor;
 use zo_error::{Error, ErrorKind};
 use zo_interner::Interner;
 use zo_parser::Parser;
-use zo_reporter::{TyNames, collect_diagnostics, collect_errors};
+use zo_reporter::{Detail, collect_diagnostics, collect_errors};
 use zo_sir::Insn;
 use zo_span::Span;
 use zo_tokenizer::Tokenizer;
@@ -178,7 +178,7 @@ pub(crate) fn span_text(source: &str, span: Span) -> &str {
 /// The detail `Vec` holds only the errors that carry it.
 pub(crate) fn execution_diagnostics(
   source: &str,
-) -> (Vec<Error>, Vec<(Error, TyNames)>) {
+) -> (Vec<Error>, Vec<(Error, Detail)>) {
   let mut interner = Interner::new();
   let tokenizer = Tokenizer::new(source, &mut interner);
   let tokenization = tokenizer.tokenize();

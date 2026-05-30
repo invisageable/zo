@@ -1,5 +1,5 @@
 use crate::collector;
-use crate::collector::TyNames;
+use crate::collector::Detail;
 
 use zo_error::{Error, ErrorKind};
 
@@ -74,10 +74,10 @@ impl PhaseErrors {
 pub struct ErrorAggregator {
   /// All phase errors collected.
   phase_errors: Vec<PhaseErrors>,
-  /// Type-name detail keyed by the `Error` it annotates. The
-  /// renderer looks it up to name the conflicting types in a
-  /// `TypeMismatch`. Empty for diagnostics with no such detail.
-  details: HashMap<Error, TyNames>,
+  /// Dynamic detail keyed by the `Error` it annotates (type
+  /// names, a name suggestion). The renderer looks it up to
+  /// enrich the diagnostic. Empty for errors with no detail.
+  details: HashMap<Error, Detail>,
 }
 
 impl ErrorAggregator {
@@ -92,16 +92,16 @@ impl ErrorAggregator {
     self.group_errors_by_phase(errors);
   }
 
-  /// Registers type-name detail so the renderer can name the
-  /// conflicting types of a diagnostic.
-  pub fn add_details(&mut self, details: &[(Error, TyNames)]) {
-    for (error, names) in details {
-      self.details.insert(*error, names.clone());
+  /// Registers dynamic detail so the renderer can enrich the
+  /// matching diagnostics.
+  pub fn add_details(&mut self, details: &[(Error, Detail)]) {
+    for (error, detail) in details {
+      self.details.insert(*error, detail.clone());
     }
   }
 
-  /// Type-name detail for an error, if it carries any.
-  pub fn detail_for(&self, error: &Error) -> Option<&TyNames> {
+  /// Dynamic detail for an error, if it carries any.
+  pub fn detail_for(&self, error: &Error) -> Option<&Detail> {
     self.details.get(error)
   }
 

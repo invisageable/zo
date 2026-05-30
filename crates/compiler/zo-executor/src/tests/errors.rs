@@ -3,7 +3,31 @@ use crate::tests::common::{
 };
 
 use zo_error::ErrorKind;
+use zo_reporter::Detail;
 use zo_span::Span;
+
+/// An undefined variable that's a near-typo of an in-scope
+/// binding suggests the closest name — `cont` → `count`.
+#[test]
+fn test_undefined_variable_suggests_closest_name() {
+  let source = "fun main() {\n  imu count: int = 0;\n  showln(cont);\n}";
+
+  let (_errors, details) = execution_diagnostics(source);
+
+  let suggestion = details
+    .iter()
+    .find_map(|(e, d)| match d {
+      Detail::Suggestion(name)
+        if e.kind() == ErrorKind::UndefinedVariable =>
+      {
+        Some(name.clone())
+      }
+      _ => None,
+    })
+    .expect("expected a suggestion for the undefined variable");
+
+  assert_eq!(&*suggestion, "count");
+}
 
 /// A binop mismatch records the conflicting type names —
 /// `bool` (primary, the `true`) and `int` (secondary, the
@@ -14,9 +38,14 @@ fn test_binop_mismatch_names_types() {
 
   let (_errors, details) = execution_diagnostics(source);
 
-  let (_error, names) = details
+  let names = details
     .iter()
-    .find(|(e, _)| e.kind() == ErrorKind::TypeMismatch)
+    .find_map(|(e, d)| match d {
+      Detail::Types(names) if e.kind() == ErrorKind::TypeMismatch => {
+        Some(names)
+      }
+      _ => None,
+    })
     .expect("expected a TypeMismatch carrying type names");
 
   assert_eq!(&*names.primary, "bool");

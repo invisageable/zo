@@ -25,6 +25,19 @@ pub struct TyNames {
   pub secondary: Box<str>,
 }
 
+/// Dynamic, per-diagnostic detail a static
+/// `fn(ErrorKind) -> &str` table can't express. The compact
+/// `Error` carries none of it; it rides in a side store
+/// keyed by the `Error`.
+#[derive(Clone, Debug)]
+pub enum Detail {
+  /// The two conflicting type names of a mismatch.
+  Types(TyNames),
+  /// Closest in-scope name for an undefined name (a typo) —
+  /// `count` for `cont`.
+  Suggestion(Box<str>),
+}
+
 /// Thread-local error reporter with fixed-size buffer.
 /// This provides zero-allocation error collection during compilation.
 pub struct ThreadLocalReporter {
@@ -32,10 +45,10 @@ pub struct ThreadLocalReporter {
   errors: [Error; MAX_ERRORS],
   /// Current number of errors.
   count: usize,
-  /// Side store of type-name detail, keyed by the `Error` it
+  /// Side store of dynamic detail, keyed by the `Error` it
   /// annotates. A `Vec` (not a `HashMap`) so `new` stays
   /// `const`; lookups happen only on the cold render path.
-  details: Vec<(Error, TyNames)>,
+  details: Vec<(Error, Detail)>,
 }
 
 impl ThreadLocalReporter {
@@ -62,10 +75,10 @@ impl ThreadLocalReporter {
     }
   }
 
-  /// Reports an error and attaches its conflicting type names.
-  pub fn report_with_types(&mut self, error: Error, names: TyNames) -> bool {
+  /// Reports an error and attaches dynamic detail.
+  pub fn report_with_detail(&mut self, error: Error, detail: Detail) -> bool {
     if self.report(error) {
-      self.details.push((error, names));
+      self.details.push((error, detail));
 
       true
     } else {
@@ -122,8 +135,8 @@ impl ThreadLocalReporter {
     result
   }
 
-  /// Drains errors together with their type-name detail.
-  pub fn drain_with_details(&mut self) -> (Vec<Error>, Vec<(Error, TyNames)>) {
+  /// Drains errors together with their dynamic detail.
+  pub fn drain_with_details(&mut self) -> (Vec<Error>, Vec<(Error, Detail)>) {
     let errors = self.errors[..self.count].to_vec();
     let details = std::mem::take(&mut self.details);
 
@@ -149,8 +162,19 @@ pub fn report_error(error: Error) -> bool {
 
 /// Reports an error and attaches its conflicting type names.
 pub fn report_error_with_types(error: Error, names: TyNames) -> bool {
+  report_error_with_detail(error, Detail::Types(names))
+}
+
+/// Reports an undefined-name error with the closest in-scope
+/// name as a suggestion.
+pub fn report_error_with_suggestion(error: Error, name: &str) -> bool {
+  report_error_with_detail(error, Detail::Suggestion(name.into()))
+}
+
+/// Reports an error and attaches dynamic detail.
+pub fn report_error_with_detail(error: Error, detail: Detail) -> bool {
   REPORTER
-    .with(|reporter| reporter.borrow_mut().report_with_types(error, names))
+    .with(|reporter| reporter.borrow_mut().report_with_detail(error, detail))
 }
 
 /// Returns the count of buffered hard errors for this
@@ -186,6 +210,6 @@ pub fn collect_errors() -> Vec<Error> {
 }
 
 /// Collects all errors and their type-name detail.
-pub fn collect_diagnostics() -> (Vec<Error>, Vec<(Error, TyNames)>) {
+pub fn collect_diagnostics() -> (Vec<Error>, Vec<(Error, Detail)>) {
   REPORTER.with(|reporter| reporter.borrow_mut().drain_with_details())
 }

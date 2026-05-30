@@ -175,6 +175,42 @@ How it works, with zero happy-path cost:
   6. **Keep backing opt-in** — depth behind `--explain-decisions`.
   7. **Never ship claim-only.** At minimum: claim + resolution, or claim + grounds.
 
+## Most common errors:
+
+Across languages, the errors developers hit cluster into a handful of buckets. Ranked roughly by how often people actually encounter them:
+
+Syntax / parse (the daily ones)
+
+  - Missing delimiter — `;`, `)`, `}`, `]`. The single most frequent compile error.
+  - Unexpected token — "expected X, found Y".
+  - Unterminated string / comment.
+  - Unexpected end of file.
+
+Name resolution (usually typos)
+
+  - Undefined variable — NameError (Python), ReferenceError: x is not defined (JS), "cannot find value x in this scope" (Rust).
+  - Undefined function / type / module.
+  - Use before declaration.
+
+Type errors (the conceptual ones)
+
+  - Type mismatch — "expected int, found str". The headline type error everywhere.
+  - Argument count mismatch — too few / too many arguments.
+  - "X is not a function" / not callable.
+  - Missing return / not all paths return a value.
+  - Operator not applicable to these types (e.g. int + str).
+
+The runtime "big four" (these dominate production crashes)
+
+  1. Null / nil / undefined dereference — NullPointerException (Java), "cannot read properties of undefined" (JS), AttributeError: 'NoneType' (Python), nil-pointer panic (Go). Hoare's "billion-dollar mistake" — by far the #1 runtime failure across the industry.
+  2. Index out of bounds — array/list/string.
+  3. Division by zero.
+  4. Stack overflow (infinite recursion) / out of memory.
+
+Ownership / lifetimes (Rust's signature class)
+
+  - Use after move, cannot borrow as mutable, borrowed value does not live long enough.
+
 ## Source
 
 Titus Barik, Denae Ford, Emerson Murphy-Hill, Chris Parnin. *How Should Compilers Explain Problems to Developers?* ESEC/FSE 2018. <https://static.barik.net/barik/publications/fse2018/barik_fse18.pdf>

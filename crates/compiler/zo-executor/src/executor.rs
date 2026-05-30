@@ -7,7 +7,10 @@ use zo_module_resolver::{
   AbstractDef, AbstractImpl, AbstractMethod, ExportedGenericBody,
   ExportedLiteral,
 };
-use zo_reporter::{TyNames, report_error, report_error_with_types};
+use zo_reporter::{
+  TyNames, report_error, report_error_with_suggestion,
+  report_error_with_types,
+};
 use zo_sir::{
   BinOp, ComputedBinding, ImportKind, Insn, LinkEntry, LinkPath,
   LinkResolution, LinkSpec, ListBinding, ListItemCmd, LoadSource, NurseryKind,
@@ -1609,6 +1612,52 @@ impl<'a> Executor<'a> {
       Ty::Unit => "unit".to_owned(),
       _ => "?".to_owned(),
     }
+  }
+
+  /// Report an undefined variable, attaching the closest
+  /// in-scope name as a `did you mean …?` suggestion when one
+  /// is near enough to be a likely typo.
+  fn report_undefined_variable(&self, name: Symbol, span: Span) {
+    let error = Error::with_file(
+      ErrorKind::UndefinedVariable,
+      span,
+      self.current_file_id,
+    );
+
+    match self.suggest_variable(name) {
+      Some(suggestion) => report_error_with_suggestion(error, &suggestion),
+      None => report_error(error),
+    };
+  }
+
+  /// Closest in-scope variable name to `name` by edit
+  /// distance, if one is near enough to be a likely typo.
+  /// Candidates are the live locals — out-of-scope and
+  /// shadowed bindings are skipped.
+  fn suggest_variable(&self, name: Symbol) -> Option<String> {
+    let target = self.interner.get(name);
+    let mut best: Option<(usize, &str)> = None;
+
+    for local in &self.locals {
+      if local.name == name || !self.local_scope.contains(local.name) {
+        continue;
+      }
+
+      let candidate = self.interner.get(local.name);
+      let distance = levenshtein(target, candidate);
+
+      // A typo is a small edit relative to the longer name;
+      // scale the bound by length so short names stay strict.
+      let threshold = (target.len().max(candidate.len()) / 3).max(1);
+
+      if distance <= threshold
+        && best.is_none_or(|(best_distance, _)| distance < best_distance)
+      {
+        best = Some((distance, candidate));
+      }
+    }
+
+    best.map(|(_, name)| name.to_owned())
   }
 
   /// Emit `Insn::PackDecl`, mark the pack name in scope,
@@ -4606,7 +4655,7 @@ impl<'a> Executor<'a> {
             {
               let span = self.tree.spans[idx];
 
-              self.report(ErrorKind::UndefinedVariable, span);
+              self.report_undefined_variable(sym, span);
 
               let error_id = self.values.store_runtime(u32::MAX);
 
@@ -24555,6 +24604,31 @@ enum BranchKind {
   // NOT live on `branch_stack` — its state is on
   // `deferred_short_circuits`. Keeping this enum minimal
   // avoids dead match arms.
+}
+
+/// Levenshtein edit distance between two strings — the
+/// minimum single-character insertions, deletions, and
+/// substitutions to turn one into the other. Drives the
+/// "did you mean …?" suggestion; runs only on the cold
+/// undefined-name path, so the two-row DP allocation is fine.
+fn levenshtein(a: &str, b: &str) -> usize {
+  let b: Vec<char> = b.chars().collect();
+  let mut prev: Vec<usize> = (0..=b.len()).collect();
+  let mut cur: Vec<usize> = vec![0; b.len() + 1];
+
+  for (i, ca) in a.chars().enumerate() {
+    cur[0] = i + 1;
+
+    for (j, &cb) in b.iter().enumerate() {
+      let cost = usize::from(ca != cb);
+
+      cur[j + 1] = (prev[j + 1] + 1).min(cur[j] + 1).min(prev[j] + cost);
+    }
+
+    std::mem::swap(&mut prev, &mut cur);
+  }
+
+  prev[b.len()]
 }
 
 /// One side of a type mismatch: a value and its type name.
