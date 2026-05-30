@@ -1,6 +1,6 @@
 use zo_interner::{DenseId, Symbol};
 use zo_span::Span;
-use zo_ty::{Mutability, TyId};
+use zo_ty::{Mutability, SelfKind, TyId};
 
 /// VALUE AS FLYWEIGHT INDEX (Manifesto: everything is an index).
 #[repr(transparent)]
@@ -227,6 +227,16 @@ pub enum Pubness {
   Yes,
 }
 
+/// Whether a local owns its value and must be dropped at scope
+/// exit (affine RAII), or borrows a value owned elsewhere and is
+/// never dropped here. Mirrors the `Mutability`/`Pubness`
+/// `No`/`Yes` flag style on [`Local`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutoDrop {
+  No,
+  Yes,
+}
+
 /// Represents a [`FunctionKind`] — user-defined vs
 /// intrinsic (external, empty body) vs closure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -284,12 +294,12 @@ pub struct FunDef {
   /// Stored as Ty (not TyId) so they survive cross-module
   /// translation without TyId invalidation.
   pub return_type_args: Vec<zo_ty::Ty>,
-  /// `true` when the first parameter was declared as
-  /// `mut self`. Set only on apply-context methods —
-  /// non-method functions and `self`-only methods are
-  /// `false`. Read at every dot-call site to verify the
-  /// receiver's binding is `mut`.
-  pub mut_self: bool,
+  /// Receiver mode of the first parameter. `Write`
+  /// (`mut self`) is read at every dot-call site to verify
+  /// the receiver's binding is `mut`; `Consume` (`own self`)
+  /// moves the receiver. Non-methods and `self`-only methods
+  /// are `None` / `Read`.
+  pub self_kind: SelfKind,
   /// The pack this function was declared inside (or
   /// `None` for top-level/global decls: `main`, FFI
   /// externs, preload-injected helpers). Threaded through
@@ -328,6 +338,14 @@ pub struct Local {
   pub sir_value: Option<ValueId>,
   /// Whether this local is a function parameter.
   pub local_kind: LocalKind,
+  /// `AutoDrop::Yes` when this binding uniquely owns its value
+  /// and so must be dropped at scope exit (affine RAII): the
+  /// locals introduced by `imu`/`mut`/tuple-pattern declarations.
+  /// `AutoDrop::No` for borrows that alias a value owned
+  /// elsewhere — parameters, match-arm payloads, loop variables,
+  /// closure parameters — which the owner frees, never the
+  /// borrow.
+  pub auto_drop: AutoDrop,
   /// Pack that declared this local (`val` at module level).
   pub owning_pack: Option<Symbol>,
   /// Source span of the declaration site.

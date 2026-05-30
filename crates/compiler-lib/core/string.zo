@@ -73,7 +73,7 @@ apply String {
   }
 
   -! Release the heap buffer.
-  pub fun free(mut self) {
+  pub fun free(own self) {
     mem::free(self.buf);
   }
 

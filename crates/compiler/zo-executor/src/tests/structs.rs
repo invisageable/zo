@@ -7,6 +7,7 @@ use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
+use zo_ty::SelfKind;
 use zo_ty_checker::TyChecker;
 
 #[test]
@@ -288,6 +289,61 @@ fun main() {
         has_field_store,
         "mut self compound assign should emit FieldStore"
       );
+    },
+  );
+}
+
+#[test]
+fn test_own_self_records_consume_kind() {
+  // `own self` is a consuming receiver: it records
+  // SelfKind::Consume and, because it moves rather than
+  // mut-borrows, may be called on an `imu` binding without
+  // an ImmutableVariable error (assert_sir_structure also
+  // asserts the compile is error-free).
+  assert_sir_structure(
+    r#"struct Widget { x: int }
+apply Widget {
+  fun new() -> Self { Self { x = 0 } }
+  fun consume(own self) -> int { self.x }
+}
+fun main() {
+  imu w: Widget = Widget::new();
+  imu got: int = w.consume();
+}"#,
+    |sir| {
+      let has_consume = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            self_kind: SelfKind::Consume,
+            ..
+          }
+        )
+      });
+
+      assert!(has_consume, "own self should record SelfKind::Consume");
+    },
+  );
+}
+
+#[test]
+fn test_own_self_allows_field_mutation() {
+  // `own self` owns the receiver, so its body may mutate it.
+  assert_sir_structure(
+    r#"struct Builder { x: int }
+apply Builder {
+  fun new() -> Self { Self { x = 0 } }
+  fun set_x(own self, v: int) { self.x = v; }
+}
+fun main() {
+  imu b: Builder = Builder::new();
+  b.set_x(7);
+}"#,
+    |sir| {
+      let has_field_store =
+        sir.iter().any(|i| matches!(i, Insn::FieldStore { .. }));
+
+      assert!(has_field_store, "own self should permit field mutation");
     },
   );
 }

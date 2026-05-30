@@ -469,7 +469,7 @@ mod tests {
 
   use zo_sir::Sir;
   use zo_span::Span;
-  use zo_ty::TyId;
+  use zo_ty::{SelfKind, TyId};
   use zo_value::Pubness;
 
   fn int_ty() -> TyId {
@@ -496,7 +496,7 @@ mod tests {
       body_start: 1,
       kind: FunctionKind::Closure { capture_count: 1 },
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
@@ -666,7 +666,7 @@ mod tests {
       body_start: 1,
       kind: FunctionKind::Closure { capture_count: 1 },
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
@@ -800,7 +800,7 @@ mod tests {
       body_start: 1,
       kind: FunctionKind::Closure { capture_count: 1 },
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
@@ -902,7 +902,7 @@ mod tests {
       body_start: 1,
       kind: FunctionKind::Closure { capture_count: 0 },
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
@@ -1067,7 +1067,7 @@ mod tests {
       body_start: 1,
       kind: FunctionKind::Closure { capture_count: 0 },
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
@@ -1121,7 +1121,7 @@ mod tests {
       body_start: 1,
       kind: FunctionKind::Closure { capture_count: 0 },
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
@@ -1144,7 +1144,7 @@ mod tests {
       body_start: 1,
       kind: FunctionKind::Closure { capture_count: 0 },
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,

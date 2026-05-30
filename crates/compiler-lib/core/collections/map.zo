@@ -106,7 +106,7 @@ apply HashMap<$K, $V> {
 
   -! Release the backing allocation. The receiver
   -! must not be used after this call.
-  pub fun free(mut self) {
+  pub fun free(own self) {
     zo_map_free_raw(self.ptr);
   }
 }

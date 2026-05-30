@@ -24,7 +24,7 @@ apply Scene {
   }
 
   -! Closes the current `Scene`.
-  pub fun close(self) {
+  pub fun close(own self) {
     zo_misato_destroy_world(self.handle);
   }
 }

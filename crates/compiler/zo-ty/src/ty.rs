@@ -9,6 +9,23 @@ pub enum Mutability {
   Yes,
 }
 
+/// Receiver mode of a method's `self` parameter.
+///
+/// @note — zo is borrow-by-default: bare `self` and `imu self`
+/// both read-borrow (caller keeps ownership). Only `own self`
+/// moves the receiver into the callee. Non-methods are `None`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SelfKind {
+  /// Not a method, or no `self` receiver.
+  None,
+  /// `self` / `imu self` — immutable borrow, caller keeps it.
+  Read,
+  /// `mut self` — mutable borrow, caller keeps it.
+  Write,
+  /// `own self` — move, callee takes ownership.
+  Consume,
+}
+
 /// A type identifier - an index into the type table.
 /// This is a newtype wrapper around u32 for type safety.
 /// Can represent both concrete types (int, bool) and type variables (α, β).

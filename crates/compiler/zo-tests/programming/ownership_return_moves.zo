@@ -1,0 +1,12 @@
+-! ...
+
+fun make() -> Vec<int> {
+  mut v: Vec<int> = Vec::new();
+  v.push(7);
+  return v;
+}
+
+fun main() {
+  imu x: Vec<int> = make();
+  showln(x.len());
+}

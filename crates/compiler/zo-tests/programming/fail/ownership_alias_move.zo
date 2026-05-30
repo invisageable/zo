@@ -1,0 +1,13 @@
+-! ...
+
+fun main() {
+  mut v: Vec<int> = Vec::new();
+  v.push(1);
+
+  imu w: Vec<int> = v;
+  imu n: int = v.len();
+  showln(n);
+  showln(w.len());
+}
+
+-- EXPECTED ERROR: E0350

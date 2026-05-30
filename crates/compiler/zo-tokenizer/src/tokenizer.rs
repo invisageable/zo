@@ -443,6 +443,7 @@ impl<'a> Tokenizer<'a> {
         3 if bytes == b"fun" => Token::Fun,
         3 if bytes == b"imu" => Token::Imu,
         3 if bytes == b"mut" => Token::Mut,
+        3 if bytes == b"own" => Token::Own,
         3 if bytes == b"pub" => Token::Pub,
         3 if bytes == b"for" => Token::For,
         3 if bytes == b"ffi" => Token::Ffi,

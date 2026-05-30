@@ -91,15 +91,21 @@ fn run_c(flags: &HashMap<String, String>) -> Result<(), String> {
 }
 
 /// Parse `--key value` pairs into a map.
+///
+/// @note — a value that itself begins with `--` means the flag
+/// was given none; leave it unset so `run_c` reports the
+/// omission instead of swallowing the next flag as a value.
 fn flags(args: &[String]) -> HashMap<String, String> {
   let mut map = HashMap::new();
-  let mut iter = args.iter();
+  let mut iter = args.iter().peekable();
 
   while let Some(arg) = iter.next() {
-    if let Some(key) = arg.strip_prefix("--")
-      && let Some(value) = iter.next()
-    {
-      map.insert(key.to_string(), value.clone());
+    let Some(key) = arg.strip_prefix("--") else {
+      continue;
+    };
+
+    if iter.peek().is_some_and(|value| !value.starts_with("--")) {
+      map.insert(key.to_string(), iter.next().unwrap().clone());
     }
   }
 
@@ -128,4 +134,39 @@ fn write_if_changed(output: &Path, content: &str) -> Result<(), String> {
 
   println!("wrote: {}", output.display());
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::flags;
+
+  /// `--key value` pairs parse into a map.
+  #[test]
+  fn parses_key_value_pairs() {
+    let args = ["--json", "api.json", "--lib", "raylib"].map(String::from);
+    let map = flags(&args);
+
+    assert_eq!(map.get("json").map(String::as_str), Some("api.json"));
+    assert_eq!(map.get("lib").map(String::as_str), Some("raylib"));
+  }
+
+  /// A flag missing its value does not swallow the next flag.
+  #[test]
+  fn missing_value_does_not_swallow_next_flag() {
+    let args = ["--json", "--lib", "raylib"].map(String::from);
+    let map = flags(&args);
+
+    assert_eq!(map.get("json"), None);
+    assert_eq!(map.get("lib").map(String::as_str), Some("raylib"));
+  }
+
+  /// A trailing flag with no value is dropped, not panicking.
+  #[test]
+  fn trailing_flag_without_value_is_dropped() {
+    let args = ["--lib", "raylib", "--out"].map(String::from);
+    let map = flags(&args);
+
+    assert_eq!(map.get("lib").map(String::as_str), Some("raylib"));
+    assert_eq!(map.get("out"), None);
+  }
 }

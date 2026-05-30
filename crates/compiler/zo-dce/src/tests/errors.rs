@@ -11,7 +11,7 @@ use zo_interner::Interner;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
 use zo_span::Span;
-use zo_ty::TyId;
+use zo_ty::{SelfKind, TyId};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 #[test]
@@ -31,7 +31,7 @@ fn warns_on_unused_function() {
       body_start: 1,
       kind: FunctionKind::UserDefined,
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
@@ -48,7 +48,7 @@ fn warns_on_unused_function() {
       body_start: 3,
       kind: FunctionKind::UserDefined,
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
@@ -88,7 +88,7 @@ fn warns_on_unused_variable() {
       body_start: 1,
       kind: FunctionKind::UserDefined,
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
@@ -137,7 +137,7 @@ fn no_warning_when_all_used() {
       body_start: 1,
       kind: FunctionKind::UserDefined,
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,

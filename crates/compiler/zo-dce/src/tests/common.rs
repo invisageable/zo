@@ -1,16 +1,20 @@
 use zo_sir::{Insn, Sir};
 use zo_span::Span;
-use zo_ty::TyId;
+use zo_ty::{SelfKind, TyId};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 /// Build a SIR from a list of instructions.
 pub fn make_sir(instructions: Vec<Insn>) -> Sir {
   let next_value_id = instructions.len() as u32;
+  let spans = vec![Span::ZERO; instructions.len()];
 
   Sir {
     instructions,
+    spans,
+    node_idxs: Vec::new(),
     next_value_id,
     next_label_id: 0,
+    node_cursor: 0,
   }
 }
 
@@ -29,7 +33,7 @@ pub fn fun(
     body_start: 0,
     kind: FunctionKind::UserDefined,
     pubness,
-    mut_self: false,
+    self_kind: SelfKind::None,
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,

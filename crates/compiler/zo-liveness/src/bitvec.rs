@@ -38,6 +38,13 @@ impl PartialEq for BitVec {
   }
 }
 
+/// Low-`n`-bits-set mask, for `n` in `0..=64`. `1 << 64`
+/// overflows, so the full word is its own case.
+#[inline]
+fn mask(n: usize) -> u64 {
+  if n >= 64 { u64::MAX } else { (1u64 << n) - 1 }
+}
+
 impl BitVec {
   /// Allocates a zero-initialized bitvector with capacity
   /// for `bits` bits.
@@ -46,6 +53,27 @@ impl BitVec {
       Self::Inline(0)
     } else {
       Self::Heap(vec![0; bits.div_ceil(64)])
+    }
+  }
+
+  /// Allocates a bitvector with exactly bits `[0, bits)` set
+  /// — the universe (top) for must-analysis. The unused high
+  /// bits of the last word stay zero so two `new_full`s of
+  /// the same size compare equal and `intersect_with` never
+  /// leaks stale high bits into the result.
+  pub fn new_full(bits: usize) -> Self {
+    if bits <= 64 {
+      Self::Inline(mask(bits))
+    } else {
+      let nwords = bits.div_ceil(64);
+      let mut words = vec![u64::MAX; nwords];
+      let rem = bits % 64;
+
+      if rem != 0 {
+        words[nwords - 1] = mask(rem);
+      }
+
+      Self::Heap(words)
     }
   }
 
@@ -62,6 +90,24 @@ impl BitVec {
 
         if i < words.len() {
           words[i] |= 1u64 << (bit % 64);
+        }
+      }
+    }
+  }
+
+  #[inline]
+  pub fn unset(&mut self, bit: usize) {
+    match self {
+      Self::Inline(w) => {
+        if bit < 64 {
+          *w &= !(1u64 << bit);
+        }
+      }
+      Self::Heap(words) => {
+        let i = bit / 64;
+
+        if i < words.len() {
+          words[i] &= !(1u64 << (bit % 64));
         }
       }
     }
@@ -96,6 +142,34 @@ impl BitVec {
           let old = *x;
 
           *x |= *y;
+          changed |= *x != old;
+        }
+
+        changed
+      }
+      _ => unreachable!("mismatched BitVec variants"),
+    }
+  }
+
+  /// `self &= other`. Returns true if self changed. The meet
+  /// for the must-be-moved (intersection) dataflow, dual to
+  /// `union_with`.
+  pub fn intersect_with(&mut self, other: &Self) -> bool {
+    match (self, other) {
+      (Self::Inline(a), Self::Inline(b)) => {
+        let old = *a;
+
+        *a &= *b;
+
+        *a != old
+      }
+      (Self::Heap(a), Self::Heap(b)) => {
+        let mut changed = false;
+
+        for (x, y) in a.iter_mut().zip(b.iter()) {
+          let old = *x;
+
+          *x &= *y;
           changed |= *x != old;
         }
 
@@ -160,5 +234,57 @@ impl BitVec {
       Self::Inline(w) => *w == 0,
       Self::Heap(words) => words.iter().all(|&w| w == 0),
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn new_full_sets_exactly_the_valid_bits() {
+    // Inline: every bit in range set, none out of range.
+    let v = BitVec::new_full(3);
+    assert!(v.test(0) && v.test(1) && v.test(2));
+    assert!(!v.test(3));
+
+    // The boundary word stays exactly `bits` wide so two
+    // `new_full`s of the same size compare equal.
+    assert!(BitVec::new_full(3) == BitVec::new_full(3));
+
+    // Heap: the partial last word is masked to the valid bits.
+    let h = BitVec::new_full(70);
+    assert!(h.test(69));
+    assert!(!h.test(70));
+    assert!(BitVec::new_full(70) == BitVec::new_full(70));
+  }
+
+  #[test]
+  fn intersect_is_the_meet_dual_of_union() {
+    // Inline.
+    let mut a = BitVec::new(8);
+    a.set(1);
+    a.set(2);
+    let mut b = BitVec::new(8);
+    b.set(2);
+    b.set(3);
+
+    let changed = a.intersect_with(&b);
+    assert!(changed);
+    assert!(!a.test(1) && a.test(2) && !a.test(3));
+
+    // Intersecting with the universe is a no-op.
+    let mut c = BitVec::new(8);
+    c.set(5);
+    assert!(!c.intersect_with(&BitVec::new_full(8)));
+    assert!(c.test(5));
+
+    // Heap path (> 64 bits).
+    let mut x = BitVec::new_full(100);
+    let mut y = BitVec::new(100);
+    y.set(70);
+    x.intersect_with(&y);
+    assert!(x.test(70));
+    assert!(!x.test(0) && !x.test(99));
   }
 }

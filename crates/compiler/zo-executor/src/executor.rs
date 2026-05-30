@@ -17,14 +17,14 @@ use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
 use zo_token::{InterpSegment, LiteralStore, Token};
 use zo_tree::{NodeHeader, NodeValue, Tree};
-use zo_ty::{Annotation, FloatWidth, Mutability, Ty, TyId};
+use zo_ty::{Annotation, FloatWidth, Mutability, SelfKind, Ty, TyId};
 use zo_ty_checker::TyChecker;
 use zo_ui_protocol::{
   Attr, ElementTag, EventKind, PropValue, StyleScope, UiCommand,
 };
 use zo_value::{
-  CaptureInfo, ClosureValue, FunDef, FunctionKind, Local, LocalKind, Pubness,
-  Value, ValueId, ValueStorage,
+  AutoDrop, CaptureInfo, ClosureValue, FunDef, FunctionKind, Local, LocalKind,
+  Pubness, Value, ValueId, ValueStorage,
 };
 
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
@@ -558,6 +558,10 @@ pub struct Executor<'a> {
   /// to `self.sir` after the enclosing function's Return
   /// so DCE sees them as separate, non-nested functions.
   deferred_closures: Vec<Insn>,
+  /// Parse-node indices for `deferred_closures`, kept 1:1 so
+  /// the flush preserves `Sir`'s node-idx/instruction
+  /// alignment (resolved to spans with the rest at the end).
+  deferred_closure_node_idxs: Vec<u32>,
   /// RParen index of a pending call detected via operator-
   /// skipping at LParen (`Ident Op LParen`). The main loop
   /// suppresses deferred binops until this RParen is reached,
@@ -876,6 +880,7 @@ impl<'a> Executor<'a> {
       generic_aliases: HashMap::default(),
       template_interp_counter: 0,
       deferred_closures: Vec::new(),
+      deferred_closure_node_idxs: Vec::new(),
       pending_call_rparen: None,
       direct_call_depth: 0,
       pending_styles: Vec::new(),
@@ -1188,7 +1193,34 @@ impl<'a> Executor<'a> {
   /// the binding the block was initializing can finalize
   /// against the block's tail value.
   fn pop_scope(&mut self) {
+    self.pop_scope_impl(true);
+  }
+
+  /// Pop a scope WITHOUT emitting affine drops. Used for loop
+  /// scopes: a loop body's owned locals have per-iteration
+  /// lifetime, but the loop scope is popped once, after the
+  /// loop, at `end_label`. A drop there is reached on the
+  /// zero-iteration path (where the local was never declared)
+  /// and frees only the final iteration's value — both wrong.
+  /// v1 leaves loop-body locals to manual free (or leak);
+  /// per-iteration auto-drop is a follow-up. Inner `{ }` blocks
+  /// inside the loop still drop normally (per iteration).
+  fn pop_scope_no_drops(&mut self) {
+    self.pop_scope_impl(false);
+  }
+
+  fn pop_scope_impl(&mut self, drops: bool) {
     if let Some(frame) = self.scope_stack.pop() {
+      // Affine RAII: a block that falls through frees the
+      // owned locals it introduced before they leave scope.
+      // Emitted BEFORE the truncate, while the locals are
+      // still live. The `pop_scope`s that run after a function's
+      // `Return` (body/param teardown) land past the return and
+      // are removed as unreachable by DCE — no double free.
+      if drops {
+        self.emit_owned_drops(frame.start as usize);
+      }
+
       self.local_scope.rollback_to(frame.mark);
       self.locals.truncate(frame.start as usize);
       // No-op when the inner scope still has its own
@@ -1200,6 +1232,85 @@ impl<'a> Executor<'a> {
         self.pending_decl = frame.saved_pending_decl;
       }
     }
+  }
+
+  /// The owned, non-borrow locals in `locals[from..]` eligible
+  /// for a scope-exit drop, in reverse declaration order (last
+  /// declared freed first). Only `auto_drop` `Variable`s
+  /// qualify — parameters, `self`, and borrow bindings (match
+  /// payloads, loop variables) alias a value owned elsewhere
+  /// and are never dropped here. Droppability by *type* is
+  /// decided at emit time (it needs `&mut` type resolution);
+  /// reading only `locals` lets this compose with an
+  /// outstanding `current_function` borrow at the
+  /// implicit-return site.
+  fn owned_drop_targets(locals: &[Local], from: usize) -> Vec<(Symbol, TyId)> {
+    if from >= locals.len() {
+      return Vec::new();
+    }
+
+    locals[from..]
+      .iter()
+      .rev()
+      .filter(|local| {
+        local.local_kind == LocalKind::Variable
+          && local.auto_drop == AutoDrop::Yes
+      })
+      .map(|local| (local.name, local.ty_id))
+      .collect()
+  }
+
+  /// Emit an `Insn::Drop` for each owned local in
+  /// `locals[from..]` whose type carries a destructor. Takes the
+  /// executor's `sir` / `locals` / `ty_checker` as disjoint
+  /// borrows so it composes with an outstanding
+  /// `current_function` or branch `ctx` borrow at the
+  /// implicit-return and ternary-return sites — where a `&mut
+  /// self` method call could not. Only named aggregates
+  /// (`Struct`/`Enum`) can own a destructor, so a marker is
+  /// emitted for those only; the ownership pass later resolves or
+  /// elides it. `kind_of` resolves inference vars so a
+  /// freshly-bound `Vec` reads as a `Struct`.
+  fn emit_drops_into(
+    sir: &mut Sir,
+    locals: &[Local],
+    ty_checker: &mut TyChecker,
+    from: usize,
+  ) {
+    for (name, ty_id) in Self::owned_drop_targets(locals, from) {
+      if matches!(ty_checker.kind_of(ty_id), Ty::Struct(_) | Ty::Enum(_)) {
+        sir.emit(Insn::Drop { local: name, ty_id });
+      }
+    }
+  }
+
+  /// Scope-exit drops for `self.locals[from..]`.
+  fn emit_owned_drops(&mut self, from: usize) {
+    Self::emit_drops_into(&mut self.sir, &self.locals, self.ty_checker, from);
+  }
+
+  /// The current function's base locals index — its first scope
+  /// (`scope_depth`). Drops at a `return` span every open scope
+  /// from here.
+  fn fn_drop_base(&self) -> usize {
+    self
+      .current_function
+      .as_ref()
+      .and_then(|cf| self.scope_stack.get(cf.scope_depth))
+      .map(|frame| frame.start as usize)
+      .unwrap_or(0)
+  }
+
+  /// Emit drops for every owned local live at a `return`, across
+  /// all of the current function's open scopes. A `return`
+  /// exits the whole function, so the trailing `pop_scope`
+  /// teardown lands past the `Return` (unreachable, DCE-removed)
+  /// — the live locals must be freed here instead. Parameters
+  /// within the base scope are skipped by the `Variable` filter.
+  fn emit_return_drops(&mut self) {
+    let base = self.fn_drop_base();
+
+    self.emit_owned_drops(base);
   }
 
   /// Append a function definition AND record its name in
@@ -2072,8 +2183,11 @@ impl<'a> Executor<'a> {
     // Safety net: flush any remaining deferred closures.
     if !self.deferred_closures.is_empty() {
       let closures = std::mem::take(&mut self.deferred_closures);
+      let closure_node_idxs =
+        std::mem::take(&mut self.deferred_closure_node_idxs);
 
       self.sir.instructions.extend(closures);
+      self.sir.node_idxs.extend(closure_node_idxs);
     }
 
     // Re-execute the Tree subtree of each queued
@@ -2131,6 +2245,13 @@ impl<'a> Executor<'a> {
     // FFI usage — a pack with a broken `#link` for a
     // library no one calls shouldn't fail the build.
     self.report_used_link_failures();
+
+    // Resolve buffered node indices to spans in one linear
+    // pass now that all instructions (including synthetic
+    // tail emits) are present and this module's tree is in
+    // hand. Done before the SIR leaves the executor, so the
+    // merged stream carries final spans.
+    self.sir.resolve_spans(&self.tree.spans);
 
     (
       self.sir,
@@ -2339,6 +2460,16 @@ impl<'a> Executor<'a> {
   /// Executes a single node from the parse tree.
   /// This is the core of the execution-based compilation model
   fn execute_node(&mut self, header: &NodeHeader, idx: usize) {
+    // Stamp the current source location onto every SIR insn
+    // emitted while processing this node. Drives SIR-level
+    // span diagnostics (use-after-move, …); each parse node is
+    // dispatched individually, so an expression's `Load` /
+    // `Call` carries that expression's span.
+    // Record the node index (a register write, no tree read);
+    // `resolve_spans` maps it to a source span in bulk at the
+    // end of execution.
+    self.sir.set_node(idx as u32);
+
     // Enforce grammar: `program = { item }`.
     // Statement introducers are only valid inside function
     // bodies. Reject them at top level.
@@ -3023,7 +3154,7 @@ impl<'a> Executor<'a> {
             body_start,
             kind: FunctionKind::UserDefined,
             pubness: pending_func.pubness,
-            mut_self: pending_func.mut_self,
+            self_kind: pending_func.self_kind,
             link_name: None,
             // Read from `pending_func`, NOT `self.top_pack`.
             // The two diverge for monomorphized generics:
@@ -3199,6 +3330,8 @@ impl<'a> Executor<'a> {
               let sir_val = self.sir_values.last().copied();
               let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
 
+              self.emit_return_drops();
+
               self.sir.emit(Insn::Return {
                 value: sir_val,
                 ty_id: ty,
@@ -3314,7 +3447,20 @@ impl<'a> Executor<'a> {
               (None, unit_ty)
             };
 
-            // Emit implicit return
+            // Emit implicit return — free this function's live
+            // owned locals first (the trailing pop_scope drops
+            // land past this Return and are DCE-removed). The
+            // disjoint-field helper (not `emit_return_drops`)
+            // composes with the live `fun_ctx` borrow.
+            let drop_base = self.fn_drop_base();
+
+            Self::emit_drops_into(
+              &mut self.sir,
+              &self.locals,
+              self.ty_checker,
+              drop_base,
+            );
+
             self.sir.emit(Insn::Return {
               value: return_value,
               ty_id: return_ty,
@@ -3342,6 +3488,8 @@ impl<'a> Executor<'a> {
           // process them first (no forward references).
           if !self.deferred_closures.is_empty() {
             let mut closures = std::mem::take(&mut self.deferred_closures);
+            let closure_node_idxs =
+              std::mem::take(&mut self.deferred_closure_node_idxs);
 
             // Fix body_start offsets: they were relative to
             // the temporary SIR (FunDef at 0, body at 1).
@@ -3361,6 +3509,10 @@ impl<'a> Executor<'a> {
               .sir
               .instructions
               .splice(insert_pos..insert_pos, closures);
+            self
+              .sir
+              .node_idxs
+              .splice(insert_pos..insert_pos, closure_node_idxs);
 
             // Adjust the enclosing function's fundef_idx
             // and body_start since we shifted instructions.
@@ -3392,6 +3544,7 @@ impl<'a> Executor<'a> {
             self.sir.next_value_id = nested_sir.next_value_id;
             self.sir.next_label_id = nested_sir.next_label_id;
             self.deferred_closures.extend(nested_sir.instructions);
+            self.deferred_closure_node_idxs.extend(nested_sir.node_idxs);
 
             self.current_function = saved.function;
             self.value_stack = saved.value_stack;
@@ -3422,6 +3575,13 @@ impl<'a> Executor<'a> {
           self.apply_deferred_binop();
         }
 
+        // A loop body's owned locals have per-iteration
+        // lifetime, but its block scope is popped once, here,
+        // after the increment + `end_label`. Dropping them at
+        // that point frees on the zero-iteration path. v1 pops
+        // loop bodies without drops (manual free, or leak).
+        let mut closed_loop = false;
+
         if at_branch_depth && let Some(ctx) = self.branch_stack.last() {
           match ctx.kind {
             BranchKind::While => {
@@ -3431,6 +3591,8 @@ impl<'a> Executor<'a> {
 
               self.sir.emit(Insn::Label { id: ctx.end_label });
               self.branch_stack.pop();
+
+              closed_loop = true;
             }
             BranchKind::For => {
               // Emit: i = i + 1; jump loop_start; label end.
@@ -3488,6 +3650,8 @@ impl<'a> Executor<'a> {
 
               self.sir.emit(Insn::Label { id: ctx.end_label });
               self.branch_stack.pop();
+
+              closed_loop = true;
             }
             BranchKind::If => {
               // Check if the next tree token is Else.
@@ -3577,22 +3741,36 @@ impl<'a> Executor<'a> {
               }
             }
             BranchKind::Ternary => {
-              // Emit Return for the false arm.
-              if let Some(ref mut fun_ctx) = self.current_function {
-                let unit_ty = self.ty_checker.unit_type();
+              // Emit Return for the false arm. The enclosing
+              // `ctx` (branch_stack) borrow is still live, so
+              // the drops are emitted inline via disjoint field
+              // borrows rather than the `&mut self`
+              // `emit_return_drops`.
+              let unit_ty = self.ty_checker.unit_type();
+              let needs_return = self
+                .current_function
+                .as_ref()
+                .is_some_and(|fc| fc.pending_return || fc.return_ty != unit_ty);
 
-                let needs_return =
-                  fun_ctx.pending_return || fun_ctx.return_ty != unit_ty;
+              if needs_return {
+                let sir_val = self.sir_values.last().copied();
+                let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
 
-                if needs_return {
-                  let sir_val = self.sir_values.last().copied();
-                  let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
+                let drop_base = self.fn_drop_base();
 
-                  self.sir.emit(Insn::Return {
-                    value: sir_val,
-                    ty_id: ty,
-                  });
+                Self::emit_drops_into(
+                  &mut self.sir,
+                  &self.locals,
+                  self.ty_checker,
+                  drop_base,
+                );
 
+                self.sir.emit(Insn::Return {
+                  value: sir_val,
+                  ty_id: ty,
+                });
+
+                if let Some(fun_ctx) = &mut self.current_function {
                   fun_ctx.pending_return = false;
                   fun_ctx.has_explicit_return = true;
                 }
@@ -3605,7 +3783,11 @@ impl<'a> Executor<'a> {
         }
 
         if !at_fn_depth {
-          self.pop_scope();
+          if closed_loop {
+            self.pop_scope_no_drops();
+          } else {
+            self.pop_scope();
+          }
         }
       }
 
@@ -5065,15 +5247,18 @@ impl<'a> Executor<'a> {
           // function ultimately returns. Emitting Return
           // here would consume the value before the Store
           // and break the φ.
-          if !has_sink && let Some(ref mut fun_ctx) = self.current_function {
+          if !has_sink {
             let unit_ty = self.ty_checker.unit_type();
-
-            let needs_return =
-              fun_ctx.pending_return || fun_ctx.return_ty != unit_ty;
+            let needs_return = self
+              .current_function
+              .as_ref()
+              .is_some_and(|fc| fc.pending_return || fc.return_ty != unit_ty);
 
             if needs_return {
               let sir_val = self.sir_values.last().copied();
               let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
+
+              self.emit_return_drops();
 
               self.sir.emit(Insn::Return {
                 value: sir_val,
@@ -5089,7 +5274,9 @@ impl<'a> Executor<'a> {
                 self.sir_values.pop();
               }
 
-              fun_ctx.has_explicit_return = true;
+              if let Some(fun_ctx) = &mut self.current_function {
+                fun_ctx.has_explicit_return = true;
+              }
             }
           }
 
@@ -7598,7 +7785,7 @@ impl<'a> Executor<'a> {
       body_start,
       kind: FunctionKind::Closure { capture_count },
       pubness: Pubness::No,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,
@@ -7616,7 +7803,7 @@ impl<'a> Executor<'a> {
       type_params: Vec::new(),
       type_param_bounds: Vec::new(),
       return_type_args: Vec::new(),
-      mut_self: false,
+      self_kind: SelfKind::None,
       owning_pack: None,
       span: Span::ZERO,
       is_test: false,
@@ -7700,6 +7887,7 @@ impl<'a> Executor<'a> {
         mutability: param_mutability,
         sir_value: None,
         local_kind: LocalKind::Parameter,
+        auto_drop: AutoDrop::No,
         owning_pack: None,
         span: Span::ZERO,
       });
@@ -7766,6 +7954,8 @@ impl<'a> Executor<'a> {
         self.ty_stack.last().copied().unwrap_or(return_ty)
       };
 
+      self.emit_return_drops();
+
       self.sir.emit(Insn::Return {
         value: return_value,
         ty_id: return_ty_actual,
@@ -7800,6 +7990,9 @@ impl<'a> Executor<'a> {
 
     self.sir.next_value_id = closure_sir.next_value_id;
     self.deferred_closures.extend(closure_sir.instructions);
+    self
+      .deferred_closure_node_idxs
+      .extend(closure_sir.node_idxs);
 
     self.current_function = outer_function;
     self.skip_until = saved_skip;
@@ -7967,6 +8160,8 @@ impl<'a> Executor<'a> {
 
     // Parse parameters: (name, type, mutability).
     let mut params: Vec<(Symbol, TyId, Mutability)> = Vec::new();
+    // Receiver mode, set when the `self` param is seen below.
+    let mut self_kind = SelfKind::None;
     let mut return_ty = self.ty_checker.unit_type();
     let mut return_type_args: Vec<TyId> = Vec::new();
     let mut idx = start_idx + 2; // Skip Fun and name
@@ -8081,13 +8276,18 @@ impl<'a> Executor<'a> {
 
       // Parse parameters until we hit RParen
       while idx < _end_idx {
-        // Check for `mut` modifier before the param name.
-        let is_mut = self.tree.nodes[idx].token == Token::Mut;
+        // Receiver/param modifier: `mut`, `imu`, or `own`.
+        // `mut` writes; `imu` reads (the default); `own`
+        // consumes — meaningful only on `self` (A1).
+        let modifier = self.tree.nodes[idx].token;
+        let is_modifier =
+          matches!(modifier, Token::Mut | Token::Imu | Token::Own);
 
-        if is_mut {
+        if is_modifier {
           idx += 1;
         }
 
+        let is_mut = modifier == Token::Mut;
         let token = self.tree.nodes[idx].token;
 
         match token {
@@ -8110,7 +8310,16 @@ impl<'a> Executor<'a> {
                 .resolve_apply_self_ty(type_name)
                 .unwrap_or_else(|| self.ty_checker.unit_type());
 
-              let mutability = if is_mut {
+              self_kind = match modifier {
+                Token::Own => SelfKind::Consume,
+                Token::Mut => SelfKind::Write,
+                _ => SelfKind::Read,
+              };
+
+              // `own self` is owned by the callee, so its
+              // body may mutate it (builder patterns); `mut
+              // self` is a write-borrow. Both bind mutably.
+              let mutability = if matches!(modifier, Token::Mut | Token::Own) {
                 Mutability::Yes
               } else {
                 Mutability::No
@@ -8341,16 +8550,6 @@ impl<'a> Executor<'a> {
     let sir_params =
       params.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>();
 
-    // Receiver mutability bit: `true` only when the first
-    // parameter is `mut self`. Read by every dot-call site to
-    // reject `imu m; m.mutating_method(...)`.
-    let mut_self = matches!(
-      params.first(),
-      Some((s, _, m))
-        if *s == zo_interner::Symbol::SELF_LOWER
-          && *m == Mutability::Yes
-    );
-
     // Signature-only pre-scan path. Registers the FunDef so
     // forward references (mutual recursion, out-of-order
     // calls) resolve correctly during the main pass, then
@@ -8374,7 +8573,7 @@ impl<'a> Executor<'a> {
           .iter()
           .map(|t| self.ty_checker.resolve_ty(*t))
           .collect(),
-        mut_self,
+        self_kind,
         owning_pack: self.top_pack,
         span: fun_span,
         is_test,
@@ -8600,7 +8799,7 @@ impl<'a> Executor<'a> {
           .iter()
           .map(|t| self.ty_checker.resolve_ty(*t))
           .collect(),
-        mut_self,
+        self_kind,
         owning_pack: self.top_pack,
         span: fun_span,
         is_test,
@@ -8639,7 +8838,7 @@ impl<'a> Executor<'a> {
         .iter()
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
-      mut_self,
+      self_kind,
       owning_pack: self.top_pack,
       span: fun_span,
       is_test,
@@ -8660,6 +8859,7 @@ impl<'a> Executor<'a> {
         mutability: *mutability,
         sir_value: None,
         local_kind: LocalKind::Parameter,
+        auto_drop: AutoDrop::No,
         owning_pack: None,
         span: Span::ZERO,
       });
@@ -9110,6 +9310,7 @@ impl<'a> Executor<'a> {
           },
           sir_value: Some(ValueId(u32::MAX)),
           local_kind: LocalKind::Variable,
+          auto_drop: AutoDrop::No,
           owning_pack: None,
           span: self.tree.spans[idx],
         });
@@ -9858,6 +10059,7 @@ impl<'a> Executor<'a> {
         },
         sir_value: elem_sir,
         local_kind: LocalKind::Variable,
+        auto_drop: AutoDrop::Yes,
         owning_pack: None,
         span: decl.span,
       });
@@ -9982,6 +10184,7 @@ impl<'a> Executor<'a> {
           mutability: Mutability::No,
           sir_value: sir_init,
           local_kind: LocalKind::Constant,
+          auto_drop: AutoDrop::No,
           owning_pack: self.top_pack,
           span: decl.span,
         };
@@ -10060,6 +10263,7 @@ impl<'a> Executor<'a> {
           mutability,
           sir_value: sir_init,
           local_kind: LocalKind::Variable,
+          auto_drop: AutoDrop::Yes,
           owning_pack: None,
           span: decl.span,
         });
@@ -10170,6 +10374,7 @@ impl<'a> Executor<'a> {
           mutability: Mutability::No,
           sir_value: sir_init,
           local_kind: LocalKind::Variable,
+          auto_drop: AutoDrop::Yes,
           owning_pack: None,
           span: self.tree.spans[start_idx],
         });
@@ -10232,6 +10437,7 @@ impl<'a> Executor<'a> {
           pubness,
           sir_value: sir_init,
           local_kind: LocalKind::Variable,
+          auto_drop: AutoDrop::Yes,
           owning_pack: None,
           span: self.tree.spans[_start_idx],
         });
@@ -10414,7 +10620,7 @@ impl<'a> Executor<'a> {
       body_start: 0,
       kind: FunctionKind::Intrinsic,
       pubness,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name,
       owning_pack: self.top_pack,
       span: fun_span,
@@ -10435,7 +10641,7 @@ impl<'a> Executor<'a> {
         .iter()
         .map(|t| self.ty_checker.resolve_ty(*t))
         .collect(),
-      mut_self: false,
+      self_kind: SelfKind::None,
       owning_pack: self.top_pack,
       span: fun_span,
       is_test: false,
@@ -11316,7 +11522,7 @@ impl<'a> Executor<'a> {
         body_start,
         kind: FunctionKind::UserDefined,
         pubness,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: self.top_pack,
         span: fun_span,
@@ -11424,7 +11630,7 @@ impl<'a> Executor<'a> {
         type_params: vec![],
         type_param_bounds: Vec::new(),
         return_type_args: vec![],
-        mut_self: false,
+        self_kind: SelfKind::None,
         owning_pack: self.top_pack,
         span: fun_span,
         is_test: false,
@@ -11628,7 +11834,7 @@ impl<'a> Executor<'a> {
       body_start,
       kind: FunctionKind::UserDefined,
       pubness,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: self.top_pack,
       span,
@@ -11652,7 +11858,7 @@ impl<'a> Executor<'a> {
       type_params: vec![],
       type_param_bounds: Vec::new(),
       return_type_args: vec![],
-      mut_self: false,
+      self_kind: SelfKind::None,
       owning_pack: self.top_pack,
       span,
       is_test: false,
@@ -14512,7 +14718,7 @@ impl<'a> Executor<'a> {
     // (`f().m()`, `s[0].m()`) carry no recoverable binding
     // and are intentionally exempt — the language can't see
     // a binding to check.
-    if func.mut_self
+    if func.self_kind == SelfKind::Write
       && let Some(&(_recv_ty, Some(recv_sym))) =
         self.dot_method_recv_ty.get(&dot_idx)
     {
@@ -15156,6 +15362,7 @@ impl<'a> Executor<'a> {
     // Error path: return the original value as-is.
     // (It's already Err(...) or None — just return it.)
     self.sir.emit(Insn::Label { id: ok_label });
+    self.emit_return_drops();
     self.sir.emit(Insn::Return {
       value: Some(val_sir),
       ty_id: val_ty,
@@ -15587,6 +15794,7 @@ impl<'a> Executor<'a> {
           mutability: Mutability::No,
           sir_value: Some(field_sir),
           local_kind: LocalKind::Variable,
+          auto_drop: AutoDrop::No,
           owning_pack: None,
           span: Span::ZERO,
         });
@@ -15877,6 +16085,7 @@ impl<'a> Executor<'a> {
         mutability: Mutability::No,
         sir_value: Some(field_sir),
         local_kind: LocalKind::Variable,
+        auto_drop: AutoDrop::No,
         owning_pack: None,
         span: Span::ZERO,
       });
@@ -16790,6 +16999,7 @@ impl<'a> Executor<'a> {
                 mutability: Mutability::No,
                 sir_value: Some(field_sir),
                 local_kind: LocalKind::Variable,
+                auto_drop: AutoDrop::No,
                 owning_pack: None,
                 span: Span::ZERO,
               });
@@ -17115,6 +17325,7 @@ impl<'a> Executor<'a> {
             mutability: Mutability::No,
             sir_value: Some(scrut_reload),
             local_kind: LocalKind::Variable,
+            auto_drop: AutoDrop::No,
             owning_pack: None,
             span: Span::ZERO,
           });
@@ -17464,7 +17675,7 @@ impl<'a> Executor<'a> {
     self.sir.emit(Insn::Label { id: end_label });
 
     self.branch_stack.pop();
-    self.pop_scope();
+    self.pop_scope_no_drops();
 
     // Skip past the body's terminating `;`.
     self.skip_until = semicolon_idx + 1;
@@ -17747,6 +17958,7 @@ impl<'a> Executor<'a> {
       mutability: Mutability::Yes,
       sir_value: Some(start_sir),
       local_kind: LocalKind::Variable,
+      auto_drop: AutoDrop::No,
       owning_pack: None,
       span: self.tree.spans[start_idx],
     });
@@ -17797,6 +18009,7 @@ impl<'a> Executor<'a> {
       mutability: Mutability::No,
       sir_value: Some(end_sir),
       local_kind: LocalKind::Variable,
+      auto_drop: AutoDrop::No,
       owning_pack: None,
       span: Span::ZERO,
     });
@@ -17976,7 +18189,7 @@ impl<'a> Executor<'a> {
     self.sir.emit(Insn::Label { id: end_label });
 
     self.branch_stack.pop();
-    self.pop_scope();
+    self.pop_scope_no_drops();
 
     // Skip past the `;` that terminated the body. The
     // synthetic `RBrace` that follows is the enclosing
@@ -18100,6 +18313,7 @@ impl<'a> Executor<'a> {
       mutability: Mutability::No,
       sir_value: Some(arr_sir),
       local_kind: LocalKind::Variable,
+      auto_drop: AutoDrop::No,
       owning_pack: None,
       span: Span::ZERO,
     });
@@ -18141,6 +18355,7 @@ impl<'a> Executor<'a> {
       mutability: Mutability::Yes,
       sir_value: Some(zero_sir),
       local_kind: LocalKind::Variable,
+      auto_drop: AutoDrop::No,
       owning_pack: None,
       span: Span::ZERO,
     });
@@ -18176,6 +18391,7 @@ impl<'a> Executor<'a> {
       mutability: Mutability::Yes,
       sir_value: None,
       local_kind: LocalKind::Variable,
+      auto_drop: AutoDrop::No,
       owning_pack: None,
       span: Span::ZERO,
     });
@@ -18366,7 +18582,7 @@ impl<'a> Executor<'a> {
     self.sir.emit(Insn::Label { id: end_label });
 
     self.branch_stack.pop();
-    self.pop_scope();
+    self.pop_scope_no_drops();
 
     self.skip_until = semicolon_idx + 1;
   }
@@ -19125,6 +19341,7 @@ impl<'a> Executor<'a> {
           mutability: Mutability::No,
           sir_value: Some(out_value),
           local_kind: LocalKind::Variable,
+          auto_drop: AutoDrop::No,
           owning_pack: None,
           span: Span::ZERO,
         });
@@ -19228,8 +19445,10 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    if let Some(ref mut ctx) = self.current_function
-      && ctx.pending_return
+    if self
+      .current_function
+      .as_ref()
+      .is_some_and(|c| c.pending_return)
     {
       // We have a pending return and a value on the stack
       let (return_value, return_ty) =
@@ -19248,6 +19467,8 @@ impl<'a> Executor<'a> {
         };
 
       // Emit the Return instruction
+      self.emit_return_drops();
+
       self.sir.emit(Insn::Return {
         value: return_value,
         ty_id: return_ty,
@@ -19265,7 +19486,9 @@ impl<'a> Executor<'a> {
       }
 
       // Clear the pending flag
-      ctx.pending_return = false;
+      if let Some(ctx) = &mut self.current_function {
+        ctx.pending_return = false;
+      }
 
       // Matching pop for the push in `execute_return`.
       self.expected_ty_stack.pop();
@@ -23303,7 +23526,7 @@ impl<'a> Executor<'a> {
             body_start,
             kind: FunctionKind::Closure { capture_count },
             pubness: Pubness::No,
-            mut_self: false,
+            self_kind: SelfKind::None,
             link_name: None,
             owning_pack: None,
             span: Span::ZERO,
@@ -23320,7 +23543,7 @@ impl<'a> Executor<'a> {
             type_params: Vec::new(),
             type_param_bounds: Vec::new(),
             return_type_args: Vec::new(),
-            mut_self: false,
+            self_kind: SelfKind::None,
             owning_pack: None,
             span: Span::ZERO,
             is_test: false,
@@ -23361,6 +23584,7 @@ impl<'a> Executor<'a> {
               mutability: param_mutability,
               sir_value: None,
               local_kind: LocalKind::Parameter,
+              auto_drop: AutoDrop::No,
               owning_pack: None,
               span: Span::ZERO,
             });
@@ -23424,6 +23648,8 @@ impl<'a> Executor<'a> {
           let return_value =
             self.sir_values.last().copied().filter(|v| v.0 != u32::MAX);
 
+          self.emit_return_drops();
+
           self.sir.emit(Insn::Return {
             value: return_value,
             ty_id: str_ty,
@@ -23438,6 +23664,9 @@ impl<'a> Executor<'a> {
 
           self.sir.next_value_id = closure_sir.next_value_id;
           self.deferred_closures.extend(closure_sir.instructions);
+          self
+            .deferred_closure_node_idxs
+            .extend(closure_sir.node_idxs);
 
           // Restore outer state.
           self.current_function = outer_function;
@@ -23572,6 +23801,7 @@ impl<'a> Executor<'a> {
         mutability: Mutability::No,
         sir_value: Some(sir_value),
         local_kind: LocalKind::Variable,
+        auto_drop: AutoDrop::No,
         owning_pack: None,
         span: Span::ZERO,
       });

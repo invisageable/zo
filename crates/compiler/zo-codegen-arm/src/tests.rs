@@ -12,7 +12,7 @@ use zo_parser::Parser;
 use zo_sir::{Insn, Sir};
 use zo_span::Span;
 use zo_tokenizer::Tokenizer;
-use zo_ty::TyId;
+use zo_ty::{SelfKind, TyId};
 use zo_ty_checker::TyChecker;
 use zo_value::ValueId;
 
@@ -354,7 +354,7 @@ fn test_main_function_detection() {
     body_start: 1,
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
-    mut_self: false,
+    self_kind: SelfKind::None,
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,
@@ -389,7 +389,7 @@ fn test_string_fixup() {
     body_start: 1,
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
-    mut_self: false,
+    self_kind: SelfKind::None,
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,
@@ -755,7 +755,7 @@ fn test_str_sp_slow_path_does_not_self_clobber() {
     body_start: 1,
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
-    mut_self: false,
+    self_kind: SelfKind::None,
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,
@@ -911,7 +911,7 @@ fn test_emit_add_sp_offset_uses_dst_not_x16_in_slow_path() {
     body_start: 1,
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
-    mut_self: false,
+    self_kind: SelfKind::None,
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,

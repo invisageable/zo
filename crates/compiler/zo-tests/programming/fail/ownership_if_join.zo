@@ -1,0 +1,17 @@
+-! `v` is freed on one branch only. The union join treats it
+-! as moved at the merge, so the use after the `if` is rejected.
+fun consume_when(c: bool) {
+  mut v: Vec<int> = Vec::new();
+  v.push(1);
+  if c {
+    v.free();
+  }
+  imu n: int = v.len();
+  showln(n);
+}
+
+fun main() {
+  consume_when(true);
+}
+
+-- EXPECTED ERROR: E0350

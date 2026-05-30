@@ -130,6 +130,7 @@ impl<'a> Dce<'a> {
     for (start, end) in dead_ranges {
       if end < self.sir.instructions.len() {
         self.sir.instructions.drain(start..=end);
+        self.sir.spans.drain(start..=end);
       }
     }
   }
@@ -191,6 +192,14 @@ impl<'a> Dce<'a> {
       self.sir.instructions.retain(|_| {
         let k = keep[i];
         i += 1;
+        k
+      });
+
+      // Keep `spans` aligned 1:1 with `instructions`.
+      let mut j = 0;
+      self.sir.spans.retain(|_| {
+        let k = keep[j];
+        j += 1;
         k
       });
     }
@@ -270,6 +279,14 @@ impl<'a> Dce<'a> {
           gi += 1;
           keep
         });
+
+        // Keep `spans` aligned 1:1 with `instructions`.
+        let mut gj = 0;
+        self.sir.spans.retain(|_| {
+          let keep = !dead_mask[gj];
+          gj += 1;
+          keep
+        });
       }
 
       if !any_removed {
@@ -329,6 +346,15 @@ impl<'a> Dce<'a> {
     self.sir.instructions.retain(|_| {
       let keep = !dead[gi];
       gi += 1;
+      keep
+    });
+
+    // Keep `spans` aligned 1:1 with `instructions`.
+    let mut gj = 0;
+
+    self.sir.spans.retain(|_| {
+      let keep = !dead[gj];
+      gj += 1;
       keep
     });
   }

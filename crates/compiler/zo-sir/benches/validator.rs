@@ -12,13 +12,13 @@
 
 use zo_interner::Symbol;
 use zo_sir::{BinOp, Insn, validate};
-use zo_ty::TyId;
+use zo_span::Span;
+use zo_ty::{SelfKind, TyId};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 
 use std::hint::black_box;
-use zo_span::Span;
 
 /// Builds a synthetic SIR stream with `n` binop "lines":
 /// `ConstInt, ConstInt, BinOp` × n, all tagged `s32`. A
@@ -33,7 +33,7 @@ fn make_binop_stream(n: u32) -> Vec<Insn> {
     body_start: 1,
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
-    mut_self: false,
+    self_kind: SelfKind::None,
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,

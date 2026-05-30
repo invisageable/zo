@@ -57,9 +57,9 @@ fun main() {
   imu bad: Regex = Regex::new("(", "");
   check(!bad.is_valid());
 
-  -- Explicit free of Match + Regex handles. Idempotent —
-  -- freeing the same handle twice is a no-op.
-  m.free();
+  -- Explicit free of Match + Regex handles. `free(own self)`
+  -- consumes the handle, so each is freed exactly once — a
+  -- second free is a compile-time use-after-move.
   m.free();
   hello.free();
   ci.free();

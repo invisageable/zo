@@ -2,6 +2,7 @@ use zo_interner::Symbol;
 use zo_span::Span;
 use zo_token::Token;
 use zo_ty::Mutability;
+use zo_ty::SelfKind;
 use zo_ty::TyId;
 use zo_ui_protocol::{Attr, StyleScope, UiCommand};
 use zo_value::{FunctionKind, Pubness, ValueId};
@@ -209,10 +210,27 @@ pub enum ImportKind {
 pub struct Sir {
   /// The linear array of SIR instructions.
   pub instructions: Vec<Insn>,
+  /// Source span per instruction, aligned 1:1 with
+  /// `instructions`. Invariant: `spans.len() ==
+  /// instructions.len()`. Empty during execution — `emit`
+  /// records a node index in `node_idxs` instead; `resolve_
+  /// spans` fills this in one linear pass at the end. Every
+  /// later site that mutates `instructions` mutates `spans`
+  /// identically. Drives SIR-level diagnostics.
+  pub spans: Vec<Span>,
+  /// Parse-node index per instruction, recorded by `emit`
+  /// from `node_cursor`. Transient: resolved into `spans`
+  /// and dropped by `resolve_spans` at the end of execution.
+  /// Avoids reading the tree's span side-array on every node.
+  pub node_idxs: Vec<u32>,
   /// The next value ID for SSA.
   pub next_value_id: u32,
   /// The next label ID for branch targets.
   pub next_label_id: u32,
+  /// Current parse-node index, stamped onto each emitted
+  /// instruction. The executor sets it per node — a register
+  /// write, no memory read — and spans resolve in bulk later.
+  pub node_cursor: u32,
 }
 
 impl Sir {
@@ -220,9 +238,39 @@ impl Sir {
   pub fn new() -> Self {
     Self {
       instructions: Vec::with_capacity(1024),
+      spans: Vec::new(),
+      node_idxs: Vec::with_capacity(1024),
       next_value_id: 0,
       next_label_id: 0,
+      node_cursor: 0,
     }
+  }
+
+  /// Sets the parse-node index stamped onto subsequent emits.
+  #[inline]
+  pub fn set_node(&mut self, node_idx: u32) {
+    self.node_cursor = node_idx;
+  }
+
+  /// Resolves the buffered node indices into source spans in a
+  /// single linear pass against the owning tree's span array,
+  /// then drops the transient buffer. Called once at the end
+  /// of execution, before merge — sequential access on both
+  /// sides, prefetcher-friendly.
+  pub fn resolve_spans(&mut self, tree_spans: &[Span]) {
+    self.spans.clear();
+    self.spans.reserve(self.node_idxs.len());
+
+    for &node_idx in &self.node_idxs {
+      let span = tree_spans
+        .get(node_idx as usize)
+        .copied()
+        .unwrap_or(Span::ZERO);
+
+      self.spans.push(span);
+    }
+
+    self.node_idxs = Vec::new();
   }
 
   /// Allocates a fresh label ID.
@@ -288,6 +336,7 @@ impl Sir {
     };
 
     self.instructions.push(insn);
+    self.node_idxs.push(self.node_cursor);
 
     value_id
   }
@@ -365,6 +414,8 @@ impl Insn {
         }
       }
       Insn::Store { value, .. } => f(value),
+      // `Drop` references a local by name, not a `ValueId`.
+      Insn::Drop { .. } => {}
       Insn::Return { value, .. } => {
         if let Some(v) = value {
           f(v);
@@ -532,6 +583,7 @@ impl Insn {
       | Insn::ConstString { ty_id, .. }
       | Insn::Load { ty_id, .. }
       | Insn::Store { ty_id, .. }
+      | Insn::Drop { ty_id, .. }
       | Insn::Return { ty_id, .. }
       | Insn::Call { ty_id, .. }
       | Insn::BinOp { ty_id, .. }
@@ -687,6 +739,15 @@ pub enum Insn {
     value: ValueId, // Value to store
     ty_id: TyId,    // Type of value
   },
+  /// Scope-exit drop marker for an owned local. Emitted by
+  /// the executor when a binding's scope closes; the
+  /// ownership pass elides it when the value was moved/freed
+  /// or its type has no destructor, and codegen lowers a
+  /// survivor to a call to the type's consuming destructor.
+  Drop {
+    local: Symbol, // Binding being dropped
+    ty_id: TyId,   // Its type (resolves the destructor)
+  },
   /// Function definition
   FunDef {
     name: Symbol,
@@ -695,12 +756,12 @@ pub enum Insn {
     body_start: u32,
     kind: FunctionKind,
     pubness: Pubness,
-    /// `true` when the first parameter was declared as
-    /// `mut self`. Set only on apply-context methods —
-    /// non-method functions and `self`-only methods are
-    /// `false`. Consumed at every dot-call site to enforce
-    /// that the receiver's binding is `mut`.
-    mut_self: bool,
+    /// Receiver mode of the first parameter. `Write`
+    /// (`mut self`) is consumed at every dot-call site to
+    /// enforce that the receiver's binding is `mut`;
+    /// `Consume` (`own self`) moves the receiver. Non-methods
+    /// and `self`-only methods are `None` / `Read`.
+    self_kind: SelfKind,
     /// C symbol override from a `%% link_name = "X".`
     /// attribute. `Some(sym)` directs codegen to use the
     /// interned string verbatim as the C symbol (after

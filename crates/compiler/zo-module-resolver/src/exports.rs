@@ -492,6 +492,10 @@ pub struct ModuleExports {
   pub consts: Vec<ExportedConst>,
   /// The SIR instruction stream for codegen merging.
   pub sir_instructions: Vec<Insn>,
+  /// Source spans, aligned 1:1 with `sir_instructions`, so the
+  /// merge into the main SIR preserves span/instruction
+  /// alignment.
+  pub sir_spans: Vec<Span>,
   /// The next value id (for ValueId offset).
   pub next_value_id: u32,
   /// The next label id (for Label / Jump / BranchIfNot
@@ -579,7 +583,7 @@ pub fn extract_exports(
         body_start,
         kind,
         pubness,
-        mut_self,
+        self_kind,
         owning_pack,
         span,
         ..
@@ -654,7 +658,7 @@ pub fn extract_exports(
           type_params,
           type_param_bounds,
           return_type_args: rta,
-          mut_self: *mut_self,
+          self_kind: *self_kind,
           owning_pack: *owning_pack,
           span: *span,
           is_test: false,
@@ -891,7 +895,7 @@ pub fn extract_exports(
       type_params: src_fun.type_params.clone(),
       type_param_bounds: src_fun.type_param_bounds.clone(),
       return_type_args: src_fun.return_type_args.clone(),
-      mut_self: src_fun.mut_self,
+      self_kind: src_fun.self_kind,
       owning_pack: src_fun.owning_pack,
       span: Span::ZERO,
       is_test: false,
@@ -906,11 +910,15 @@ pub fn extract_exports(
   // tracking the most recent `PackDecl` to associate each
   // `pub ffi` declaration with its declaring pack, and uses
   // `PackLink` to resolve that pack's host dylib path.
-  let sir_instructions = sir
+  // Filter instructions and spans together so the exported
+  // pair stays aligned 1:1 (the `EnumDef` drop must remove
+  // the matching span).
+  let (sir_instructions, sir_spans): (Vec<Insn>, Vec<Span>) = sir
     .instructions
     .into_iter()
-    .filter(|i| !matches!(i, Insn::EnumDef { .. }))
-    .collect();
+    .zip(sir.spans)
+    .filter(|(insn, _)| !matches!(insn, Insn::EnumDef { .. }))
+    .unzip();
 
   // Selective imports filter funs/vars/etc. above, but a
   // generic apply-block body has no public method name on
@@ -962,6 +970,7 @@ pub fn extract_exports(
     structs,
     consts,
     sir_instructions,
+    sir_spans,
     next_value_id: sir.next_value_id,
     next_label_id: sir.next_label_id,
     re_exports,

@@ -520,6 +520,9 @@ fn check_insn(insn: &Insn, idx: usize, ctx: &mut ValidatorCtx<'_>) {
     Insn::DynDispatch { ty_id, .. } => {
       check_placeholder(&mut ctx.report, idx, *ty_id, "DynDispatch.ty_id");
     }
+    Insn::Drop { ty_id, .. } => {
+      check_placeholder(&mut ctx.report, idx, *ty_id, "Drop.ty_id");
+    }
     Insn::TestBegin { .. } | Insn::TestRun { .. } | Insn::TestSummary => {}
   }
 }
@@ -588,6 +591,7 @@ mod tests {
   use crate::{BinOp, NurseryKind, SpawnKind};
 
   use zo_span::Span;
+  use zo_ty::SelfKind;
   use zo_value::FunctionKind;
 
   fn vid(n: u32) -> ValueId {
@@ -697,7 +701,7 @@ mod tests {
         body_start: 1,
         kind: FunctionKind::UserDefined,
         pubness: zo_value::Pubness::No,
-        mut_self: false,
+        self_kind: SelfKind::None,
         link_name: None,
         owning_pack: None,
         span: Span::ZERO,

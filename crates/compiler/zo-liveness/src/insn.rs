@@ -194,13 +194,16 @@ pub fn insn_var_def(insn: &Insn) -> Option<Symbol> {
   }
 }
 
-/// Extract the named variable used by a `Load { Local }`.
+/// Extract the named variable used by a `Load { Local }` or
+/// a `Drop` (the drop is the binding's final use, so it must
+/// keep the local live through DCE).
 pub fn insn_var_use(insn: &Insn) -> Option<Symbol> {
   match insn {
     Insn::Load {
       src: LoadSource::Local(name),
       ..
     } => Some(*name),
+    Insn::Drop { local, .. } => Some(*local),
     _ => None,
   }
 }

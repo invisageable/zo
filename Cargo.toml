@@ -83,6 +83,7 @@ zo-metrics = { path = "crates/compiler/zo-metrics", version = "0.1.0" }
 zo-misato = { path = "crates/compiler/zo-misato", version = "0.3.11" }
 zo-module-resolver = { path = "crates/compiler/zo-module-resolver", version = "0.3.11" }
 zo-name-resolver = { path = "crates/compiler/zo-name-resolver", version = "0.1.0" }
+zo-ownership = { path = "crates/compiler/zo-ownership", version = "0.3.11" }
 zo-parser = { path = "crates/compiler/zo-parser", version = "0.3.11" }
 zo-pp = { path = "crates/compiler/zo-pp", version = "0.3.11" }
 zo-profiler = { path = "crates/compiler/zo-profiler", version = "0.3.11" }

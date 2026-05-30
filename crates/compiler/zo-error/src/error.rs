@@ -328,6 +328,9 @@ pub enum ErrorKind {
   ArgumentCountMismatch,
   InvalidAssignment,
   ImmutableVariable,
+  UseAfterMove, // value read after being moved/consumed (`own self`)
+  DoubleFree,   // value consumed again after an `own self` consume
+  ConditionalMove, // owned value freed on some-but-not-all paths
   InvalidReturn,
   InvalidReturnType,
   InvalidBreak,

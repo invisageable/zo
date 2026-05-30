@@ -4,7 +4,7 @@ use zo_register_allocation::RegAlloc;
 use zo_register_allocation::allocator::{AllocCtx, allocate_function};
 use zo_sir::{BinOp, Insn, LoadSource};
 use zo_span::Span;
-use zo_ty::TyId;
+use zo_ty::{SelfKind, TyId};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 use proptest::prelude::*;
@@ -73,7 +73,7 @@ fn fundef(interner: &mut Interner, params: usize) -> Insn {
     body_start: 1,
     kind: FunctionKind::UserDefined,
     pubness: Pubness::No,
-    mut_self: false,
+    self_kind: SelfKind::None,
     link_name: None,
     owning_pack: None,
     span: Span::ZERO,

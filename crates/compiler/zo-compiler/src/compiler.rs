@@ -18,6 +18,7 @@ use zo_module_resolver::{
   ImportedSymbols, ModuleExports, ModuleResolver, extract_exports,
   splice_generic_bodies,
 };
+use zo_ownership::Ownership;
 use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
@@ -31,9 +32,9 @@ use zo_span::Span;
 use zo_token::{LiteralStoreBaseline, Token};
 use zo_tokenizer::{TokenizationResult, Tokenizer};
 use zo_tree::{NodeValue, Tree, TreeBaseline};
-use zo_ty::Mutability;
+use zo_ty::{Mutability, SelfKind};
 use zo_value::ValueId;
-use zo_value::{FunctionKind, Local, LocalKind, Pubness};
+use zo_value::{AutoDrop, FunctionKind, Local, LocalKind, Pubness};
 
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -336,9 +337,11 @@ fn module_exports_to_imports(exports: &ModuleExports) -> ImportedSymbols {
       mutability: Mutability::No,
       sir_value: var.init,
       local_kind: LocalKind::Variable,
+      auto_drop: AutoDrop::No,
       owning_pack: var.owning_pack,
       span: Span::ZERO,
     });
+
     var_literals.push(var.literal.clone());
   }
 
@@ -450,6 +453,10 @@ struct DfsCtx {
   /// `FunDef`s are visible to the user's analyzer-emitted
   /// `Call`s.
   module_sir_instructions: Vec<zo_sir::Insn>,
+  /// Source spans aligned 1:1 with `module_sir_instructions`,
+  /// carried through the merge so the final SIR keeps its
+  /// span/instruction alignment.
+  module_sir_spans: Vec<zo_span::Span>,
   /// Running `ValueId` counter across the merged module
   /// SIR. Each loaded pack's SIR starts its own `%0` —
   /// `Sir::offset_value_ids` shifts each contributed
@@ -505,6 +512,7 @@ impl DfsCtx {
       folder_aggregations: HashMap::default(),
       parse_cache: HashMap::default(),
       module_sir_instructions: Vec::new(),
+      module_sir_spans: Vec::new(),
       module_next_value_id: 0,
       module_next_label_id: 0,
       system_pack_roots: HashSet::default(),
@@ -969,6 +977,7 @@ impl Compiler {
         preload_re_exports = exports.re_exports.clone();
 
         ctx.module_sir_instructions.extend(exports.sir_instructions);
+        ctx.module_sir_spans.extend(exports.sir_spans);
 
         ctx.module_next_value_id += exports.next_value_id;
         ctx.module_next_label_id += exports.next_label_id;
@@ -1101,13 +1110,17 @@ impl Compiler {
       // block above main's labels for the merged stream.
       Sir::offset_labels(&mut ctx.module_sir_instructions, main_next_lid);
 
-      // Prepend: modules first, then main.
+      // Prepend: modules first, then main. Spans mirror the
+      // same prepend so the merged SIR stays aligned 1:1.
       let main_insns = std::mem::replace(
         &mut semantic.sir.instructions,
         ctx.module_sir_instructions,
       );
+      let main_spans =
+        std::mem::replace(&mut semantic.sir.spans, ctx.module_sir_spans);
 
       semantic.sir.instructions.extend(main_insns);
+      semantic.sir.spans.extend(main_spans);
       semantic.sir.next_value_id += ctx.module_next_value_id;
       semantic.sir.next_label_id += ctx.module_next_label_id;
     }
@@ -1134,7 +1147,25 @@ impl Compiler {
       }
     }
 
+    // Keep every destructor (`own self` method) alive through
+    // DCE even when no explicit `.free()` calls it: the only
+    // other caller is the compiler-inserted scope-exit drop the
+    // ownership pass emits AFTER DCE, so without this the
+    // destructor is pruned as dead and auto-drop silently leaks.
+    for insn in &semantic.sir.instructions {
+      if let Insn::FunDef {
+        name,
+        self_kind: zo_ty::SelfKind::Consume,
+        ..
+      } = insn
+      {
+        dce_roots.push(*name);
+      }
+    }
+
     Dce::new(&mut semantic.sir, dce_roots, &session.interner).eliminate();
+    Ownership::new(&mut semantic.sir, &session.interner, &session.ty_checker)
+      .check();
 
     // Single drain after every analyze-time pass (analyzer,
     // module loads, DCE). One TLS access, not one per pass.
@@ -1315,9 +1346,11 @@ impl Compiler {
         // visit (when the user ALSO directly loads the
         // pack) is a no-op rather than a duplicate emit.
         let mut sir = std::mem::take(&mut pack_exports.sir_instructions);
+        let sir_spans = std::mem::take(&mut pack_exports.sir_spans);
         Sir::offset_value_ids(&mut sir, ctx.module_next_value_id);
         Sir::offset_labels(&mut sir, ctx.module_next_label_id);
         ctx.module_sir_instructions.extend(sir);
+        ctx.module_sir_spans.extend(sir_spans);
         ctx.module_next_value_id += pack_exports.next_value_id;
         ctx.module_next_label_id += pack_exports.next_label_id;
         pack_exports.next_value_id = 0;
@@ -1362,6 +1395,7 @@ impl Compiler {
         .insert(module_path.clone(), exported);
 
       ctx.module_sir_instructions.extend(exports.sir_instructions);
+      ctx.module_sir_spans.extend(exports.sir_spans);
       ctx.module_next_value_id += exports.next_value_id;
       ctx.module_next_label_id += exports.next_label_id;
 
@@ -1626,6 +1660,7 @@ impl Compiler {
       .insert(module_path.to_vec(), exported);
 
     ctx.module_sir_instructions.extend(exports.sir_instructions);
+    ctx.module_sir_spans.extend(exports.sir_spans);
     ctx.module_next_value_id += exports.next_value_id;
     ctx.module_next_label_id += exports.next_label_id;
 
@@ -1937,7 +1972,7 @@ impl Compiler {
       body_start: harness_body_start,
       kind: FunctionKind::UserDefined,
       pubness: Pubness::Yes,
-      mut_self: false,
+      self_kind: SelfKind::None,
       link_name: None,
       owning_pack: None,
       span: Span::ZERO,

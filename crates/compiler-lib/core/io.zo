@@ -113,7 +113,7 @@ apply BufferedReader {
   }
 
   -! Release the internal buffer.
-  pub fun close(self) {
+  pub fun close(own self) {
     zo_bufio_reader_free(self.handle);
   }
 }
@@ -160,7 +160,7 @@ apply BufferedWriter {
   }
 
   -! Flush and release the internal buffer.
-  pub fun close(self) {
+  pub fun close(own self) {
     zo_bufio_writer_free(self.handle);
   }
 }

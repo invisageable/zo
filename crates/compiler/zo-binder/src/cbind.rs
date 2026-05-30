@@ -25,19 +25,17 @@ pub struct CBindResult {
 ///
 /// @note — a function or struct whose types do not map is
 /// skipped (not an error), keeping the generated surface
-/// self-consistent: functions are bound only against structs
-/// that themselves generated.
+/// self-consistent: both structs and functions bind only
+/// against structs that themselves generated.
 pub fn bind_c_api(lib: &str, link: LinkSpec, api: &CApi) -> CBindResult {
   let aliases = alias_map(api);
-  let all_structs: HashSet<String> =
-    api.structs.iter().map(|item| item.name.clone()).collect();
 
   let mut structs = Vec::new();
   let mut generated = HashSet::new();
   let mut skipped = Vec::new();
 
   for item in &api.structs {
-    match bind_struct(item, &all_structs, &aliases) {
+    match bind_struct(item, &generated, &aliases) {
       Ok(zo_struct) => {
         generated.insert(item.name.clone());
         structs.push(zo_struct);

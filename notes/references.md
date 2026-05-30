@@ -19,7 +19,21 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
     - @SEE https://lobste.rs/s/uhsgar/modernizing_compiler_design_for_carbon
 
   - **CSS Snapshot**
-  - https://www.w3.org/TR/css — W3C
+    - https://www.w3.org/TR/css — W3C
+
+  - **The Go Programming Language**
+    - https://www.youtube.com/watch?v=rKnDgT73v8s — Rob Pike (2009)
+
+  - **Syntax Across Languages**
+    - https://rigaux.org/language-study/syntax-across-languages — Pascal Rigaux (..)
+
+## tokenizer.
+
+  - **Beating the Fastest Lexer Generator in Rust**
+    - https://alic.dev/blog/fast-lexing — Adrian Alic (2023)
+
+  - **Some Strategies For Fast Lexical Analysis when Parsing Programming Languages**
+    - https://nothings.org/computer/lexing.html — Sean Barrett (2015)
 
 ## module system.
 
@@ -41,74 +55,82 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
 
 ## memory management.
 
-- **Safe Manual Memory Management in Cyclone**
-  - https://www.cs.umd.edu/projects/PL/cyclone/scp.pdf — Nikhil Swamy, Michael Hicks, Greg Morrisett, Dan Grossman and Trevor Jim (2006)
+  - **Safe Manual Memory Management in Cyclone**
+    - https://www.cs.umd.edu/projects/PL/cyclone/scp.pdf — Nikhil Swamy, Michael Hicks, Greg Morrisett, Dan Grossman and Trevor Jim (2006)
 
 ## target.
 
-- **OS X ABI Mach-O File Format Reference**
-  - .. — Apple Developer (..)
+  - **OS X ABI Mach-O File Format Reference**
+    - .. — Apple Developer (..)
 
-- **The Intel 64 and IA-32 Architectures Software Developers Manual**
-  - https://homes.di.unimi.it/sisop/lucidi0607/253669.pdf — Intel Developer (2006)
+  - **The Intel 64 and IA-32 Architectures Software Developers Manual**
+    - https://homes.di.unimi.it/sisop/lucidi0607/253669.pdf — Intel Developer (2006)
 
-- **Arm® Architecture Reference Manual**
-  - https://developer.arm.com/documentation/ddi0487/mb — arm Developer (..)
+  - **Arm® Architecture Reference Manual**
+    - https://developer.arm.com/documentation/ddi0487/mb — arm Developer (..)
 
 ## type checker.
 
-- **Generalizing Hindley-Milner Type Inference Algorithms**
-  - https://www.researchgate.net/publication/2528716_Generalizing_Hindley-Milner_Type_Inference_Algorithms— Bastiaan Heeren and Jurriaan Hage (2002)
+  - **Generalizing Hindley-Milner Type Inference Algorithms**
+    - https://www.researchgate.net/publication/2528716_Generalizing_Hindley-Milner_Type_Inference_Algorithms — Bastiaan Heeren and Jurriaan Hage (2002)
 
-- **Typestate-Oriented Programming**
-  - https://www.cs.cmu.edu/~aldrich/papers/onward2009-state.pdf — Jonathan Aldrich Joshua Sunshine Darpan Saini Zachary Sparks (2009)
+  - **Typestate-Oriented Programming**
+    - https://www.cs.cmu.edu/~aldrich/papers/onward2009-state.pdf — Jonathan Aldrich Joshua Sunshine Darpan Saini Zachary Sparks (2009)
 
 - **A lazy, concurrent convertibility checker**
   - https://xavierleroy.org/publi/concurrent-convertibility.pdf — Nathanaëlle Courant and Xavier Leroy (2026)
 
 ## data-structures.
 
-- **Efficient extensional binary tries**
-  - https://xavierleroy.org/publi/extensional-binary-tries.pdf — Andrew W. Appel and Xavier Leroy (2023)
-  - 
-  - @SEE https://github.com/xavierleroy/canonical-binary-tries/tree/v2
+  - **Efficient extensional binary tries**
+    - https://xavierleroy.org/publi/extensional-binary-tries.pdf — Andrew W. Appel and Xavier Leroy (2023)
+    - 
+    - @SEE https://github.com/xavierleroy/canonical-binary-tries/tree/v2
 
 ## optimizations.
 
-- **Value Numbering**
-  - https://softlib.rice.edu/pub/CRPC-TRs/reports/CRPC-TR94517-S.pdf — Preston Briggs, Keith Cooper and Taylor Simpson (1994)
+  - **Value Numbering**
+    - https://softlib.rice.edu/pub/CRPC-TRs/reports/CRPC-TR94517-S.pdf — Preston Briggs, Keith Cooper and Taylor Simpson (1994)
 
-- **Combining Analyses, Combining Optimizations**
-  - https://dl.acm.org/doi/epdf/10.1145/201059.201061 — Clifford Noel Click, Jr. (1995)
+  - **Combining Analyses, Combining Optimizations**
+    - https://dl.acm.org/doi/epdf/10.1145/201059.201061 — Clifford Noel Click, Jr. (1995)
 
-- **Design and implementation of an optimizing type-centric**
-  - https://infoscience.epfl.ch/server/api/core/bitstreams/f98a9701-2e68-477e-b9c2-2550c29cb867/content — Dmytro PETRASHKO (2017)
+  - **Extensible records with scoped labels**
+    - https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/scopedlabels.pdf — Daan Leijen (2005)
 
-- **Introduction to Compilers and Language Design**
-  - .. — Douglas Thain (2023)
+  - **Design and implementation of an optimizing type-centric**
+    - https://infoscience.epfl.ch/server/api/core/bitstreams/f98a9701-2e68-477e-b9c2-2550c29cb867/content — Dmytro PETRASHKO (2017)
 
-- **Identifying Compiler Optimizations that Break Constant Time Programming Techniques**
-  - https://ethz.ch/content/dam/ethz/special-interest/infk/inst-infsec/appliedcrypto/education/theses/semester-project_fiona-willi.pdf — Fiona Willi (2025)
+  - **Introduction to Compilers and Language Design**
+    - .. — Douglas Thain (2023)
 
-- **Investigating magic numbers: improving the inlining heuristic in the Glasgow Haskell Compiler**
-  - https://doi.org/10.1145/3546189.3549918 — Celeste Hollenbeck, Michael F. P. O'Boyle and Michel Steuwer (2022)
-  - 
-  - @WATCH https://www.youtube.com/watch?v=OqrOZKESmuo
+  - **Identifying Compiler Optimizations that Break Constant Time Programming Techniques**
+    - https://ethz.ch/content/dam/ethz/special-interest/infk/inst-infsec/appliedcrypto/education/theses/semester-project_fiona-willi.pdf — Fiona Willi (2025)
+
+  - **Investigating magic numbers: improving the inlining heuristic in the Glasgow Haskell Compiler**
+    - https://doi.org/10.1145/3546189.3549918 — Celeste Hollenbeck, Michael F. P. O'Boyle and Michel Steuwer (2022)
+    - 
+    - @WATCH https://www.youtube.com/watch?v=OqrOZKESmuo
 
 ## linking.
 
-- **Program Fragments, Linking, and Modularization**
-  - http://lucacardelli.name/Papers/Linking.A4.pdf — Luca Cardelli (1997)
+  - **Program Fragments, Linking, and Modularization**
+    - http://lucacardelli.name/Papers/Linking.A4.pdf — Luca Cardelli (1997)
 
 ## recursion.
 
-- **Mechanizing Proofs about Mendler-style Recursion**
-  - https://www.cs.mcgill.ca/~bpientka/papers/lfmtp16.pdf — Rohan Jacob-Rao, Andrew Cave and Brigitte Pientka (2016)
+  - **Mechanizing Proofs about Mendler-style Recursion**
+    - https://www.cs.mcgill.ca/~bpientka/papers/lfmtp16.pdf — Rohan Jacob-Rao, Andrew Cave and Brigitte Pientka (2016)
 
 ## documentation.
 
   - **What I think about when I edit**
     - https://eva-parish.squarespace.com/blog/how-i-edit — Eva Parish (2019)
+
+## error-handling.
+
+  - **How Should Compilers Explain Problems to Developers?**
+    - https://static.barik.net/barik/publications/fse2018/barik_fse18.pdf — Titus Barik, Denae Ford, Emerson Murphy-Hill and Chris Parnin (2018)
 
 ## repository.
 
