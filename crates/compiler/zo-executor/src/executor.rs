@@ -23,8 +23,8 @@ use zo_ui_protocol::{
   Attr, ElementTag, EventKind, PropValue, StyleScope, UiCommand,
 };
 use zo_value::{
-  CaptureInfo, ClosureValue, FunDef, FunctionKind, Local, LocalKind, Pubness,
-  Value, ValueId, ValueStorage,
+  AutoDrop, CaptureInfo, ClosureValue, FunDef, FunctionKind, Local, LocalKind,
+  Pubness, Value, ValueId, ValueStorage,
 };
 
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
@@ -1193,7 +1193,34 @@ impl<'a> Executor<'a> {
   /// the binding the block was initializing can finalize
   /// against the block's tail value.
   fn pop_scope(&mut self) {
+    self.pop_scope_impl(true);
+  }
+
+  /// Pop a scope WITHOUT emitting affine drops. Used for loop
+  /// scopes: a loop body's owned locals have per-iteration
+  /// lifetime, but the loop scope is popped once, after the
+  /// loop, at `end_label`. A drop there is reached on the
+  /// zero-iteration path (where the local was never declared)
+  /// and frees only the final iteration's value — both wrong.
+  /// v1 leaves loop-body locals to manual free (or leak);
+  /// per-iteration auto-drop is a follow-up. Inner `{ }` blocks
+  /// inside the loop still drop normally (per iteration).
+  fn pop_scope_no_drops(&mut self) {
+    self.pop_scope_impl(false);
+  }
+
+  fn pop_scope_impl(&mut self, drops: bool) {
     if let Some(frame) = self.scope_stack.pop() {
+      // Affine RAII: a block that falls through frees the
+      // owned locals it introduced before they leave scope.
+      // Emitted BEFORE the truncate, while the locals are
+      // still live. The `pop_scope`s that run after a function's
+      // `Return` (body/param teardown) land past the return and
+      // are removed as unreachable by DCE — no double free.
+      if drops {
+        self.emit_owned_drops(frame.start as usize);
+      }
+
       self.local_scope.rollback_to(frame.mark);
       self.locals.truncate(frame.start as usize);
       // No-op when the inner scope still has its own
@@ -1205,6 +1232,85 @@ impl<'a> Executor<'a> {
         self.pending_decl = frame.saved_pending_decl;
       }
     }
+  }
+
+  /// The owned, non-borrow locals in `locals[from..]` eligible
+  /// for a scope-exit drop, in reverse declaration order (last
+  /// declared freed first). Only `auto_drop` `Variable`s
+  /// qualify — parameters, `self`, and borrow bindings (match
+  /// payloads, loop variables) alias a value owned elsewhere
+  /// and are never dropped here. Droppability by *type* is
+  /// decided at emit time (it needs `&mut` type resolution);
+  /// reading only `locals` lets this compose with an
+  /// outstanding `current_function` borrow at the
+  /// implicit-return site.
+  fn owned_drop_targets(locals: &[Local], from: usize) -> Vec<(Symbol, TyId)> {
+    if from >= locals.len() {
+      return Vec::new();
+    }
+
+    locals[from..]
+      .iter()
+      .rev()
+      .filter(|local| {
+        local.local_kind == LocalKind::Variable
+          && local.auto_drop == AutoDrop::Yes
+      })
+      .map(|local| (local.name, local.ty_id))
+      .collect()
+  }
+
+  /// Emit an `Insn::Drop` for each owned local in
+  /// `locals[from..]` whose type carries a destructor. Takes the
+  /// executor's `sir` / `locals` / `ty_checker` as disjoint
+  /// borrows so it composes with an outstanding
+  /// `current_function` or branch `ctx` borrow at the
+  /// implicit-return and ternary-return sites — where a `&mut
+  /// self` method call could not. Only named aggregates
+  /// (`Struct`/`Enum`) can own a destructor, so a marker is
+  /// emitted for those only; the ownership pass later resolves or
+  /// elides it. `kind_of` resolves inference vars so a
+  /// freshly-bound `Vec` reads as a `Struct`.
+  fn emit_drops_into(
+    sir: &mut Sir,
+    locals: &[Local],
+    ty_checker: &mut TyChecker,
+    from: usize,
+  ) {
+    for (name, ty_id) in Self::owned_drop_targets(locals, from) {
+      if matches!(ty_checker.kind_of(ty_id), Ty::Struct(_) | Ty::Enum(_)) {
+        sir.emit(Insn::Drop { local: name, ty_id });
+      }
+    }
+  }
+
+  /// Scope-exit drops for `self.locals[from..]`.
+  fn emit_owned_drops(&mut self, from: usize) {
+    Self::emit_drops_into(&mut self.sir, &self.locals, self.ty_checker, from);
+  }
+
+  /// The current function's base locals index — its first scope
+  /// (`scope_depth`). Drops at a `return` span every open scope
+  /// from here.
+  fn fn_drop_base(&self) -> usize {
+    self
+      .current_function
+      .as_ref()
+      .and_then(|cf| self.scope_stack.get(cf.scope_depth))
+      .map(|frame| frame.start as usize)
+      .unwrap_or(0)
+  }
+
+  /// Emit drops for every owned local live at a `return`, across
+  /// all of the current function's open scopes. A `return`
+  /// exits the whole function, so the trailing `pop_scope`
+  /// teardown lands past the `Return` (unreachable, DCE-removed)
+  /// — the live locals must be freed here instead. Parameters
+  /// within the base scope are skipped by the `Variable` filter.
+  fn emit_return_drops(&mut self) {
+    let base = self.fn_drop_base();
+
+    self.emit_owned_drops(base);
   }
 
   /// Append a function definition AND record its name in
@@ -3224,6 +3330,8 @@ impl<'a> Executor<'a> {
               let sir_val = self.sir_values.last().copied();
               let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
 
+              self.emit_return_drops();
+
               self.sir.emit(Insn::Return {
                 value: sir_val,
                 ty_id: ty,
@@ -3339,7 +3447,20 @@ impl<'a> Executor<'a> {
               (None, unit_ty)
             };
 
-            // Emit implicit return
+            // Emit implicit return — free this function's live
+            // owned locals first (the trailing pop_scope drops
+            // land past this Return and are DCE-removed). The
+            // disjoint-field helper (not `emit_return_drops`)
+            // composes with the live `fun_ctx` borrow.
+            let drop_base = self.fn_drop_base();
+
+            Self::emit_drops_into(
+              &mut self.sir,
+              &self.locals,
+              self.ty_checker,
+              drop_base,
+            );
+
             self.sir.emit(Insn::Return {
               value: return_value,
               ty_id: return_ty,
@@ -3454,6 +3575,13 @@ impl<'a> Executor<'a> {
           self.apply_deferred_binop();
         }
 
+        // A loop body's owned locals have per-iteration
+        // lifetime, but its block scope is popped once, here,
+        // after the increment + `end_label`. Dropping them at
+        // that point frees on the zero-iteration path. v1 pops
+        // loop bodies without drops (manual free, or leak).
+        let mut closed_loop = false;
+
         if at_branch_depth && let Some(ctx) = self.branch_stack.last() {
           match ctx.kind {
             BranchKind::While => {
@@ -3463,6 +3591,8 @@ impl<'a> Executor<'a> {
 
               self.sir.emit(Insn::Label { id: ctx.end_label });
               self.branch_stack.pop();
+
+              closed_loop = true;
             }
             BranchKind::For => {
               // Emit: i = i + 1; jump loop_start; label end.
@@ -3520,6 +3650,8 @@ impl<'a> Executor<'a> {
 
               self.sir.emit(Insn::Label { id: ctx.end_label });
               self.branch_stack.pop();
+
+              closed_loop = true;
             }
             BranchKind::If => {
               // Check if the next tree token is Else.
@@ -3609,22 +3741,36 @@ impl<'a> Executor<'a> {
               }
             }
             BranchKind::Ternary => {
-              // Emit Return for the false arm.
-              if let Some(ref mut fun_ctx) = self.current_function {
-                let unit_ty = self.ty_checker.unit_type();
+              // Emit Return for the false arm. The enclosing
+              // `ctx` (branch_stack) borrow is still live, so
+              // the drops are emitted inline via disjoint field
+              // borrows rather than the `&mut self`
+              // `emit_return_drops`.
+              let unit_ty = self.ty_checker.unit_type();
+              let needs_return = self
+                .current_function
+                .as_ref()
+                .is_some_and(|fc| fc.pending_return || fc.return_ty != unit_ty);
 
-                let needs_return =
-                  fun_ctx.pending_return || fun_ctx.return_ty != unit_ty;
+              if needs_return {
+                let sir_val = self.sir_values.last().copied();
+                let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
 
-                if needs_return {
-                  let sir_val = self.sir_values.last().copied();
-                  let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
+                let drop_base = self.fn_drop_base();
 
-                  self.sir.emit(Insn::Return {
-                    value: sir_val,
-                    ty_id: ty,
-                  });
+                Self::emit_drops_into(
+                  &mut self.sir,
+                  &self.locals,
+                  self.ty_checker,
+                  drop_base,
+                );
 
+                self.sir.emit(Insn::Return {
+                  value: sir_val,
+                  ty_id: ty,
+                });
+
+                if let Some(fun_ctx) = &mut self.current_function {
                   fun_ctx.pending_return = false;
                   fun_ctx.has_explicit_return = true;
                 }
@@ -3637,7 +3783,11 @@ impl<'a> Executor<'a> {
         }
 
         if !at_fn_depth {
-          self.pop_scope();
+          if closed_loop {
+            self.pop_scope_no_drops();
+          } else {
+            self.pop_scope();
+          }
         }
       }
 
@@ -5097,15 +5247,18 @@ impl<'a> Executor<'a> {
           // function ultimately returns. Emitting Return
           // here would consume the value before the Store
           // and break the φ.
-          if !has_sink && let Some(ref mut fun_ctx) = self.current_function {
+          if !has_sink {
             let unit_ty = self.ty_checker.unit_type();
-
-            let needs_return =
-              fun_ctx.pending_return || fun_ctx.return_ty != unit_ty;
+            let needs_return = self
+              .current_function
+              .as_ref()
+              .is_some_and(|fc| fc.pending_return || fc.return_ty != unit_ty);
 
             if needs_return {
               let sir_val = self.sir_values.last().copied();
               let ty = self.ty_stack.last().copied().unwrap_or(unit_ty);
+
+              self.emit_return_drops();
 
               self.sir.emit(Insn::Return {
                 value: sir_val,
@@ -5121,7 +5274,9 @@ impl<'a> Executor<'a> {
                 self.sir_values.pop();
               }
 
-              fun_ctx.has_explicit_return = true;
+              if let Some(fun_ctx) = &mut self.current_function {
+                fun_ctx.has_explicit_return = true;
+              }
             }
           }
 
@@ -7732,6 +7887,7 @@ impl<'a> Executor<'a> {
         mutability: param_mutability,
         sir_value: None,
         local_kind: LocalKind::Parameter,
+        auto_drop: AutoDrop::No,
         owning_pack: None,
         span: Span::ZERO,
       });
@@ -7798,6 +7954,8 @@ impl<'a> Executor<'a> {
         self.ty_stack.last().copied().unwrap_or(return_ty)
       };
 
+      self.emit_return_drops();
+
       self.sir.emit(Insn::Return {
         value: return_value,
         ty_id: return_ty_actual,
@@ -7832,7 +7990,9 @@ impl<'a> Executor<'a> {
 
     self.sir.next_value_id = closure_sir.next_value_id;
     self.deferred_closures.extend(closure_sir.instructions);
-    self.deferred_closure_node_idxs.extend(closure_sir.node_idxs);
+    self
+      .deferred_closure_node_idxs
+      .extend(closure_sir.node_idxs);
 
     self.current_function = outer_function;
     self.skip_until = saved_skip;
@@ -8699,6 +8859,7 @@ impl<'a> Executor<'a> {
         mutability: *mutability,
         sir_value: None,
         local_kind: LocalKind::Parameter,
+        auto_drop: AutoDrop::No,
         owning_pack: None,
         span: Span::ZERO,
       });
@@ -9149,6 +9310,7 @@ impl<'a> Executor<'a> {
           },
           sir_value: Some(ValueId(u32::MAX)),
           local_kind: LocalKind::Variable,
+          auto_drop: AutoDrop::No,
           owning_pack: None,
           span: self.tree.spans[idx],
         });
@@ -9897,6 +10059,7 @@ impl<'a> Executor<'a> {
         },
         sir_value: elem_sir,
         local_kind: LocalKind::Variable,
+        auto_drop: AutoDrop::Yes,
         owning_pack: None,
         span: decl.span,
       });
@@ -10021,6 +10184,7 @@ impl<'a> Executor<'a> {
           mutability: Mutability::No,
           sir_value: sir_init,
           local_kind: LocalKind::Constant,
+          auto_drop: AutoDrop::No,
           owning_pack: self.top_pack,
           span: decl.span,
         };
@@ -10099,6 +10263,7 @@ impl<'a> Executor<'a> {
           mutability,
           sir_value: sir_init,
           local_kind: LocalKind::Variable,
+          auto_drop: AutoDrop::Yes,
           owning_pack: None,
           span: decl.span,
         });
@@ -10209,6 +10374,7 @@ impl<'a> Executor<'a> {
           mutability: Mutability::No,
           sir_value: sir_init,
           local_kind: LocalKind::Variable,
+          auto_drop: AutoDrop::Yes,
           owning_pack: None,
           span: self.tree.spans[start_idx],
         });
@@ -10271,6 +10437,7 @@ impl<'a> Executor<'a> {
           pubness,
           sir_value: sir_init,
           local_kind: LocalKind::Variable,
+          auto_drop: AutoDrop::Yes,
           owning_pack: None,
           span: self.tree.spans[_start_idx],
         });
@@ -15195,6 +15362,7 @@ impl<'a> Executor<'a> {
     // Error path: return the original value as-is.
     // (It's already Err(...) or None — just return it.)
     self.sir.emit(Insn::Label { id: ok_label });
+    self.emit_return_drops();
     self.sir.emit(Insn::Return {
       value: Some(val_sir),
       ty_id: val_ty,
@@ -15626,6 +15794,7 @@ impl<'a> Executor<'a> {
           mutability: Mutability::No,
           sir_value: Some(field_sir),
           local_kind: LocalKind::Variable,
+          auto_drop: AutoDrop::No,
           owning_pack: None,
           span: Span::ZERO,
         });
@@ -15916,6 +16085,7 @@ impl<'a> Executor<'a> {
         mutability: Mutability::No,
         sir_value: Some(field_sir),
         local_kind: LocalKind::Variable,
+        auto_drop: AutoDrop::No,
         owning_pack: None,
         span: Span::ZERO,
       });
@@ -16829,6 +16999,7 @@ impl<'a> Executor<'a> {
                 mutability: Mutability::No,
                 sir_value: Some(field_sir),
                 local_kind: LocalKind::Variable,
+                auto_drop: AutoDrop::No,
                 owning_pack: None,
                 span: Span::ZERO,
               });
@@ -17154,6 +17325,7 @@ impl<'a> Executor<'a> {
             mutability: Mutability::No,
             sir_value: Some(scrut_reload),
             local_kind: LocalKind::Variable,
+            auto_drop: AutoDrop::No,
             owning_pack: None,
             span: Span::ZERO,
           });
@@ -17503,7 +17675,7 @@ impl<'a> Executor<'a> {
     self.sir.emit(Insn::Label { id: end_label });
 
     self.branch_stack.pop();
-    self.pop_scope();
+    self.pop_scope_no_drops();
 
     // Skip past the body's terminating `;`.
     self.skip_until = semicolon_idx + 1;
@@ -17786,6 +17958,7 @@ impl<'a> Executor<'a> {
       mutability: Mutability::Yes,
       sir_value: Some(start_sir),
       local_kind: LocalKind::Variable,
+      auto_drop: AutoDrop::No,
       owning_pack: None,
       span: self.tree.spans[start_idx],
     });
@@ -17836,6 +18009,7 @@ impl<'a> Executor<'a> {
       mutability: Mutability::No,
       sir_value: Some(end_sir),
       local_kind: LocalKind::Variable,
+      auto_drop: AutoDrop::No,
       owning_pack: None,
       span: Span::ZERO,
     });
@@ -18015,7 +18189,7 @@ impl<'a> Executor<'a> {
     self.sir.emit(Insn::Label { id: end_label });
 
     self.branch_stack.pop();
-    self.pop_scope();
+    self.pop_scope_no_drops();
 
     // Skip past the `;` that terminated the body. The
     // synthetic `RBrace` that follows is the enclosing
@@ -18139,6 +18313,7 @@ impl<'a> Executor<'a> {
       mutability: Mutability::No,
       sir_value: Some(arr_sir),
       local_kind: LocalKind::Variable,
+      auto_drop: AutoDrop::No,
       owning_pack: None,
       span: Span::ZERO,
     });
@@ -18180,6 +18355,7 @@ impl<'a> Executor<'a> {
       mutability: Mutability::Yes,
       sir_value: Some(zero_sir),
       local_kind: LocalKind::Variable,
+      auto_drop: AutoDrop::No,
       owning_pack: None,
       span: Span::ZERO,
     });
@@ -18215,6 +18391,7 @@ impl<'a> Executor<'a> {
       mutability: Mutability::Yes,
       sir_value: None,
       local_kind: LocalKind::Variable,
+      auto_drop: AutoDrop::No,
       owning_pack: None,
       span: Span::ZERO,
     });
@@ -18405,7 +18582,7 @@ impl<'a> Executor<'a> {
     self.sir.emit(Insn::Label { id: end_label });
 
     self.branch_stack.pop();
-    self.pop_scope();
+    self.pop_scope_no_drops();
 
     self.skip_until = semicolon_idx + 1;
   }
@@ -19164,6 +19341,7 @@ impl<'a> Executor<'a> {
           mutability: Mutability::No,
           sir_value: Some(out_value),
           local_kind: LocalKind::Variable,
+          auto_drop: AutoDrop::No,
           owning_pack: None,
           span: Span::ZERO,
         });
@@ -19267,8 +19445,10 @@ impl<'a> Executor<'a> {
       return;
     }
 
-    if let Some(ref mut ctx) = self.current_function
-      && ctx.pending_return
+    if self
+      .current_function
+      .as_ref()
+      .is_some_and(|c| c.pending_return)
     {
       // We have a pending return and a value on the stack
       let (return_value, return_ty) =
@@ -19287,6 +19467,8 @@ impl<'a> Executor<'a> {
         };
 
       // Emit the Return instruction
+      self.emit_return_drops();
+
       self.sir.emit(Insn::Return {
         value: return_value,
         ty_id: return_ty,
@@ -19304,7 +19486,9 @@ impl<'a> Executor<'a> {
       }
 
       // Clear the pending flag
-      ctx.pending_return = false;
+      if let Some(ctx) = &mut self.current_function {
+        ctx.pending_return = false;
+      }
 
       // Matching pop for the push in `execute_return`.
       self.expected_ty_stack.pop();
@@ -23400,6 +23584,7 @@ impl<'a> Executor<'a> {
               mutability: param_mutability,
               sir_value: None,
               local_kind: LocalKind::Parameter,
+              auto_drop: AutoDrop::No,
               owning_pack: None,
               span: Span::ZERO,
             });
@@ -23463,6 +23648,8 @@ impl<'a> Executor<'a> {
           let return_value =
             self.sir_values.last().copied().filter(|v| v.0 != u32::MAX);
 
+          self.emit_return_drops();
+
           self.sir.emit(Insn::Return {
             value: return_value,
             ty_id: str_ty,
@@ -23477,7 +23664,9 @@ impl<'a> Executor<'a> {
 
           self.sir.next_value_id = closure_sir.next_value_id;
           self.deferred_closures.extend(closure_sir.instructions);
-          self.deferred_closure_node_idxs.extend(closure_sir.node_idxs);
+          self
+            .deferred_closure_node_idxs
+            .extend(closure_sir.node_idxs);
 
           // Restore outer state.
           self.current_function = outer_function;
@@ -23612,6 +23801,7 @@ impl<'a> Executor<'a> {
         mutability: Mutability::No,
         sir_value: Some(sir_value),
         local_kind: LocalKind::Variable,
+        auto_drop: AutoDrop::No,
         owning_pack: None,
         span: Span::ZERO,
       });

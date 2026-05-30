@@ -24,6 +24,9 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
   - **The Go Programming Language**
     - https://www.youtube.com/watch?v=rKnDgT73v8s — Rob Pike (2009)
 
+  - **Syntax Across Languages**
+    - https://rigaux.org/language-study/syntax-across-languages — Pascal Rigaux (..)
+
 ## tokenizer.
 
   - **Beating the Fastest Lexer Generator in Rust**
@@ -69,7 +72,7 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
 ## type checker.
 
   - **Generalizing Hindley-Milner Type Inference Algorithms**
-    - https://www.researchgate.net/publication/2528716_Generalizing_Hindley-Milner_Type_Inference_Algorithms— Bastiaan Heeren and Jurriaan Hage (2002)
+    - https://www.researchgate.net/publication/2528716_Generalizing_Hindley-Milner_Type_Inference_Algorithms — Bastiaan Heeren and Jurriaan Hage (2002)
 
   - **Typestate-Oriented Programming**
     - https://www.cs.cmu.edu/~aldrich/papers/onward2009-state.pdf — Jonathan Aldrich Joshua Sunshine Darpan Saini Zachary Sparks (2009)
@@ -126,7 +129,7 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
 
 ## error-handling.
 
-  - How Should Compilers Explain Problems to Developers?
+  - **How Should Compilers Explain Problems to Developers?**
     - https://static.barik.net/barik/publications/fse2018/barik_fse18.pdf — Titus Barik, Denae Ford, Emerson Murphy-Hill and Chris Parnin (2018)
 
 ## repository.

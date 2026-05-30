@@ -34,7 +34,7 @@ use zo_tokenizer::{TokenizationResult, Tokenizer};
 use zo_tree::{NodeValue, Tree, TreeBaseline};
 use zo_ty::{Mutability, SelfKind};
 use zo_value::ValueId;
-use zo_value::{FunctionKind, Local, LocalKind, Pubness};
+use zo_value::{AutoDrop, FunctionKind, Local, LocalKind, Pubness};
 
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -337,6 +337,7 @@ fn module_exports_to_imports(exports: &ModuleExports) -> ImportedSymbols {
       mutability: Mutability::No,
       sir_value: var.init,
       local_kind: LocalKind::Variable,
+      auto_drop: AutoDrop::No,
       owning_pack: var.owning_pack,
       span: Span::ZERO,
     });
@@ -1115,10 +1116,8 @@ impl Compiler {
         &mut semantic.sir.instructions,
         ctx.module_sir_instructions,
       );
-      let main_spans = std::mem::replace(
-        &mut semantic.sir.spans,
-        ctx.module_sir_spans,
-      );
+      let main_spans =
+        std::mem::replace(&mut semantic.sir.spans, ctx.module_sir_spans);
 
       semantic.sir.instructions.extend(main_insns);
       semantic.sir.spans.extend(main_spans);
@@ -1148,8 +1147,25 @@ impl Compiler {
       }
     }
 
+    // Keep every destructor (`own self` method) alive through
+    // DCE even when no explicit `.free()` calls it: the only
+    // other caller is the compiler-inserted scope-exit drop the
+    // ownership pass emits AFTER DCE, so without this the
+    // destructor is pruned as dead and auto-drop silently leaks.
+    for insn in &semantic.sir.instructions {
+      if let Insn::FunDef {
+        name,
+        self_kind: zo_ty::SelfKind::Consume,
+        ..
+      } = insn
+      {
+        dce_roots.push(*name);
+      }
+    }
+
     Dce::new(&mut semantic.sir, dce_roots, &session.interner).eliminate();
-    Ownership::new(&semantic.sir).check();
+    Ownership::new(&mut semantic.sir, &session.interner, &session.ty_checker)
+      .check();
 
     // Single drain after every analyze-time pass (analyzer,
     // module loads, DCE). One TLS access, not one per pass.

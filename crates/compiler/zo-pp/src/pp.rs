@@ -254,6 +254,12 @@ impl PrettyPrinter {
 
           self.sir_instruction(&store);
         }
+        Insn::Drop { local, .. } => {
+          let local = interner.get(*local);
+          let drop = format!("drop {local}");
+
+          self.sir_instruction(&drop);
+        }
         Insn::Load { dst, src, .. } => {
           let load = match src {
             LoadSource::Param(idx) => {

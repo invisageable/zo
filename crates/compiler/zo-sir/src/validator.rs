@@ -520,6 +520,9 @@ fn check_insn(insn: &Insn, idx: usize, ctx: &mut ValidatorCtx<'_>) {
     Insn::DynDispatch { ty_id, .. } => {
       check_placeholder(&mut ctx.report, idx, *ty_id, "DynDispatch.ty_id");
     }
+    Insn::Drop { ty_id, .. } => {
+      check_placeholder(&mut ctx.report, idx, *ty_id, "Drop.ty_id");
+    }
     Insn::TestBegin { .. } | Insn::TestRun { .. } | Insn::TestSummary => {}
   }
 }

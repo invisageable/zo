@@ -262,8 +262,10 @@ impl Sir {
     self.spans.reserve(self.node_idxs.len());
 
     for &node_idx in &self.node_idxs {
-      let span =
-        tree_spans.get(node_idx as usize).copied().unwrap_or(Span::ZERO);
+      let span = tree_spans
+        .get(node_idx as usize)
+        .copied()
+        .unwrap_or(Span::ZERO);
 
       self.spans.push(span);
     }
@@ -412,6 +414,8 @@ impl Insn {
         }
       }
       Insn::Store { value, .. } => f(value),
+      // `Drop` references a local by name, not a `ValueId`.
+      Insn::Drop { .. } => {}
       Insn::Return { value, .. } => {
         if let Some(v) = value {
           f(v);
@@ -579,6 +583,7 @@ impl Insn {
       | Insn::ConstString { ty_id, .. }
       | Insn::Load { ty_id, .. }
       | Insn::Store { ty_id, .. }
+      | Insn::Drop { ty_id, .. }
       | Insn::Return { ty_id, .. }
       | Insn::Call { ty_id, .. }
       | Insn::BinOp { ty_id, .. }
@@ -733,6 +738,15 @@ pub enum Insn {
     name: Symbol,   // Variable to store to
     value: ValueId, // Value to store
     ty_id: TyId,    // Type of value
+  },
+  /// Scope-exit drop marker for an owned local. Emitted by
+  /// the executor when a binding's scope closes; the
+  /// ownership pass elides it when the value was moved/freed
+  /// or its type has no destructor, and codegen lowers a
+  /// survivor to a call to the type's consuming destructor.
+  Drop {
+    local: Symbol, // Binding being dropped
+    ty_id: TyId,   // Its type (resolves the destructor)
   },
   /// Function definition
   FunDef {

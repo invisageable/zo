@@ -1,0 +1,16 @@
+-! Freeing `v` on one branch only is a conditional free: the
+-! scope-exit drop would double-free on the freed path and
+-! leak on the other, so the compiler rejects it. Free on all
+-! paths or none.
+fun main() {
+  mut v: Vec<int> = Vec::new();
+  v.push(1);
+
+  imu big: bool = v.len() > 0;
+
+  if big {
+    v.free();
+  }
+}
+
+-- EXPECTED ERROR: E0352

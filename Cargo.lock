@@ -8195,6 +8195,7 @@ dependencies = [
  "zo-sir",
  "zo-span",
  "zo-ty",
+ "zo-ty-checker",
  "zo-value",
 ]
 

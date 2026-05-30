@@ -1,0 +1,11 @@
+-! ...
+
+fun main() {
+  mut v: Vec<int> = Vec::new();
+  v.push(1);
+
+  imu n: int = v.len();
+  showln(n);
+  
+  v.free();
+}

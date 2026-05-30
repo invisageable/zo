@@ -131,6 +131,7 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
     ErrorKind::ImmutableVariable => ("immutable-variable", 309),
     ErrorKind::UseAfterMove => ("use-after-move", 350),
     ErrorKind::DoubleFree => ("double-free", 351),
+    ErrorKind::ConditionalMove => ("conditional-move", 352),
     ErrorKind::InvalidReturn => ("invalid-return", 310),
     ErrorKind::InvalidReturnType => ("invalid-return-type", 311),
     ErrorKind::InvalidBreak => ("invalid-break", 312),

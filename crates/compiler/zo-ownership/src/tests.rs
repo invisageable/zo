@@ -6,6 +6,7 @@ use zo_reporter::collect_errors;
 use zo_sir::{Insn, LoadSource, Sir};
 use zo_span::Span;
 use zo_ty::{SelfKind, TyId};
+use zo_ty_checker::TyChecker;
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 fn make_sir(instructions: Vec<Insn>) -> Sir {
@@ -76,11 +77,15 @@ fn ret() -> Insn {
 }
 
 /// Runs the pass on a freshly-cleared error channel and returns
-/// the kinds it reported.
-fn run(sir: &Sir) -> Vec<ErrorKind> {
+/// the kinds it reported. These fragments carry no `Drop`
+/// markers, so the destructor lookup never fires and a fresh
+/// `TyChecker` suffices.
+fn run(sir: &mut Sir, interner: &Interner) -> Vec<ErrorKind> {
   let _ = collect_errors();
 
-  Ownership::new(sir).check();
+  let ty = TyChecker::new();
+
+  Ownership::new(sir, interner, &ty).check();
 
   collect_errors().iter().map(|e| e.kind()).collect()
 }
@@ -92,7 +97,7 @@ fn double_free_is_reported() {
   let caller = interner.intern("caller");
   let v = interner.intern("v");
 
-  let sir = make_sir(vec![
+  let mut sir = make_sir(vec![
     fundef(free, SelfKind::Consume),
     ret(),
     fundef(caller, SelfKind::None),
@@ -105,7 +110,7 @@ fn double_free_is_reported() {
 
   // Consuming an already-moved binding is a double-free, not a
   // plain use-after-move.
-  assert_eq!(run(&sir), vec![ErrorKind::DoubleFree]);
+  assert_eq!(run(&mut sir, &interner), vec![ErrorKind::DoubleFree]);
 }
 
 #[test]
@@ -134,7 +139,7 @@ fn diagnostic_points_at_use_site_and_move_site() {
   spans[4] = first_free;
   spans[6] = second_free;
 
-  let sir = Sir {
+  let mut sir = Sir {
     instructions,
     spans,
     node_idxs: Vec::new(),
@@ -144,7 +149,8 @@ fn diagnostic_points_at_use_site_and_move_site() {
   };
 
   let _ = collect_errors();
-  Ownership::new(&sir).check();
+  let ty = TyChecker::new();
+  Ownership::new(&mut sir, &interner, &ty).check();
   let errors = collect_errors();
 
   assert_eq!(errors.len(), 1);
@@ -163,7 +169,7 @@ fn use_after_free_is_reported() {
   let caller = interner.intern("caller");
   let v = interner.intern("v");
 
-  let sir = make_sir(vec![
+  let mut sir = make_sir(vec![
     fundef(free, SelfKind::Consume),
     ret(),
     fundef(len, SelfKind::Read),
@@ -176,7 +182,7 @@ fn use_after_free_is_reported() {
     ret(),
   ]);
 
-  assert_eq!(run(&sir), vec![ErrorKind::UseAfterMove]);
+  assert_eq!(run(&mut sir, &interner), vec![ErrorKind::UseAfterMove]);
 }
 
 #[test]
@@ -186,7 +192,7 @@ fn reassignment_clears_the_move() {
   let caller = interner.intern("caller");
   let v = interner.intern("v");
 
-  let sir = make_sir(vec![
+  let mut sir = make_sir(vec![
     fundef(free, SelfKind::Consume),
     ret(),
     fundef(caller, SelfKind::None),
@@ -198,7 +204,7 @@ fn reassignment_clears_the_move() {
     ret(),
   ]);
 
-  assert!(run(&sir).is_empty());
+  assert!(run(&mut sir, &interner).is_empty());
 }
 
 #[test]
@@ -208,7 +214,7 @@ fn non_consuming_calls_never_move() {
   let caller = interner.intern("caller");
   let x = interner.intern("x");
 
-  let sir = make_sir(vec![
+  let mut sir = make_sir(vec![
     fundef(show, SelfKind::Read),
     ret(),
     fundef(caller, SelfKind::None),
@@ -219,5 +225,5 @@ fn non_consuming_calls_never_move() {
     ret(),
   ]);
 
-  assert!(run(&sir).is_empty());
+  assert!(run(&mut sir, &interner).is_empty());
 }
