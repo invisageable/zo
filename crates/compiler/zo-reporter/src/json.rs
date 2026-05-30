@@ -61,6 +61,7 @@
 //! is the only escape hatch for incompatible changes.
 
 use crate::aggregator::{ErrorAggregator, Phase};
+use crate::collector::TyNames;
 use crate::fixes::{FixIt, FixKind, fixes_for};
 use crate::render::{error_message, error_note};
 
@@ -102,6 +103,7 @@ pub fn to_json<W: Write>(
         source,
         &filename,
         snippet_context,
+        aggregator.detail_for(error),
       );
       let line = serde_json::to_string(&obj)?;
 
@@ -164,6 +166,7 @@ fn encode(
   source: &str,
   filename: &str,
   snippet_context: usize,
+  detail: Option<&TyNames>,
 ) -> Value {
   let kind = error.kind();
   let span = error.span();
@@ -207,6 +210,13 @@ fn encode(
       "secondary".into(),
       full_span_json(filename, secondary, source),
     );
+  }
+
+  // The conflicting type names, when the diagnostic carries
+  // them (a type mismatch) — the grounds, machine-readable.
+  if let Some(names) = detail {
+    obj.insert("primary_type".into(), json!(&*names.primary));
+    obj.insert("secondary_type".into(), json!(&*names.secondary));
   }
 
   Value::Object(obj)
@@ -621,6 +631,29 @@ mod tests {
     assert_eq!(sec["byte_end"], json!(1));
     assert_eq!(sec["line_start"], json!(1));
     assert_eq!(sec["col_start"], json!(1));
+    // No type-name detail unless the aggregator carries it.
+    assert!(v.get("primary_type").is_none());
+  }
+
+  #[test]
+  fn type_mismatch_emits_type_names() {
+    // With detail present, the conflicting type names are
+    // emitted as machine-readable fields.
+    let source = "1 + true";
+    let err = Error::with_secondary(
+      ErrorKind::TypeMismatch,
+      Span::new(4, 4),
+      Span::new(0, 1),
+    );
+    let names = TyNames {
+      primary: "bool".into(),
+      secondary: "int".into(),
+    };
+
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&names));
+
+    assert_eq!(v["primary_type"], json!("bool"));
+    assert_eq!(v["secondary_type"], json!("int"));
   }
 
   #[test]

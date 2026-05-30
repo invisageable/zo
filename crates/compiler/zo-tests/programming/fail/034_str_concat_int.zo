@@ -15,9 +15,9 @@ fun main() {
 --    │
 --  9 │   imu s: str = "hello" ++ 42;
 --    │                ───┬───    ─┬
---    │                   ╰─────────── conflicts with this type
+--    │                   ╰─────────── conflicts with this type `str`
 --    │                            │
---    │                            ╰── incompatible type here
+--    │                            ╰── incompatible type `int` here
 --    │
 --    │ Note • The types of both operands must be compatible
 -- ───╯

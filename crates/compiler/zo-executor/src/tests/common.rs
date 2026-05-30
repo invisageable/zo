@@ -3,7 +3,7 @@ use crate::Executor;
 use zo_error::{Error, ErrorKind};
 use zo_interner::Interner;
 use zo_parser::Parser;
-use zo_reporter::collect_errors;
+use zo_reporter::{TyNames, collect_diagnostics, collect_errors};
 use zo_sir::Insn;
 use zo_span::Span;
 use zo_tokenizer::Tokenizer;
@@ -171,6 +171,33 @@ pub(crate) fn span_text(source: &str, span: Span) -> &str {
   let end = start + span.len as usize;
 
   &source[start..end]
+}
+
+/// Execute source and return every collected error together
+/// with its type-name detail (a mismatch's conflicting types).
+/// The detail `Vec` holds only the errors that carry it.
+pub(crate) fn execution_diagnostics(
+  source: &str,
+) -> (Vec<Error>, Vec<(Error, TyNames)>) {
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
+
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  executor.execute();
+
+  collect_diagnostics()
 }
 
 /// Execute source and return every collected error.

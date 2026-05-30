@@ -1169,9 +1169,10 @@ impl Compiler {
 
     // Single drain after every analyze-time pass (analyzer,
     // module loads, DCE). One TLS access, not one per pass.
-    let tl_errors = zo_reporter::collect_errors();
+    let (tl_errors, tl_details) = zo_reporter::collect_diagnostics();
     if !tl_errors.is_empty() {
       self.reporter.collect_errors(&tl_errors);
+      self.reporter.collect_details(tl_details);
     }
 
     semantic.pack_paths = ctx.pack_paths;
@@ -1873,6 +1874,7 @@ impl Compiler {
       let mut aggregator = ErrorAggregator::new();
 
       aggregator.add_errors(errors);
+      aggregator.add_details(self.reporter.details());
 
       let _ = if self.emit_json {
         json::to_stdout(&aggregator, &file_table, self.snippet_context)
@@ -2022,6 +2024,7 @@ impl Compiler {
       let mut aggregator = ErrorAggregator::new();
 
       aggregator.add_errors(errors);
+      aggregator.add_details(self.reporter.details());
 
       let _ = render_errors_to_stderr(&aggregator, &file_table);
 

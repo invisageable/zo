@@ -40,7 +40,7 @@ fun main() -> str {
 --     │
 --  14 │   "DONE"
 --     │   ───┬──
---     │      ╰──── incompatible type here
+--     │      ╰──── incompatible type `str` here
 --     │
 --     │ Note • The types of both operands must be compatible
 -- ────╯

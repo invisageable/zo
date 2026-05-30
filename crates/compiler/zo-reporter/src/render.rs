@@ -1,4 +1,5 @@
 use crate::aggregator::ErrorAggregator;
+use crate::collector::TyNames;
 
 use zo_error::{Error, ErrorKind, Severity};
 use zo_span::Span;
@@ -89,7 +90,12 @@ impl ErrorRenderer {
           continue;
         }
 
-        self.render_error(error, source, &filename)?;
+        self.render_error(
+          error,
+          source,
+          &filename,
+          aggregator.detail_for(error),
+        )?;
       }
 
       if phase_errors.errors.len() > self.config.max_errors_per_phase {
@@ -110,6 +116,7 @@ impl ErrorRenderer {
     error: &Error,
     source: &str,
     filename: &str,
+    detail: Option<&TyNames>,
   ) -> io::Result<()> {
     let span = error.span();
     let kind = error.kind();
@@ -144,10 +151,14 @@ impl ErrorRenderer {
 
     // Primary label — the offending value. Caret AND message
     // share the primary color (ariadne paints the caret;
-    // `.fg` paints the message to match).
-    let label_msg = match kind {
-      ErrorKind::TypeMismatch => "incompatible type here",
-      _ => error_label(kind),
+    // `.fg` paints the message to match). A `TypeMismatch`
+    // names the value's type when the detail is present.
+    let label_msg = match (kind, detail) {
+      (ErrorKind::TypeMismatch, Some(d)) => {
+        format!("incompatible type `{}` here", d.primary)
+      }
+      (ErrorKind::TypeMismatch, None) => "incompatible type here".to_owned(),
+      _ => error_label(kind).to_owned(),
     };
     report = report.with_label(
       Label::new((filename, range.clone()))
@@ -157,13 +168,20 @@ impl ErrorRenderer {
 
     // Secondary label — the value the primary conflicts with.
     // Fixed green to contrast the red primary; message colored
-    // to match its own caret.
+    // to match its own caret, naming the type when known.
     if let Some(secondary) = error.secondary_span() {
       let sec_range = span_to_range(secondary, source);
 
+      let sec_msg = match (kind, detail) {
+        (ErrorKind::TypeMismatch, Some(d)) => {
+          format!("conflicts with this type `{}`", d.secondary)
+        }
+        _ => secondary_label(kind).to_owned(),
+      };
+
       report = report.with_label(
         Label::new((filename, sec_range))
-          .with_message(secondary_label(kind).fg(SECONDARY_COLOR))
+          .with_message(sec_msg.fg(SECONDARY_COLOR))
           .with_color(SECONDARY_COLOR),
       );
     }

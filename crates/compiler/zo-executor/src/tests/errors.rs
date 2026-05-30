@@ -1,7 +1,27 @@
-use crate::tests::common::{execution_errors, span_text};
+use crate::tests::common::{
+  execution_diagnostics, execution_errors, span_text,
+};
 
 use zo_error::ErrorKind;
 use zo_span::Span;
+
+/// A binop mismatch records the conflicting type names —
+/// `bool` (primary, the `true`) and `int` (secondary, the
+/// `1`) — so the diagnostic can name them.
+#[test]
+fn test_binop_mismatch_names_types() {
+  let source = "fun main() {\n  imu x := 1 + true;\n}";
+
+  let (_errors, details) = execution_diagnostics(source);
+
+  let (_error, names) = details
+    .iter()
+    .find(|(e, _)| e.kind() == ErrorKind::TypeMismatch)
+    .expect("expected a TypeMismatch carrying type names");
+
+  assert_eq!(&*names.primary, "bool");
+  assert_eq!(&*names.secondary, "int");
+}
 
 /// A type mismatch in an arithmetic binop highlights the two
 /// operand values — `1` and `true` in `1 + true` — not the

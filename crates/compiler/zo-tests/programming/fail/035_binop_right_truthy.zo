@@ -42,9 +42,9 @@ fun main() {
 --     │
 --  19 │   imu x: int = true || "false"; -- This guy failed.
 --     │                ──┬─    ───┬───
---     │                  ╰────────────── conflicts with this type
+--     │                  ╰────────────── conflicts with this type `bool`
 --     │                           │
---     │                           ╰───── incompatible type here
+--     │                           ╰───── incompatible type `str` here
 --     │
 --     │ Note • The types of both operands must be compatible
 -- ────╯

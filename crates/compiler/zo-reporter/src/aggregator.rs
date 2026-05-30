@@ -1,6 +1,9 @@
 use crate::collector;
+use crate::collector::TyNames;
 
 use zo_error::{Error, ErrorKind};
+
+use std::collections::HashMap;
 
 /// Compilation phase identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +74,10 @@ impl PhaseErrors {
 pub struct ErrorAggregator {
   /// All phase errors collected.
   phase_errors: Vec<PhaseErrors>,
+  /// Type-name detail keyed by the `Error` it annotates. The
+  /// renderer looks it up to name the conflicting types in a
+  /// `TypeMismatch`. Empty for diagnostics with no such detail.
+  details: HashMap<Error, TyNames>,
 }
 
 impl ErrorAggregator {
@@ -83,6 +90,19 @@ impl ErrorAggregator {
   /// The errors are grouped by phase based on their ErrorKind.
   pub fn add_errors(&mut self, errors: &[Error]) {
     self.group_errors_by_phase(errors);
+  }
+
+  /// Registers type-name detail so the renderer can name the
+  /// conflicting types of a diagnostic.
+  pub fn add_details(&mut self, details: &[(Error, TyNames)]) {
+    for (error, names) in details {
+      self.details.insert(*error, names.clone());
+    }
+  }
+
+  /// Type-name detail for an error, if it carries any.
+  pub fn detail_for(&self, error: &Error) -> Option<&TyNames> {
+    self.details.get(error)
   }
 
   /// Collects all errors from thread-local storage and groups them by phase.
@@ -283,6 +303,7 @@ impl ErrorAggregator {
   pub fn clear(&mut self) {
     self.phase_errors.clear();
     self.phase_errors.shrink_to_fit();
+    self.details.clear();
   }
 
   /// Returns a summary of errors by phase.

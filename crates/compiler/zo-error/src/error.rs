@@ -20,7 +20,7 @@ use serde::Serialize;
 ///
 /// 16 bits of file ID supports 65535 source files.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct Error {
   data: u64,
   extra: u64,

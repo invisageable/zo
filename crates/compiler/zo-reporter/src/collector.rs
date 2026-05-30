@@ -12,6 +12,19 @@ thread_local! {
 /// Maximum number of errors per thread.
 const MAX_ERRORS: usize = 128;
 
+/// The two conflicting type names for a diagnostic that names
+/// them — currently a `TypeMismatch`. The `Error` itself is a
+/// compact 16-byte value with no room for strings, so this
+/// rich detail rides in a side store keyed by the `Error`.
+#[derive(Clone, Debug)]
+pub struct TyNames {
+  /// Type of the primary (offending) value — `int` in
+  /// `42 ++ "x"`.
+  pub primary: Box<str>,
+  /// Type of the value it conflicts with — `str`.
+  pub secondary: Box<str>,
+}
+
 /// Thread-local error reporter with fixed-size buffer.
 /// This provides zero-allocation error collection during compilation.
 pub struct ThreadLocalReporter {
@@ -19,6 +32,10 @@ pub struct ThreadLocalReporter {
   errors: [Error; MAX_ERRORS],
   /// Current number of errors.
   count: usize,
+  /// Side store of type-name detail, keyed by the `Error` it
+  /// annotates. A `Vec` (not a `HashMap`) so `new` stays
+  /// `const`; lookups happen only on the cold render path.
+  details: Vec<(Error, TyNames)>,
 }
 
 impl ThreadLocalReporter {
@@ -28,6 +45,7 @@ impl ThreadLocalReporter {
       errors: [Error::new(unsafe { std::mem::zeroed() }, Span::ZERO);
         MAX_ERRORS],
       count: 0,
+      details: Vec::new(),
     }
   }
 
@@ -37,6 +55,17 @@ impl ThreadLocalReporter {
     if self.count < MAX_ERRORS {
       self.errors[self.count] = error;
       self.count += 1;
+
+      true
+    } else {
+      false
+    }
+  }
+
+  /// Reports an error and attaches its conflicting type names.
+  pub fn report_with_types(&mut self, error: Error, names: TyNames) -> bool {
+    if self.report(error) {
+      self.details.push((error, names));
 
       true
     } else {
@@ -76,6 +105,7 @@ impl ThreadLocalReporter {
   #[inline(always)]
   pub fn clear(&mut self) {
     self.count = 0;
+    self.details.clear();
   }
 
   /// Returns true if the buffer is full.
@@ -84,11 +114,22 @@ impl ThreadLocalReporter {
     self.count >= MAX_ERRORS
   }
 
-  /// Drains all errors into a Vec.
+  /// Drains all errors into a Vec, discarding type detail.
   pub fn drain(&mut self) -> Vec<Error> {
     let result = self.errors[..self.count].to_vec();
     self.count = 0;
+    self.details.clear();
     result
+  }
+
+  /// Drains errors together with their type-name detail.
+  pub fn drain_with_details(&mut self) -> (Vec<Error>, Vec<(Error, TyNames)>) {
+    let errors = self.errors[..self.count].to_vec();
+    let details = std::mem::take(&mut self.details);
+
+    self.count = 0;
+
+    (errors, details)
   }
 }
 
@@ -104,6 +145,12 @@ impl Default for ThreadLocalReporter {
 #[inline(always)]
 pub fn report_error(error: Error) -> bool {
   REPORTER.with(|reporter| reporter.borrow_mut().report(error))
+}
+
+/// Reports an error and attaches its conflicting type names.
+pub fn report_error_with_types(error: Error, names: TyNames) -> bool {
+  REPORTER
+    .with(|reporter| reporter.borrow_mut().report_with_types(error, names))
 }
 
 /// Returns the count of buffered hard errors for this
@@ -136,4 +183,9 @@ pub fn clear_errors() {
 #[inline(always)]
 pub fn collect_errors() -> Vec<Error> {
   REPORTER.with(|reporter| reporter.borrow_mut().drain())
+}
+
+/// Collects all errors and their type-name detail.
+pub fn collect_diagnostics() -> (Vec<Error>, Vec<(Error, TyNames)>) {
+  REPORTER.with(|reporter| reporter.borrow_mut().drain_with_details())
 }

@@ -100,14 +100,14 @@ fun main() {
 produces:
 
 ```
-[E0309] Error: Cannot mutate immutable variable
+[E0309] Error • Cannot mutate immutable variable
    ╭─[ immutable.zo:3:3 ]
    │
  3 │   count = 1;
    │   ──┬──
    │     ╰──── cannot assign to immutable variable
    │
-   │ Help: Use 'mut' to declare a mutable variable
+   │ Help • Use 'mut' to declare a mutable variable
 ───╯
 ```
 
@@ -117,12 +117,12 @@ Reading it through Table 4:
 |----------------|--------------------------------------------------------------------------|
 | **Claim**      | `[E0309] Cannot mutate immutable variable`.                              |
 | **Grounds**    | The source line + caret under `count`, labelled "cannot assign …".       |
-| **Resolution** | `Help: Use 'mut' to declare a mutable variable`.                         |
+| **Resolution** | `Help • Use 'mut' to declare a mutable variable`.                         |
 | **Warrant**    | *Missing* — the *why* (`imu` binds immutably) is left implicit.          |
 
 This is a **claim-resolution** layout (b): a clear claim, a caret on the grounds, and a fix. The gap is the **warrant** — it never says *because `count` was bound with `imu`, not `mut`*. For a one-keyword fix that's acceptable; for judgment-call errors it isn't, and the warrant must be stated.
 
-`--format json` emits the same structure machine-readably — `code`, `message`, `span`, `fixes` (the `FixIt`), `notes`, and `secondary` (the conflicting span, present when a diagnostic carries two — e.g. a type mismatch) — so an agent applies the resolution without parsing prose:
+`--format json` emits the same structure machine-readably — `code`, `message`, `span`, `fixes` (the `FixIt`), `notes`, plus `secondary` / `primary_type` / `secondary_type` when a diagnostic names two conflicting values (a type mismatch) — so an agent applies the resolution without parsing prose:
 
 ```json
 { "id": "immutable-variable", "code": "E0309", "severity": "error",
@@ -144,24 +144,25 @@ The grounds for a type mismatch are the *values whose types disagree* — so eve
 For `42 ++ "hello"`:
 
 ```
-[E0304] Error: Type mismatch
+[E0304] Error • Type mismatch
    ╭─[ concat.zo:2:16 ]
    │
  2 │   imu s: str = 42 ++ "hello";
    │                ─┬    ───┬───
-   │                 ╰───────────── incompatible type here
-   │                         ╰───── conflicts with this type
+   │                 ╰───────────── incompatible type `int` here
+   │                         ╰───── conflicts with this type `str`
    │
-   │ Note: The types of both operands must be compatible
+   │ Note • The types of both operands must be compatible
 ───╯
 ```
 
-Both values are lit: `42` (primary) and `"hello"` (secondary). The same holds for branch arms (`when c ? 1 : true` → carets on `1` and `true`), logical operators (`true || "false"`), and a function body that contradicts its return type (`fun main() -> str { "DONE" }` points at `"DONE"`, not `fun`).
+Both values are lit *and named*: `42` (`int`, primary) and `"hello"` (`str`, secondary). The same holds for branch arms (`when c ? 1 : true`), logical operators (`true || "false"`), and a function body that contradicts its return type (`fun main() -> str { "DONE" }` points at `"DONE"`, typed `str`).
 
 How it works, with zero happy-path cost:
 
 - Each value's source span is recovered only on the error path. `Sir::node_of_value` finds the value's defining instruction and reads back its parse-node span — no per-value bookkeeping during normal execution.
 - `TyChecker::unify_silent` runs the unification without self-reporting, so the executor owns the diagnostic and emits both spans via `report_value_mismatch` (primary = offending value, secondary = the value it conflicts with).
+- The conflicting type names are the first *dynamic* diagnostic data. The compact 16-byte `Error` can't hold strings, so the executor resolves each value's type to a name and reports it via `report_error_with_types`; the names ride to the renderer as `TyNames` keyed by the `Error`, surfacing in the labels and as `primary_type` / `secondary_type` in JSON.
 - The operator / construct span is only a fallback when a value has no recoverable span (a synthetic with no defining instruction).
 
 ## Checklist for any new diagnostic

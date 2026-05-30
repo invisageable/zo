@@ -749,6 +749,25 @@ impl TyChecker {
     self.tys[repr.0 as usize]
   }
 
+  /// Read-only [`kind_of`] — follows inference-variable
+  /// substitutions without path compression. For the
+  /// diagnostic path, where the caller holds `&self` (e.g.
+  /// while a `FunCtx` is borrowed).
+  pub fn kind_of_ro(&self, ty: TyId) -> Ty {
+    let mut cur = ty;
+
+    loop {
+      match self.tys.get(cur.0 as usize) {
+        Some(Ty::Infer(var)) => match self.substitutions.get(var) {
+          Some(&subst) => cur = subst,
+          None => return Ty::Infer(*var),
+        },
+        Some(kind) => return *kind,
+        None => return Ty::Error,
+      }
+    }
+  }
+
   /// Occurs check - prevents infinite types like α = List<α>
   fn occurs_check(&mut self, var: InferVarId, ty: TyId) -> bool {
     match self.kind_of(ty) {

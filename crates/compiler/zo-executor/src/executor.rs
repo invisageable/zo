@@ -7,7 +7,7 @@ use zo_module_resolver::{
   AbstractDef, AbstractImpl, AbstractMethod, ExportedGenericBody,
   ExportedLiteral,
 };
-use zo_reporter::report_error;
+use zo_reporter::{TyNames, report_error, report_error_with_types};
 use zo_sir::{
   BinOp, ComputedBinding, ImportKind, Insn, LinkEntry, LinkPath,
   LinkResolution, LinkSpec, ListBinding, ListItemCmd, LoadSource, NurseryKind,
@@ -1541,19 +1541,74 @@ impl<'a> Executor<'a> {
   }
 
   /// Report a type mismatch between two values, pointing the
-  /// primary caret at `value` and the secondary at `other`.
-  /// Falls back to `fallback` for whichever value has no
+  /// primary caret at `primary.value` and the secondary at
+  /// `secondary.value`, and naming each value's type. Falls
+  /// back to `fallback` for whichever value has no
   /// recoverable source span.
   fn report_value_mismatch(
     &self,
-    value: ValueId,
-    other: ValueId,
+    primary: MismatchValue,
+    secondary: MismatchValue,
     fallback: Span,
   ) {
-    let primary = self.span_of_value(value).unwrap_or(fallback);
-    let secondary = self.span_of_value(other).unwrap_or(fallback);
+    let primary_span = self.span_of_value(primary.value).unwrap_or(fallback);
+    let secondary_span =
+      self.span_of_value(secondary.value).unwrap_or(fallback);
 
-    self.report_secondary(ErrorKind::TypeMismatch, primary, secondary);
+    let error = Error::with_file_and_secondary(
+      ErrorKind::TypeMismatch,
+      primary_span,
+      secondary_span,
+      self.current_file_id,
+    );
+
+    report_error_with_types(
+      error,
+      TyNames {
+        primary: primary.ty_name.into(),
+        secondary: secondary.ty_name.into(),
+      },
+    );
+  }
+
+  /// Human display name for a type — `int`, `str`, a struct /
+  /// enum's name, etc. Used to name the conflicting types in
+  /// a mismatch diagnostic. `&self` (via `kind_of_ro`) so it
+  /// composes with an active `FunCtx` borrow.
+  fn ty_display_name(&self, ty_id: TyId) -> String {
+    let resolved = self.ty_checker.kind_of_ro(ty_id);
+
+    if let Some(name) = Self::primitive_ty_name_str(&resolved) {
+      return name.to_owned();
+    }
+
+    match resolved {
+      Ty::Struct(sid) => self
+        .ty_checker
+        .ty_table
+        .struct_ty(sid)
+        .map(|s| self.interner.get(s.name).to_owned())
+        .unwrap_or_else(|| "?".to_owned()),
+      Ty::Enum(eid) => self
+        .ty_checker
+        .ty_table
+        .enum_ty(eid)
+        .map(|e| self.interner.get(e.name).to_owned())
+        .unwrap_or_else(|| "?".to_owned()),
+      Ty::Array(aid) => match self.ty_checker.ty_table.array(aid) {
+        Some(arr) => {
+          let elem = self.ty_checker.kind_of_ro(arr.elem_ty);
+
+          match Self::primitive_ty_name_str(&elem) {
+            Some(name) => format!("[]{name}"),
+            None => "[]".to_owned(),
+          }
+        }
+        None => "array".to_owned(),
+      },
+      Ty::Unit => "unit".to_owned(),
+      _ => "?".to_owned(),
+    }
   }
 
   /// Emit `Insn::PackDecl`, mark the pack name in scope,
@@ -3461,7 +3516,22 @@ impl<'a> Executor<'a> {
                   .and_then(|v| self.span_of_value(v))
                   .unwrap_or(fn_span);
 
-                self.report(ErrorKind::TypeMismatch, value_span);
+                // Name the body's type (`str`); the expected
+                // is `unit`. Single span, so only the primary
+                // label renders.
+                let error = Error::with_file(
+                  ErrorKind::TypeMismatch,
+                  value_span,
+                  self.current_file_id,
+                );
+
+                report_error_with_types(
+                  error,
+                  TyNames {
+                    primary: self.ty_display_name(body_ty).into(),
+                    secondary: "unit".into(),
+                  },
+                );
               }
 
               (None, unit_ty)
@@ -6368,7 +6438,20 @@ impl<'a> Executor<'a> {
         // on the right operand, secondary on the left. Bail
         // without emitting a `BinOp` and push sentinels so
         // the stacks stay balanced.
-        self.report_value_mismatch(rhs_sir, lhs_sir, span);
+        let rhs_name = self.ty_display_name(rhs_ty);
+        let lhs_name = self.ty_display_name(lhs_ty);
+
+        self.report_value_mismatch(
+          MismatchValue {
+            value: rhs_sir,
+            ty_name: &rhs_name,
+          },
+          MismatchValue {
+            value: lhs_sir,
+            ty_name: &lhs_name,
+          },
+          span,
+        );
 
         let error_id = self.values.store_runtime(u32::MAX);
 
@@ -6410,13 +6493,27 @@ impl<'a> Executor<'a> {
     let rhs_ok = self.ty_checker.unify_silent(rhs_ty, str_ty).is_some();
 
     if !lhs_ok || !rhs_ok {
-      let (primary_sir, secondary_sir) = if !lhs_ok {
-        (lhs_sir, rhs_sir)
-      } else {
-        (rhs_sir, lhs_sir)
-      };
+      let ((primary_sir, primary_ty), (secondary_sir, secondary_ty)) =
+        if !lhs_ok {
+          ((lhs_sir, lhs_ty), (rhs_sir, rhs_ty))
+        } else {
+          ((rhs_sir, rhs_ty), (lhs_sir, lhs_ty))
+        };
 
-      self.report_value_mismatch(primary_sir, secondary_sir, span);
+      let primary_name = self.ty_display_name(primary_ty);
+      let secondary_name = self.ty_display_name(secondary_ty);
+
+      self.report_value_mismatch(
+        MismatchValue {
+          value: primary_sir,
+          ty_name: &primary_name,
+        },
+        MismatchValue {
+          value: secondary_sir,
+          ty_name: &secondary_name,
+        },
+        span,
+      );
 
       let error_id = self.values.store_runtime(u32::MAX);
 
@@ -15534,8 +15631,20 @@ impl<'a> Executor<'a> {
         Some(ty_id) => ty_id,
         None => {
           let first = ctx.value_sink_value.unwrap_or(top_sir);
+          let primary_name = self.ty_display_name(top_ty);
+          let secondary_name = self.ty_display_name(prev);
 
-          self.report_value_mismatch(top_sir, first, ctx.span);
+          self.report_value_mismatch(
+            MismatchValue {
+              value: top_sir,
+              ty_name: &primary_name,
+            },
+            MismatchValue {
+              value: first,
+              ty_name: &secondary_name,
+            },
+            ctx.span,
+          );
 
           prev
         }
@@ -24446,6 +24555,16 @@ enum BranchKind {
   // NOT live on `branch_stack` — its state is on
   // `deferred_short_circuits`. Keeping this enum minimal
   // avoids dead match arms.
+}
+
+/// One side of a type mismatch: a value and its type name.
+/// Groups the pair so `report_value_mismatch` stays within
+/// the 3-argument budget.
+struct MismatchValue<'a> {
+  /// SIR value whose source span anchors the caret.
+  value: ValueId,
+  /// Human display name of the value's type.
+  ty_name: &'a str,
 }
 
 /// Tracks context for a pending control flow branch.
