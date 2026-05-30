@@ -1,0 +1,22 @@
+-! # how to errors: array_store_immutable.zo
+-!
+-! @cmd: `zo build array_store_immutable.zo`
+-!
+-! Assigning to an element of an immutable array is an error.
+-! Use `mut` to declare a mutable array.
+
+fun main() {
+  imu arr: []int = [1, 2, 3];
+  arr[0] = 10;
+}
+
+-- EXPECTED OUTPUT:
+-- [E0309] Error • Cannot mutate immutable variable
+--    ╭─[ array_store_immutable.zo:10:8 ]
+--    │
+--  10 │   arr[0] = 10;
+--    │        ┬
+--    │        ╰── cannot assign to immutable variable
+--    │
+--    │ Help • Use 'mut' to declare a mutable variable
+-- ───╯

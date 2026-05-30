@@ -1,0 +1,26 @@
+-! # how to errors: arg_type_mismatch.zo
+-!
+-! @cmd: `zo build arg_type_mismatch.zo`
+-!
+-! Passing an `int` where a `str` is expected is a type mismatch.
+-! The Hindley-Milner unifier catches this when the argument type
+-! fails to unify with the parameter type.
+
+fun greet(name: str) -> str {
+  return "hi " ++ name;
+}
+
+fun main() {
+  imu x: str = greet(42);
+}
+
+-- EXPECTED OUTPUT:
+-- [E0304] Error • Type mismatch
+--     ╭─[ arg_type_mismatch.zo:14:22 ]
+--     │
+--  14 │   imu x: str = greet(42);
+--     │                      ─┬
+--     │                       ╰── incompatible type here
+--     │
+--     │ Note • The types of both operands must be compatible
+-- ────╯

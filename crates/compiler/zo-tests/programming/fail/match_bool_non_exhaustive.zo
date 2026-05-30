@@ -1,0 +1,24 @@
+-! # how to errors: match_bool_non_exhaustive.zo
+-!
+-! @cmd: `zo build match_bool_non_exhaustive.zo`
+-!
+-! A `match` on a `bool` must cover both `true` and `false` —
+-! either with explicit arms or a `_` wildcard. Missing one
+-! is a compile error.
+
+fun main() {
+  imu b: bool = true;
+
+  match b {
+    true => check(true),
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- [E0333] Error • Non-exhaustive `match`
+--     ╭─[ match_bool_non_exhaustive.zo:12:11 ]
+--     │
+--  12 │   match b {
+--     │           ┬
+--     │           ╰── this `match` does not cover every possible value — add the missing arms or a `_` wildcard
+-- ────╯
