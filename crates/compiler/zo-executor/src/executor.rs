@@ -8,8 +8,8 @@ use zo_module_resolver::{
   ExportedLiteral,
 };
 use zo_reporter::{
-  TyNames, report_error, report_error_with_suggestion,
-  report_error_with_types,
+  Detail, TyNames, report_error, report_error_with_detail,
+  report_error_with_suggestion, report_error_with_types,
 };
 use zo_sir::{
   BinOp, ComputedBinding, ImportKind, Insn, LinkEntry, LinkPath,
@@ -1612,6 +1612,31 @@ impl<'a> Executor<'a> {
       Ty::Unit => "unit".to_owned(),
       _ => "?".to_owned(),
     }
+  }
+
+  /// Render a callee's signature for a diagnostic help line,
+  /// e.g. `add(a: int, b: int) -> int`. Pre-rendered in the
+  /// executor because it needs the interner and ty-checker the
+  /// reporter doesn't have.
+  fn render_signature(&self, func: &FunDef) -> String {
+    let params: Vec<String> = func
+      .params
+      .iter()
+      .map(|(name, ty)| {
+        format!(
+          "{}: {}",
+          self.interner.get(*name),
+          self.ty_display_name(*ty)
+        )
+      })
+      .collect();
+
+    format!(
+      "{}({}) -> {}",
+      self.interner.get(func.name),
+      params.join(", "),
+      self.ty_display_name(func.return_ty),
+    )
   }
 
   /// Report an undefined variable, attaching the closest
@@ -21037,7 +21062,21 @@ impl<'a> Executor<'a> {
       if func.kind != FunctionKind::Intrinsic && arg_count != expected_args {
         let span = self.tree.spans[rparen_idx];
 
-        self.report(ErrorKind::ArgumentCountMismatch, span);
+        let error = Error::with_file(
+          ErrorKind::ArgumentCountMismatch,
+          span,
+          self.current_file_id,
+        );
+
+        report_error_with_detail(
+          error,
+          Detail::ArgCount {
+            callee: self.interner.get(func.name).into(),
+            expected: expected_args as u16,
+            given: arg_count as u16,
+            signature: self.render_signature(&func).into(),
+          },
+        );
 
         return;
       }
@@ -21241,11 +21280,32 @@ impl<'a> Executor<'a> {
 
           if self
             .ty_checker
-            .unify(param_ty, arg_types[i], span)
+            .unify_silent(param_ty, arg_types[i])
             .is_none()
           {
-            // `unify` already reported the mismatch — just
-            // drop the Call without double-diagnosing.
+            // Argument type doesn't match the parameter. Point
+            // at the argument value, name both types, and
+            // remind the caller of the signature.
+            let arg_span = self
+              .span_of_value(arg_sirs[capture_count + i])
+              .unwrap_or(span);
+
+            let error = Error::with_file(
+              ErrorKind::TypeMismatch,
+              arg_span,
+              self.current_file_id,
+            );
+
+            report_error_with_detail(
+              error,
+              Detail::ArgType {
+                callee: self.interner.get(func.name).into(),
+                found: self.ty_display_name(arg_types[i]).into(),
+                expected: self.ty_display_name(param_ty).into(),
+                signature: self.render_signature(&func).into(),
+              },
+            );
+
             return;
           }
         }

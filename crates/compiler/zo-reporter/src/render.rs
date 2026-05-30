@@ -123,10 +123,32 @@ impl ErrorRenderer {
       Some(Detail::Types(names)) => Some(names),
       _ => None,
     };
+
     let suggestion = match detail {
       Some(Detail::Suggestion(name)) => Some(name),
       _ => None,
     };
+
+    let arg_count = match detail {
+      Some(Detail::ArgCount {
+        callee,
+        expected,
+        given,
+        signature,
+      }) => Some((callee, *expected, *given, signature)),
+      _ => None,
+    };
+
+    let arg_type = match detail {
+      Some(Detail::ArgType {
+        callee,
+        found,
+        expected,
+        signature,
+      }) => Some((callee, found, expected, signature)),
+      _ => None,
+    };
+
     let span = error.span();
     let kind = error.kind();
     let range = span_to_range(span, source);
@@ -162,12 +184,16 @@ impl ErrorRenderer {
     // share the primary color (ariadne paints the caret;
     // `.fg` paints the message to match). A `TypeMismatch`
     // names the value's type when the detail is present.
-    let label_msg = match (kind, types) {
-      (ErrorKind::TypeMismatch, Some(t)) => {
-        format!("incompatible type `{}` here", t.primary)
-      }
-      (ErrorKind::TypeMismatch, None) => "incompatible type here".to_owned(),
-      _ => error_label(kind).to_owned(),
+    let label_msg = if let Some((_, found, expected, _)) = arg_type {
+      format!("expected `{expected}`, found `{found}`")
+    } else if let Some(t) = types.filter(|_| kind == ErrorKind::TypeMismatch) {
+      format!("incompatible type `{}` here", t.primary)
+    } else if let Some((_, expected, given, _)) = arg_count {
+      format!("expected {expected} arguments, found {given}")
+    } else if kind == ErrorKind::TypeMismatch {
+      "incompatible type here".to_owned()
+    } else {
+      error_label(kind).to_owned()
     };
     report = report.with_label(
       Label::new((filename, range.clone()))
@@ -199,9 +225,19 @@ impl ErrorRenderer {
     // typo's closest in-scope match) takes precedence over the
     // static help; otherwise fall back to the per-kind prose.
     if self.config.show_help {
-      let help = match suggestion {
-        Some(name) => Some(format!("did you mean `{name}`?")),
-        None => error_help(kind).map(str::to_owned),
+      // The callee signature reminder is shared by both
+      // argument errors; a name suggestion takes precedence
+      // for an undefined name.
+      let signature_help = arg_count
+        .map(|(callee, _, _, signature)| (callee, signature))
+        .or(arg_type.map(|(callee, _, _, signature)| (callee, signature)));
+
+      let help = if let Some(name) = suggestion {
+        Some(format!("did you mean `{name}`?"))
+      } else if let Some((callee, signature)) = signature_help {
+        Some(format!("match `{callee}`'s signature: `{signature}`"))
+      } else {
+        error_help(kind).map(str::to_owned)
       };
 
       if let Some(help) = help {
@@ -209,8 +245,12 @@ impl ErrorRenderer {
       }
     }
 
-    // Add notes for specific error kinds
-    if let Some(note) = error_note(kind) {
+    // Add notes for specific error kinds. The TypeMismatch
+    // note speaks of "operands" — suppress it for an argument
+    // mismatch, where the signature help is the guidance.
+    if arg_type.is_none()
+      && let Some(note) = error_note(kind)
+    {
       report = report.with_note(note);
     }
 

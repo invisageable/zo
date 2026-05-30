@@ -19,5 +19,7 @@ fun main() {
 --     │
 --  13 │   imu x: int = add(1);
 --     │                     ┬
---     │                     ╰── wrong number of arguments
+--     │                     ╰── expected 2 arguments, found 1
+--     │
+--     │ Help • match `add`'s signature: `add(a: int, b: int) -> int`
 -- ────╯

@@ -36,6 +36,24 @@ pub enum Detail {
   /// Closest in-scope name for an undefined name (a typo) —
   /// `count` for `cont`.
   Suggestion(Box<str>),
+  /// A call passed the wrong number of arguments. Carries the
+  /// callee name, the expected/given counts, and the callee's
+  /// rendered signature for the help.
+  ArgCount {
+    callee: Box<str>,
+    expected: u16,
+    given: u16,
+    signature: Box<str>,
+  },
+  /// An argument's type doesn't match the parameter. Carries
+  /// the callee name, the `found`/`expected` type names, and
+  /// the callee's rendered signature for the help.
+  ArgType {
+    callee: Box<str>,
+    found: Box<str>,
+    expected: Box<str>,
+    signature: Box<str>,
+  },
 }
 
 /// Thread-local error reporter with fixed-size buffer.

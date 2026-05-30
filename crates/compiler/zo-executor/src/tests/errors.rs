@@ -6,6 +6,67 @@ use zo_error::ErrorKind;
 use zo_reporter::Detail;
 use zo_span::Span;
 
+/// A call with the wrong arity records the callee, the
+/// expected/given counts, and the rendered signature.
+#[test]
+fn test_arg_count_mismatch_carries_signature() {
+  let source = "fun add(a: int, b: int) -> int {\n  return a + b;\n}\nfun main() {\n  imu x: int = add(1);\n}";
+
+  let (_errors, details) = execution_diagnostics(source);
+
+  let (callee, expected, given, signature) = details
+    .iter()
+    .find_map(|(e, d)| match d {
+      Detail::ArgCount {
+        callee,
+        expected,
+        given,
+        signature,
+      } if e.kind() == ErrorKind::ArgumentCountMismatch => {
+        Some((callee.clone(), *expected, *given, signature.clone()))
+      }
+      _ => None,
+    })
+    .expect("expected an ArgCount detail");
+
+  assert_eq!(&*callee, "add");
+  assert_eq!(expected, 2);
+  assert_eq!(given, 1);
+  assert_eq!(&*signature, "add(a: int, b: int) -> int");
+}
+
+/// An argument whose type doesn't match the parameter records
+/// the callee, the found/expected types, and the signature.
+#[test]
+fn test_arg_type_mismatch_carries_signature() {
+  let source = "fun greet(name: str) -> str {\n  return name;\n}\nfun main() {\n  imu x: str = greet(42);\n}";
+
+  let (_errors, details) = execution_diagnostics(source);
+
+  let (callee, found, expected, signature) = details
+    .iter()
+    .find_map(|(e, d)| match d {
+      Detail::ArgType {
+        callee,
+        found,
+        expected,
+        signature,
+      } if e.kind() == ErrorKind::TypeMismatch => Some((
+        callee.clone(),
+        found.clone(),
+        expected.clone(),
+        signature.clone(),
+      )),
+      _ => None,
+    })
+    .expect("expected an ArgType detail");
+
+  assert_eq!(&*callee, "greet");
+  assert_eq!(&*found, "int");
+  assert_eq!(&*expected, "str");
+  assert_eq!(&*signature, "greet(name: str) -> str");
+}
+
 /// An undefined variable that's a near-typo of an in-scope
 /// binding suggests the closest name — `cont` → `count`.
 #[test]
@@ -17,9 +78,7 @@ fn test_undefined_variable_suggests_closest_name() {
   let suggestion = details
     .iter()
     .find_map(|(e, d)| match d {
-      Detail::Suggestion(name)
-        if e.kind() == ErrorKind::UndefinedVariable =>
-      {
+      Detail::Suggestion(name) if e.kind() == ErrorKind::UndefinedVariable => {
         Some(name.clone())
       }
       _ => None,

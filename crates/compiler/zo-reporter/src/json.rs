@@ -176,10 +176,13 @@ fn encode(
   let fixes = encode_fixes(fixes_for(kind), filename, span.start, span.end());
 
   // Always an array — empty when the kind has no attached
-  // note — so consumers never need a presence check.
+  // note — so consumers never need a presence check. The
+  // TypeMismatch note speaks of "operands"; suppress it for an
+  // argument mismatch where it doesn't apply.
+  let suppress_note = matches!(detail, Some(Detail::ArgType { .. }));
   let notes: Vec<Value> = match error_note(kind) {
-    Some(text) => vec![json!(text)],
-    None => Vec::new(),
+    Some(text) if !suppress_note => vec![json!(text)],
+    _ => Vec::new(),
   };
 
   let mut obj = Map::with_capacity(11);
@@ -233,6 +236,28 @@ fn encode(
           "span":        span_json(filename, span.start, span.end()),
         }));
       }
+    }
+    Some(Detail::ArgCount {
+      callee,
+      expected,
+      given,
+      signature,
+    }) => {
+      obj.insert("callee".into(), json!(&**callee));
+      obj.insert("expected_count".into(), json!(expected));
+      obj.insert("given_count".into(), json!(given));
+      obj.insert("signature".into(), json!(&**signature));
+    }
+    Some(Detail::ArgType {
+      callee,
+      found,
+      expected,
+      signature,
+    }) => {
+      obj.insert("callee".into(), json!(&**callee));
+      obj.insert("primary_type".into(), json!(&**found));
+      obj.insert("secondary_type".into(), json!(&**expected));
+      obj.insert("signature".into(), json!(&**signature));
     }
     None => {}
   }
@@ -692,6 +717,46 @@ mod tests {
     assert_eq!(fixes[0]["text"], json!("count"));
     assert_eq!(fixes[0]["span"]["byte_start"], json!(7));
     assert_eq!(fixes[0]["span"]["byte_end"], json!(11));
+  }
+
+  #[test]
+  fn arg_count_mismatch_emits_counts_and_signature() {
+    let source = "add(1)";
+    let err = Error::new(ErrorKind::ArgumentCountMismatch, Span::new(0, 3));
+    let detail = Detail::ArgCount {
+      callee: "add".into(),
+      expected: 2,
+      given: 1,
+      signature: "add(a: int, b: int) -> int".into(),
+    };
+
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&detail));
+
+    assert_eq!(v["callee"], json!("add"));
+    assert_eq!(v["expected_count"], json!(2));
+    assert_eq!(v["given_count"], json!(1));
+    assert_eq!(v["signature"], json!("add(a: int, b: int) -> int"));
+  }
+
+  #[test]
+  fn arg_type_mismatch_emits_types_and_signature() {
+    let source = "greet(42)";
+    let err = Error::new(ErrorKind::TypeMismatch, Span::new(6, 2));
+    let detail = Detail::ArgType {
+      callee: "greet".into(),
+      found: "int".into(),
+      expected: "str".into(),
+      signature: "greet(name: str) -> str".into(),
+    };
+
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&detail));
+
+    assert_eq!(v["callee"], json!("greet"));
+    assert_eq!(v["primary_type"], json!("int"));
+    assert_eq!(v["secondary_type"], json!("str"));
+    assert_eq!(v["signature"], json!("greet(name: str) -> str"));
+    // The "operands" note doesn't apply to an argument mismatch.
+    assert_eq!(v["notes"].as_array().expect("array").len(), 0);
   }
 
   #[test]
