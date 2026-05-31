@@ -1,0 +1,279 @@
+load core::c::*;
+load provider::raylib;
+
+val WIDTH: float = 800.0;
+val HEIGHT: float = 600.0;
+val FPS: int = 60;
+
+-- The black color.
+val COLOR_BLACK: int = 0xFF000000;
+-- The white color.
+val COLOR_WHITE: int = 0xFFFFFFFF;
+-- The red color.
+val COLOR_RED: int = 0xFF4D4DFF;
+-- The blue color.
+val COLOR_BLUE: int = 0xFFEFD966;
+-- The green color.
+val COLOR_GREEN: int = 0xFF3EFDCC;
+
+-- raylib `KEY_*` codes.
+val KEY_RIGHT: int = 262;
+val KEY_LEFT: int = 263;
+val KEY_ENTER: int = 257;
+
+struct Vec2 {
+  x: float,
+  y: float,
+}
+
+struct Ball {
+  pos: Vec2,
+  vel: Vec2,
+  radius: float,
+}
+
+struct Paddle {
+  pos: Vec2,
+  w: float,
+  h: float,
+  speed: float,
+}
+
+struct Brick {
+  pos: Vec2,
+  w: float,
+  h: float,
+  active: bool,
+  color: int,
+}
+
+-- Clamp `value` into `[min, max]`.
+fun clamp(value: float, min: float, max: float) -> float {
+  if value < min {
+    min
+  } else if value > max {
+    max
+  } else {
+    value
+  }
+}
+
+-- Absolute value.
+fun abs(value: float) -> float {
+  if value < 0.0 {
+    -value
+  } else {
+    value
+  }
+}
+
+-- Circle-vs-AABB test. 0 = no hit, 1 = flip Y (top/bottom edge),
+-- 2 = flip X (side edge). The smaller penetration axis is the
+-- edge the ball crossed.
+fun check_collision(ball: Ball, brick: Brick) -> int {
+  imu closest_x: float =
+    clamp(ball.pos.x, brick.pos.x, brick.pos.x + brick.w);
+  imu closest_y: float =
+    clamp(ball.pos.y, brick.pos.y, brick.pos.y + brick.h);
+
+  imu distance_x: float = ball.pos.x - closest_x;
+  imu distance_y: float = ball.pos.y - closest_y;
+  imu dist_sq: float = distance_x * distance_x + distance_y * distance_y;
+
+  if dist_sq < ball.radius * ball.radius {
+    imu overlap_x: float = ball.radius - abs(distance_x);
+    imu overlap_y: float = ball.radius - abs(distance_y);
+
+    if overlap_x < overlap_y {
+      2
+    } else {
+      1
+    }
+  } else {
+    0
+  }
+}
+
+-- A fresh 5×10 brick grid, rows alternating red and blue.
+fun spawn_bricks() -> Vec<Brick> {
+  mut bricks: Vec<Brick> = Vec::new();
+
+  for r := 0..5 {
+    imu even_row: bool = r % 2 == 0;
+    imu row_color: int = when even_row ? COLOR_RED : COLOR_BLUE;
+
+    for c := 0..10 {
+      bricks.push(Brick {
+        pos = Vec2 {
+          x = 45.0 + (c as float) * 72.0,
+          y = 50.0 + (r as float) * 25.0,
+        },
+        w = 70.0,
+        h = 20.0,
+        active = true,
+        color = row_color,
+      });
+    }
+  }
+
+  bricks
+}
+
+-- The ball's starting state: centered, drifting up-left.
+fun new_ball() -> Ball {
+  Ball {
+    pos = Vec2 { x = 400.0, y = 300.0 },
+    vel = Vec2 { x = 3.0, y = -4.0 },
+    radius = 8.0,
+  }
+}
+
+fun main() {
+  raylib::init_window(WIDTH as int, HEIGHT as int, CStr::new("zo arkanoid"));
+  raylib::set_target_fps(FPS);
+
+  mut paddle: Paddle = Paddle {
+    pos = Vec2 { x = 360.0, y = 550.0 },
+    w = 80.0,
+    h = 15.0,
+    speed = 360.0,
+  };
+
+  mut ball: Ball = new_ball();
+  mut bricks: Vec<Brick> = spawn_bricks();
+  mut game_over: bool = false;
+
+  loop {
+    if raylib::window_should_close() { break }
+
+    imu dt: float = raylib::get_frame_time();
+
+    if !game_over {
+      -- move the paddle, clamped inside the screen.
+      if raylib::is_key_down(KEY_LEFT) { paddle.pos.x -= paddle.speed * dt }
+      if raylib::is_key_down(KEY_RIGHT) { paddle.pos.x += paddle.speed * dt }
+
+      paddle.pos.x = clamp(paddle.pos.x, 0.0, WIDTH - paddle.w);
+
+      -- advance the ball, bounce off the walls, die at the floor.
+      ball.pos.x += ball.vel.x;
+      ball.pos.y += ball.vel.y;
+
+      if ball.pos.x - ball.radius < 0.0 || ball.pos.x + ball.radius > WIDTH {
+        ball.vel.x = -ball.vel.x;
+      }
+
+      if ball.pos.y - ball.radius < 0.0 {
+        ball.vel.y = -ball.vel.y;
+      }
+
+      if ball.pos.y + ball.radius > HEIGHT {
+        game_over = true;
+      }
+
+      -- ball vs paddle: bounce up, steer by where it landed.
+      imu paddle_box: Brick = Brick {
+        pos = paddle.pos,
+        w = paddle.w,
+        h = paddle.h,
+        active = true,
+        color = 0,
+      };
+
+      if check_collision(ball, paddle_box) > 0 {
+        imu paddle_center: float = paddle.pos.x + paddle.w / 2.0;
+
+        ball.vel.y = -abs(ball.vel.y);
+        ball.vel.x += (ball.pos.x - paddle_center) * 0.15;
+      }
+
+      -- ball vs bricks: break the first one hit, bounce off it.
+      mut brick_index: int = 0;
+
+      while brick_index < bricks.len() {
+        mut hit: bool = false;
+
+        match bricks.get(brick_index) {
+          Option::Some(brick) => {
+            if brick.active {
+              imu hit_type: int = check_collision(ball, brick);
+
+              if hit_type > 0 {
+                imu broken: Brick = Brick {
+                  pos = brick.pos,
+                  w = brick.w,
+                  h = brick.h,
+                  active = false,
+                  color = brick.color,
+                };
+
+                bricks.set(brick_index, broken);
+
+                if hit_type == 1 { ball.vel.y = -ball.vel.y; }
+                if hit_type == 2 { ball.vel.x = -ball.vel.x; }
+
+                hit = true;
+              }
+            }
+          }
+          Option::None => {}
+        }
+
+        if hit { break } else { brick_index += 1; }
+      }
+    } else if raylib::is_key_pressed(KEY_ENTER) {
+      -- restart: recenter the ball, respawn the grid.
+      game_over = false;
+      ball = new_ball();
+      bricks.free();
+      bricks = spawn_bricks();
+    }
+
+    raylib::begin_drawing();
+      raylib::clear_background(COLOR_BLACK);
+
+      -- bricks: the active ones in their row color.
+      for draw_index := 0..bricks.len() {
+        match bricks.get(draw_index) {
+          Option::Some(brick) => {
+            if brick.active {
+              raylib::draw_rectangle(
+                brick.pos.x as int,
+                brick.pos.y as int,
+                brick.w as int,
+                brick.h as int,
+                brick.color,
+              );
+            }
+          }
+          Option::None => {}
+        }
+      }
+
+      -- paddle: a green bar.
+      raylib::draw_rectangle(
+        paddle.pos.x as int,
+        paddle.pos.y as int,
+        paddle.w as int,
+        paddle.h as int,
+        COLOR_GREEN,
+      );
+
+      -- ball: a white dot.
+      raylib::draw_circle(
+        ball.pos.x as int,
+        ball.pos.y as int,
+        ball.radius,
+        COLOR_WHITE,
+      );
+
+      if game_over {
+        raylib::draw_text(CStr::new("GAME OVER"), 300, 260, 40, COLOR_RED);
+        raylib::draw_text(CStr::new("PRESS ENTER"), 312, 312, 20, COLOR_WHITE);
+      }
+    raylib::end_drawing();
+  }
+
+  bricks.free();
+  raylib::close_window();
+}

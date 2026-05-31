@@ -216,6 +216,26 @@ fn test_closure_float_param_spill() {
 }
 
 #[test]
+fn test_float_negation_uses_fneg() {
+  // `-x` on a float must emit `FNEG` (FP file). The bug emitted
+  // a GP `SUB Xd, XZR, Xr`, which negates an unrelated X
+  // register and leaves the FP value unchanged.
+  let code = compile_to_code(
+    r#"fun negate(x: float) -> float { -x }
+fun main() {}"#,
+  );
+
+  // FNEG Dd, Dn — top 22 bits fixed at 0x1E614000, Rn/Rd low.
+  let has_fneg = code.chunks_exact(4).any(|chunk| {
+    let insn = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+    (insn & 0xFFFF_FC00) == 0x1E61_4000
+  });
+
+  assert!(has_fneg, "float negation must emit FNEG");
+}
+
+#[test]
 fn test_float_field_store_uses_fp_store() {
   // A float field lives in the FP register file, so a write
   // must emit `STR Dt`. The bug used a GP `STR Xt` over an

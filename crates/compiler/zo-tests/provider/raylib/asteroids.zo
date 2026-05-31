@@ -158,9 +158,8 @@ fun main() {
 
     imu delta_time: float = raylib::get_frame_time();
     imu step: float = ship.speed * delta_time;
-    imu remaining: int = asteroids.len();
 
-    if ship.alive && remaining > 0 {
+    if ship.alive && asteroids.len() > 0 {
       imu ship_half: float = (ship.size.width as float) / 2.0;
 
       if raylib::is_key_down(KEY_LEFT) { ship.position.x -= step }

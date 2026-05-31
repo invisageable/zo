@@ -121,7 +121,7 @@ pack math;"#,
 }
 
 #[test]
-fn test_empty_body_is_intrinsic() {
+fn test_empty_body_is_noop() {
   assert_sir_stream(
     "fun noop() {}",
     &[
@@ -130,7 +130,7 @@ fn test_empty_body_is_intrinsic() {
         params: vec![],
         return_ty: TyId(1),
         body_start: 1,
-        kind: FunctionKind::Intrinsic,
+        kind: FunctionKind::UserDefined,
         pubness: Pubness::No,
         self_kind: SelfKind::None,
         link_name: None,
@@ -187,7 +187,7 @@ fn test_pub_fun_visibility() {
         params: vec![],
         return_ty: TyId(1),
         body_start: 1,
-        kind: FunctionKind::Intrinsic,
+        kind: FunctionKind::UserDefined,
         pubness: Pubness::Yes,
         self_kind: SelfKind::None,
         link_name: None,

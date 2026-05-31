@@ -317,6 +317,14 @@ pub struct Executor<'a> {
   /// result. Parallel to `deferred_binops` but finalized via
   /// the φ-sink machinery instead of a plain `BinOp`.
   deferred_short_circuits: Vec<DeferredShortCircuit>,
+  /// Index of the tree node the main loop is processing.
+  /// `rhs_settled` reads the next node from it to decide
+  /// whether a deferred short-circuit's RHS is complete.
+  current_node_idx: usize,
+  /// Bypass the `rhs_settled` gate for one finalization —
+  /// set at the statement boundary, where any pending
+  /// short-circuit's RHS must be complete.
+  sc_force_finalize: bool,
   /// Receiver type + (when receiver is a bare ident) the
   /// receiver's symbol, captured at every Dot that turned
   /// out to be a method call, keyed by the Dot's tree
@@ -865,6 +873,8 @@ impl<'a> Executor<'a> {
       tuple_ctx: Vec::new(),
       deferred_binops: Vec::new(),
       deferred_short_circuits: Vec::new(),
+      current_node_idx: 0,
+      sc_force_finalize: false,
       dot_method_recv_ty: HashMap::default(),
       closure_counter: 0,
       enum_defs: Vec::new(),
@@ -2357,6 +2367,7 @@ impl<'a> Executor<'a> {
 
       let header = self.tree.nodes[idx];
 
+      self.current_node_idx = idx;
       self.execute_node(&header, idx);
 
       // Apply deferred binary operators only when:
@@ -3396,7 +3407,6 @@ impl<'a> Executor<'a> {
           self.current_function = Some(FunCtx {
             name: pending_func.name,
             return_ty: pending_func.return_ty,
-            body_start,
             fundef_idx,
             has_explicit_return: false,
             has_return_type_annotation: self.pending_fn_has_return_annotation,
@@ -3747,19 +3757,11 @@ impl<'a> Executor<'a> {
             });
           }
 
-          // Detect intrinsic: empty body (no instructions
-          // between body_start and the return we just emitted).
-          let current_insn_count = self.sir.instructions.len() as u32;
-
-          if current_insn_count == fun_ctx.body_start + 1 {
-            // Only instruction is the implicit return — body
-            // was empty. Mark the FunDef as intrinsic.
-            if let Some(Insn::FunDef { kind, .. }) =
-              self.sir.instructions.get_mut(fun_ctx.fundef_idx)
-            {
-              *kind = FunctionKind::Intrinsic;
-            }
-          }
+          // An empty-body `fun` is a real no-op function, not
+          // an intrinsic. The runtime-backed collection methods
+          // (`Vec::push`, …) are intercepted by the codegen's
+          // name dispatch regardless of kind, so they keep
+          // working; FFI/extern intrinsics declare with `ffi`.
 
           // Flush deferred closure instructions BEFORE the
           // enclosing function's FunDef. This places closure
@@ -5693,6 +5695,13 @@ impl<'a> Executor<'a> {
 
       // === STATEMENT TERMINATOR ===
       Token::Semicolon => {
+        // The statement ends here, so any pending short-circuit
+        // RHS is complete — finalize before the assignment /
+        // declaration consumes the merged value.
+        self.sc_force_finalize = true;
+        self.apply_deferred_short_circuit();
+        self.sc_force_finalize = false;
+
         // Close ternary expressions.
         while self
           .branch_stack
@@ -6006,6 +6015,40 @@ impl<'a> Executor<'a> {
     }
   }
 
+  /// Whether a deferred short-circuit's RHS expression is
+  /// complete at the current node. The `&&`/`||` RHS ends at a
+  /// delimiter, a block opener, or a `≤`-precedence logical op;
+  /// a tighter operator or operand means it still extends.
+  fn rhs_settled(&self) -> bool {
+    // An opener never ends an RHS. Guard the empty-call case
+    // `recv.m()` whose `(`'s next token is the matching `)` —
+    // finalizing there would capture the receiver, not the
+    // call's result.
+    if matches!(
+      self.tree.nodes.get(self.current_node_idx).map(|n| n.token),
+      Some(Token::LParen) | Some(Token::LBracket)
+    ) {
+      return false;
+    }
+
+    matches!(
+      self
+        .tree
+        .nodes
+        .get(self.current_node_idx + 1)
+        .map(|n| n.token),
+      None
+        | Some(Token::Semicolon)
+        | Some(Token::RParen)
+        | Some(Token::RBrace)
+        | Some(Token::RBracket)
+        | Some(Token::Comma)
+        | Some(Token::LBrace)
+        | Some(Token::AmpAmp)
+        | Some(Token::PipePipe)
+    )
+  }
+
   fn apply_deferred_short_circuit(&mut self) {
     while let Some(pending) = self.deferred_short_circuits.last() {
       let depth_ok = self.sir_values.len() > pending.pre_rhs_depth
@@ -6013,8 +6056,12 @@ impl<'a> Executor<'a> {
         && self.value_stack.len() > pending.pre_rhs_depth;
       let tuple_ok = self.tuple_ctx.len() <= pending.pre_tuple_ctx_len;
       let call_ok = self.direct_call_depth <= pending.pre_direct_call_depth;
+      // A value on the stack isn't enough: a compound RHS like
+      // `g() > 0` lands `g()` first. Wait until the RHS expr
+      // ends so the whole thing becomes the sink's value.
+      let settled = self.sc_force_finalize || self.rhs_settled();
 
-      if !(depth_ok && tuple_ok && call_ok) {
+      if !(depth_ok && tuple_ok && call_ok && settled) {
         break;
       }
 
@@ -8153,7 +8200,6 @@ impl<'a> Executor<'a> {
     self.current_function = Some(FunCtx {
       name: closure_name,
       return_ty,
-      body_start,
       fundef_idx,
       has_explicit_return: false,
       has_return_type_annotation: return_ty != self.ty_checker.unit_type(),
@@ -24250,7 +24296,6 @@ impl<'a> Executor<'a> {
           self.current_function = Some(FunCtx {
             name: closure_name,
             return_ty: str_ty,
-            body_start,
             fundef_idx,
             has_explicit_return: false,
             has_return_type_annotation: true,
@@ -25177,7 +25222,6 @@ struct BranchCtx {
 struct FunCtx {
   pub(crate) name: Symbol,
   pub(crate) return_ty: TyId,
-  pub(crate) body_start: u32,
   pub(crate) fundef_idx: usize,
   pub(crate) has_explicit_return: bool,
   /// True when the function declaration has `-> Type`.

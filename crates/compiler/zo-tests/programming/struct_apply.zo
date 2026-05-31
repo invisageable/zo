@@ -1,0 +1,44 @@
+struct Cat {
+  name: str = "mao",
+  lives: int = 9,
+}
+
+apply Cat {
+  fun new(name: str, lives: int) -> Self {
+    Self { name = name, lives = lives }
+  }
+
+  fun die(mut self, n: int) -> int {  
+    self.lives -= n;
+
+    imu name := self.name;
+    imu lives := self.lives;
+
+    if lives <= 0 {
+      showln("{name}'s last life expired!");
+    } else {
+      showln("{name} died {n} times, only {lives} left");
+    }
+
+    lives
+  }
+}
+
+fun main() {
+  mut fluffy: Cat = Cat::new("fluffy", 9);
+  mut lucky: Cat = Cat::new("lucky", 22);
+
+  check@eq(fluffy.die(1), 8);
+  check@eq(lucky.die(2), 20);
+  check@eq(lucky.die(4), 16);
+  check@eq(lucky.die(16), 0);
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- fluffy died 1 times, only 8 left
+-- lucky died 2 times, only 20 left
+-- lucky died 4 times, only 16 left
+-- lucky's last life expired!
+-- DONE

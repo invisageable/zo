@@ -2787,13 +2787,35 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
-      Insn::UnOp { dst, op, rhs, .. } => {
-        let d = self.alloc_reg(*dst).unwrap_or(X0);
-        let r = self.alloc_reg(*rhs).unwrap_or(X0);
+      Insn::UnOp {
+        dst,
+        op,
+        rhs,
+        ty_id,
+      } => {
+        let is_flt =
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
 
         match op {
-          UnOp::Neg => self.emitter.emit_sub(d, XZR, r),
+          // Floats live in the FP file — a GP `SUB` would
+          // negate an unrelated X register and leave the value
+          // unchanged. Use `FNEG`.
+          UnOp::Neg if is_flt => {
+            let fp_d = self.alloc_fp_reg(*dst).unwrap_or(D0);
+            let fp_r = self.alloc_fp_reg(*rhs).unwrap_or(D0);
+
+            self.emitter.emit_fneg(fp_d, fp_r);
+          }
+          UnOp::Neg => {
+            let d = self.alloc_reg(*dst).unwrap_or(X0);
+            let r = self.alloc_reg(*rhs).unwrap_or(X0);
+
+            self.emitter.emit_sub(d, XZR, r);
+          }
           UnOp::Not => {
+            let d = self.alloc_reg(*dst).unwrap_or(X0);
+            let r = self.alloc_reg(*rhs).unwrap_or(X0);
+
             // !b => b ^ 1 (boolean not).
             self.emitter.emit_mov_imm(X16, 1);
             self.emitter.emit_eor(d, r, X16);

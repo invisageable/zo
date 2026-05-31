@@ -56,6 +56,7 @@ const FADD: u32 = 0x1E602800;
 const FSUB: u32 = 0x1E603800;
 const FMUL: u32 = 0x1E600800;
 const FDIV: u32 = 0x1E601800;
+const FNEG: u32 = 0x1E614000;
 const FCMP: u32 = 0x1E602000;
 const FSQRT: u32 = 0x1E61C000;
 const FRINTM: u32 = 0x1E654000; // floor
@@ -842,6 +843,13 @@ impl ARM64Emitter {
   /// FMOV Dd, Dn — move between FP registers (double).
   pub fn emit_fmov_fp(&mut self, dst: FpRegister, src: FpRegister) {
     let insn = FMOV_FP_FP | ((src.index() as u32) << 5) | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FNEG Dd, Dn — FP negate (double).
+  pub fn emit_fneg(&mut self, dst: FpRegister, src: FpRegister) {
+    let insn = FNEG | ((src.index() as u32) << 5) | (dst.index() as u32);
 
     self.emit_u32(insn);
   }

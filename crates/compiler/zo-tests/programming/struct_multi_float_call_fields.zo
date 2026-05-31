@@ -1,15 +1,4 @@
--- tests-run-pass: a struct literal with two (or more)
--- float-returning call initializers must store each call's
--- OWN result into its field. `f()`'s result comes back in
--- D0, then `g()`'s call clobbers D0; the register allocator
--- spills `f()`'s value, but the post-call reload used to put
--- it back into D0 — clobbering `g()`'s freshly-returned
--- result. Both fields then read the same value, so `s.b`
--- aliased `s.a`. The GP path already reloaded X0-origin
--- values into a fresh register; the FP path now matches.
---
--- The int control (`P { a = fi(), b = gi() }`) never
--- regressed and pins the GP path so the two stay aligned.
+-- tests-run-pass: struct multi float call fields.
 -- @cmd — zo run struct_multi_float_call_fields.zo
 
 struct S {
