@@ -1,0 +1,27 @@
+-! # how to errors: missing_return.zo
+-!
+-! @cmd: `zo build missing_return.zo`
+-!
+-! A function that declares `-> int` promises to hand back an
+-! `int`. When the body falls off its end without producing
+-! one, it returns no value — a type mismatch. zo points at the
+-! name (what returns nothing) and the return type (what was
+-! promised), and suggests the fix.
+
+fun pick() -> int {
+}
+
+fun main() {}
+
+-- EXPECTED OUTPUT:
+-- [E0304] Error • Type mismatch
+--     ╭─[ missing_return.zo:11:5 ]
+--     │
+--  11 │ fun pick() -> int {
+--     │     ──┬─      ─┬─
+--     │       ╰──────────── returns no value
+--     │                │
+--     │                ╰─── expected `int`
+--     │
+--     │ Help • return a value of type `int` from the body
+-- ────╯

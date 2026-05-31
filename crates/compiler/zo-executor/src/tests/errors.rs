@@ -6,6 +6,68 @@ use zo_error::ErrorKind;
 use zo_reporter::Detail;
 use zo_span::Span;
 
+/// A value produced where the function has no return type is
+/// discarded — records the value's type (`int`).
+#[test]
+fn test_discarded_value_carries_type() {
+  let source = "fun pick() {\n  42\n}\nfun main() {}";
+
+  let (_errors, details) = execution_diagnostics(source);
+
+  let found = details
+    .iter()
+    .find_map(|(e, d)| match d {
+      Detail::DiscardedValue { found }
+        if e.kind() == ErrorKind::TypeMismatch =>
+      {
+        Some(found.clone())
+      }
+      _ => None,
+    })
+    .expect("expected a DiscardedValue detail");
+
+  assert_eq!(&*found, "int");
+}
+
+/// An explicit `return <value>` in a function with no return
+/// type is the same discarded-value mismatch.
+#[test]
+fn test_explicit_return_value_no_type_is_discarded() {
+  let source = "fun pick() {\n  return 42;\n}\nfun main() {}";
+
+  let has_discard = execution_diagnostics(source)
+    .1
+    .iter()
+    .any(|(_, d)| matches!(d, Detail::DiscardedValue { .. }));
+
+  assert!(has_discard, "expected a DiscardedValue detail");
+}
+
+/// A non-unit function that falls off its end records the
+/// implicit (`unit`) and declared (`int`) return types, with
+/// a secondary span on the return-type annotation.
+#[test]
+fn test_missing_return_carries_types() {
+  let source = "fun pick() -> int {\n}\nfun main() {}";
+
+  let (_errors, details) = execution_diagnostics(source);
+
+  let (found, expected) = details
+    .iter()
+    .find_map(|(e, d)| match d {
+      Detail::ReturnType { found, expected }
+        if e.kind() == ErrorKind::TypeMismatch =>
+      {
+        Some((found.clone(), expected.clone()))
+      }
+      _ => None,
+    })
+    .expect("expected a ReturnType detail");
+
+  assert_eq!(&*found, "unit");
+  assert_eq!(&*expected, "int");
+}
+
 /// A call with the wrong arity records the callee, the
 /// expected/given counts, and the rendered signature.
 #[test]

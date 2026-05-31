@@ -148,6 +148,14 @@ impl ErrorRenderer {
       }) => Some((callee, found, expected, signature)),
       _ => None,
     };
+    let return_type = match detail {
+      Some(Detail::ReturnType { found, expected }) => Some((found, expected)),
+      _ => None,
+    };
+    let discarded = match detail {
+      Some(Detail::DiscardedValue { found }) => Some(found),
+      _ => None,
+    };
 
     let span = error.span();
     let kind = error.kind();
@@ -184,7 +192,11 @@ impl ErrorRenderer {
     // share the primary color (ariadne paints the caret;
     // `.fg` paints the message to match). A `TypeMismatch`
     // names the value's type when the detail is present.
-    let label_msg = if let Some((_, found, expected, _)) = arg_type {
+    let label_msg = if return_type.is_some() {
+      "returns no value".to_owned()
+    } else if discarded.is_some() {
+      "this function has no return type".to_owned()
+    } else if let Some((_, found, expected, _)) = arg_type {
       format!("expected `{expected}`, found `{found}`")
     } else if let Some(t) = types.filter(|_| kind == ErrorKind::TypeMismatch) {
       format!("incompatible type `{}` here", t.primary)
@@ -207,11 +219,15 @@ impl ErrorRenderer {
     if let Some(secondary) = error.secondary_span() {
       let sec_range = span_to_range(secondary, source);
 
-      let sec_msg = match (kind, types) {
-        (ErrorKind::TypeMismatch, Some(t)) => {
-          format!("conflicts with this type `{}`", t.secondary)
-        }
-        _ => secondary_label(kind).to_owned(),
+      let sec_msg = if let Some((_, expected)) = return_type {
+        format!("expected `{expected}`")
+      } else if let Some(found) = discarded {
+        format!("this `{found}` is discarded")
+      } else if let Some(t) = types.filter(|_| kind == ErrorKind::TypeMismatch)
+      {
+        format!("conflicts with this type `{}`", t.secondary)
+      } else {
+        secondary_label(kind).to_owned()
       };
 
       report = report.with_label(
@@ -236,19 +252,29 @@ impl ErrorRenderer {
         Some(format!("did you mean `{name}`?"))
       } else if let Some((callee, signature)) = signature_help {
         Some(format!("match `{callee}`'s signature: `{signature}`"))
+      } else if let Some((_, expected)) = return_type {
+        Some(format!("return a value of type `{expected}` from the body"))
+      } else if let Some(found) = discarded {
+        Some(format!(
+          "declare `-> {found}` to return it, or drop the value"
+        ))
       } else {
         error_help(kind).map(str::to_owned)
       };
 
       if let Some(help) = help {
-        report = report.with_help(help.fg(primary_color));
+        // The help is the resolution, not the claim — leave the
+        // prose uncolored so it doesn't wear the error's red.
+        report = report.with_help(help);
       }
     }
 
-    // Add notes for specific error kinds. The TypeMismatch
-    // note speaks of "operands" — suppress it for an argument
-    // mismatch, where the signature help is the guidance.
+    // Notes use the static per-kind text — except the
+    // TypeMismatch "operands" note, which fits neither an
+    // argument mismatch nor a missing return.
     if arg_type.is_none()
+      && return_type.is_none()
+      && discarded.is_none()
       && let Some(note) = error_note(kind)
     {
       report = report.with_note(note);

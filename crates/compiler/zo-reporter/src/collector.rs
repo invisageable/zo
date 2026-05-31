@@ -54,6 +54,15 @@ pub enum Detail {
     expected: Box<str>,
     signature: Box<str>,
   },
+  /// A non-unit function falls off its end without returning a
+  /// value — it implicitly returns unit. Primary caret on the
+  /// function (`found`, implicitly `unit`), secondary on the
+  /// declared return type (`expected`).
+  ReturnType { found: Box<str>, expected: Box<str> },
+  /// A value is produced where the function has no return type,
+  /// so it's discarded. Carries the value's type (`found`).
+  /// Primary caret on the value, secondary on the function name.
+  DiscardedValue { found: Box<str> },
 }
 
 /// Thread-local error reporter with fixed-size buffer.

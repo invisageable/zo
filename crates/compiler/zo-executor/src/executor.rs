@@ -252,6 +252,14 @@ pub struct Executor<'a> {
   pending_function: Option<FunDef>,
   /// True when the pending function has `-> Type` annotation.
   pending_fn_has_return_annotation: bool,
+  /// Span of the pending function's return-type annotation
+  /// (the `int` in `-> int`). Secondary caret for the
+  /// missing-return diagnostic.
+  pending_fn_return_ty_span: Span,
+  /// Span of the pending function's name identifier. Primary
+  /// caret for the missing-return diagnostic — never the
+  /// `fun` keyword.
+  pending_fn_name_span: Span,
   /// Counter for generating unique template IDs
   template_counter: u32,
   /// Pending variable name from imu/mut for template assignment
@@ -828,6 +836,8 @@ impl<'a> Executor<'a> {
       saved_outer_funs: Vec::new(),
       pending_function: None,
       pending_fn_has_return_annotation: false,
+      pending_fn_return_ty_span: Span::ZERO,
+      pending_fn_name_span: Span::ZERO,
       template_counter: 0,
       pending_var_name: None,
       widget_counter: Cell::new(0),
@@ -2075,9 +2085,12 @@ impl<'a> Executor<'a> {
 
     // Reset state that prescan mutated so the main pass
     // starts from a clean slate.
+    // TODO: create a reset function and put every reset thing in there.
     self.prescan_only = false;
     self.skip_until = 0;
     self.pending_fn_has_return_annotation = false;
+    self.pending_fn_return_ty_span = Span::ZERO;
+    self.pending_fn_name_span = Span::ZERO;
     self.type_params.clear();
     self.type_constraints.clear();
     self.apply_context = None;
@@ -3347,6 +3360,8 @@ impl<'a> Executor<'a> {
             fundef_idx,
             has_explicit_return: false,
             has_return_type_annotation: self.pending_fn_has_return_annotation,
+            return_ty_span: self.pending_fn_return_ty_span,
+            name_span: self.pending_fn_name_span,
             pending_return: false,
             scope_depth: self.scope_stack.len(),
           });
@@ -3575,13 +3590,9 @@ impl<'a> Executor<'a> {
               // a return type (forced to unit by error recovery
               // in main). Stale values from control flow
               // (while/if) are NOT return values.
-              if has_value
-                && body_ty != unit_ty
-                && fun_ctx.has_return_type_annotation
-              {
-                // Point at the returned value (the `"DONE"`
-                // in `fun main() -> str { "DONE" }`), not the
-                // `fun` keyword.
+              if has_value && body_ty != unit_ty {
+                // Point at the produced value, not the `fun`
+                // keyword.
                 let value_span = self
                   .sir_values
                   .last()
@@ -3590,22 +3601,49 @@ impl<'a> Executor<'a> {
                   .and_then(|v| self.span_of_value(v))
                   .unwrap_or(fn_span);
 
-                // Name the body's type (`str`); the expected
-                // is `unit`. Single span, so only the primary
-                // label renders.
-                let error = Error::with_file(
-                  ErrorKind::TypeMismatch,
-                  value_span,
-                  self.current_file_id,
-                );
+                let found = self.ty_display_name(body_ty);
 
-                report_error_with_types(
-                  error,
-                  TyNames {
-                    primary: self.ty_display_name(body_ty).into(),
-                    secondary: "unit".into(),
-                  },
-                );
+                if fun_ctx.has_return_type_annotation {
+                  // `fun main() -> str { "DONE" }` — main is
+                  // forced to unit; the declared type clashes
+                  // with the body value.
+                  let error = Error::with_file(
+                    ErrorKind::TypeMismatch,
+                    value_span,
+                    self.current_file_id,
+                  );
+
+                  report_error_with_types(
+                    error,
+                    TyNames {
+                      primary: found.into(),
+                      secondary: "unit".into(),
+                    },
+                  );
+                } else {
+                  // The name is primary, the value secondary:
+                  // ariadne splits an out-of-order pair into two
+                  // boxes, so the earlier span must come first.
+                  let name_span = if fun_ctx.name_span == Span::ZERO {
+                    fn_span
+                  } else {
+                    fun_ctx.name_span
+                  };
+
+                  let error = Error::with_file_and_secondary(
+                    ErrorKind::TypeMismatch,
+                    name_span,
+                    value_span,
+                    self.current_file_id,
+                  );
+
+                  report_error_with_detail(
+                    error,
+                    Detail::DiscardedValue {
+                      found: found.into(),
+                    },
+                  );
+                }
               }
 
               (None, unit_ty)
@@ -3626,7 +3664,43 @@ impl<'a> Executor<'a> {
               // surfacing a spurious type-mismatch.
               (None, unit_ty)
             } else {
-              self.report(ErrorKind::TypeMismatch, fn_span);
+              // Missing return: a non-unit function falls off
+              // its end. Two carets like any type mismatch —
+              // the function returns no value (primary, on the
+              // name), and it's declared to return a type
+              // (secondary, on the annotation). Point at the
+              // name, never the `fun` keyword. Single caret
+              // when the spans weren't captured (closures).
+              let expected = self.ty_display_name(func_return_ty);
+              let name_span = if fun_ctx.name_span == Span::ZERO {
+                fn_span
+              } else {
+                fun_ctx.name_span
+              };
+              let return_ty_span = fun_ctx.return_ty_span;
+
+              let error = if return_ty_span == Span::ZERO {
+                Error::with_file(
+                  ErrorKind::TypeMismatch,
+                  name_span,
+                  self.current_file_id,
+                )
+              } else {
+                Error::with_file_and_secondary(
+                  ErrorKind::TypeMismatch,
+                  name_span,
+                  return_ty_span,
+                  self.current_file_id,
+                )
+              };
+
+              report_error_with_detail(
+                error,
+                Detail::ReturnType {
+                  found: "unit".into(),
+                  expected: expected.into(),
+                },
+              );
 
               (None, unit_ty)
             };
@@ -8063,6 +8137,8 @@ impl<'a> Executor<'a> {
       fundef_idx,
       has_explicit_return: false,
       has_return_type_annotation: return_ty != self.ty_checker.unit_type(),
+      return_ty_span: Span::ZERO,
+      name_span: Span::ZERO,
       pending_return: false,
       scope_depth: self.scope_stack.len(),
     });
@@ -8357,6 +8433,12 @@ impl<'a> Executor<'a> {
     if name.is_none() {
       return;
     }
+
+    // Remember the name identifier's span (the primary caret
+    // for a missing return) and clear any stale return-type
+    // span from an outer function.
+    self.pending_fn_name_span = self.tree.spans[start_idx + 1];
+    self.pending_fn_return_ty_span = Span::ZERO;
 
     // Mangle name in apply / pack context:
     //   `apply Type { fun m }`         → `Type::m`
@@ -8683,6 +8765,9 @@ impl<'a> Executor<'a> {
               self.resolve_param_or_return_ty(idx, _end_idx)
             {
               return_ty = ty;
+              // Remember the return-type annotation's span —
+              // the secondary caret for a missing return.
+              self.pending_fn_return_ty_span = self.tree.spans[idx];
               // Compound types (`[]T`, `(T1, T2)`, `Fn(…)`)
               // own their type-args; only single-token names
               // can carry a trailing `<…>` generic-args list.
@@ -19536,6 +19621,17 @@ impl<'a> Executor<'a> {
   ) {
     self.push_scope();
 
+    // Arms run for side effects — the select's value comes
+    // from the runtime `SelectRecv`, not an arm body's stack
+    // value. Snapshot the stacks so any value the body leaves
+    // (e.g. a `showln` unit result, or an unresolved channel
+    // element) is dropped instead of leaking past the select.
+    let stack_base = (
+      self.value_stack.len(),
+      self.ty_stack.len(),
+      self.sir_values.len(),
+    );
+
     let first_tok = self.tree.nodes.get(body_start).map(|n| n.token);
 
     if first_tok == Some(Token::Fn) {
@@ -19659,6 +19755,10 @@ impl<'a> Executor<'a> {
       self.skip_until = saved_skip;
     }
 
+    self.value_stack.truncate(stack_base.0);
+    self.ty_stack.truncate(stack_base.1);
+    self.sir_values.truncate(stack_base.2);
+
     self.pop_scope();
   }
 
@@ -19723,6 +19823,50 @@ impl<'a> Executor<'a> {
         } else {
           (None, self.ty_checker.unit_type())
         };
+
+      // The name is primary, the value secondary: ariadne
+      // splits an out-of-order pair into two boxes, so the
+      // earlier span must come first.
+      let unit_ty = self.ty_checker.unit_type();
+      let (fn_is_unit, no_annotation, name_span) = self
+        .current_function
+        .as_ref()
+        .map(|c| {
+          (
+            c.return_ty == unit_ty,
+            !c.has_return_type_annotation,
+            c.name_span,
+          )
+        })
+        .unwrap_or((true, true, Span::ZERO));
+
+      if return_ty != unit_ty && fn_is_unit && no_annotation {
+        let value_span = return_value
+          .and_then(|v| self.span_of_value(v))
+          .unwrap_or(name_span);
+
+        let error = if name_span == Span::ZERO {
+          Error::with_file(
+            ErrorKind::TypeMismatch,
+            value_span,
+            self.current_file_id,
+          )
+        } else {
+          Error::with_file_and_secondary(
+            ErrorKind::TypeMismatch,
+            name_span,
+            value_span,
+            self.current_file_id,
+          )
+        };
+
+        report_error_with_detail(
+          error,
+          Detail::DiscardedValue {
+            found: self.ty_display_name(return_ty).into(),
+          },
+        );
+      }
 
       // Emit the Return instruction
       self.emit_return_drops();
@@ -20894,6 +21038,16 @@ impl<'a> Executor<'a> {
     let capacity = self
       .extract_literal_capacity(lparen_idx, rparen_idx)
       .unwrap_or(0);
+
+    // The capacity is read from the literal token, not the
+    // stack — so the value the main loop already evaluated for
+    // the argument is vestigial. Drop it, or it leaks past the
+    // call as a stray value.
+    if lparen_idx + 1 < rparen_idx {
+      self.value_stack.pop();
+      self.ty_stack.pop();
+      self.sir_values.pop();
+    }
 
     // Element type is a fresh inference var; concrete T
     // flows in from the first `send` / `recv` unification.
@@ -23849,6 +24003,8 @@ impl<'a> Executor<'a> {
             fundef_idx,
             has_explicit_return: false,
             has_return_type_annotation: true,
+            return_ty_span: Span::ZERO,
+            name_span: Span::ZERO,
             pending_return: false,
             scope_depth: self.scope_stack.len(),
           });
@@ -24775,6 +24931,12 @@ struct FunCtx {
   pub(crate) has_explicit_return: bool,
   /// True when the function declaration has `-> Type`.
   pub(crate) has_return_type_annotation: bool,
+  /// Span of the `-> Type` annotation. Secondary caret for a
+  /// missing-return diagnostic.
+  pub(crate) return_ty_span: Span,
+  /// Span of the function name identifier. Primary caret for a
+  /// missing-return diagnostic.
+  pub(crate) name_span: Span,
   /// Set when we see 'return' keyword, cleared when we emit Return insn.
   pub(crate) pending_return: bool,
   /// Scope depth when the function body was entered.

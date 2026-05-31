@@ -277,11 +277,11 @@ fn test_implicit_return_literal() {
 }
 
 #[test]
-fn test_void_function_with_value_no_annotation_ok() {
-  // `fun foo() { 42 }` has no `-> Type` annotation.
-  // The body expression is discarded (unit return).
-  // TypeMismatch is only reported when the function has
-  // an explicit return type annotation.
+fn test_void_function_with_value_emits_recovery_return() {
+  // `fun foo() { 42 }` reports a discarded-value mismatch
+  // (the `int` goes nowhere), but the executor still emits an
+  // implicit unit `Return` for error recovery so the SIR keeps
+  // a terminator. This guards that recovery emission.
   let (sir, _) = execute_raw("fun foo() { 42 }");
 
   let has_return = sir

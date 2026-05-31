@@ -1,0 +1,29 @@
+-! # how to errors: discarded_return_value.zo
+-!
+-! @cmd: `zo build discarded_return_value.zo`
+-!
+-! A function with no `-> Type` returns nothing, so a value
+-! produced in its body goes nowhere — it's silently discarded.
+-! zo points at the value and at the name (which declares no
+-! return type), and suggests either declaring the type or
+-! dropping the value.
+
+fun pick() {
+  return 42;
+}
+
+fun main() {}
+
+-- EXPECTED OUTPUT:
+-- [E0304] Error • Type mismatch
+--     ╭─[ discarded_return_value.zo:11:5 ]
+--     │
+--  11 │ fun pick() {
+--     │     ──┬─
+--     │       ╰─── this function has no return type
+--  12 │   return 42;
+--     │          ─┬
+--     │           ╰── this `int` is discarded
+--     │
+--     │ Help • declare `-> int` to return it, or drop the value
+-- ────╯

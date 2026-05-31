@@ -179,7 +179,14 @@ fn encode(
   // note — so consumers never need a presence check. The
   // TypeMismatch note speaks of "operands"; suppress it for an
   // argument mismatch where it doesn't apply.
-  let suppress_note = matches!(detail, Some(Detail::ArgType { .. }));
+  let suppress_note = matches!(
+    detail,
+    Some(
+      Detail::ArgType { .. }
+        | Detail::ReturnType { .. }
+        | Detail::DiscardedValue { .. }
+    )
+  );
   let notes: Vec<Value> = match error_note(kind) {
     Some(text) if !suppress_note => vec![json!(text)],
     _ => Vec::new(),
@@ -258,6 +265,14 @@ fn encode(
       obj.insert("primary_type".into(), json!(&**found));
       obj.insert("secondary_type".into(), json!(&**expected));
       obj.insert("signature".into(), json!(&**signature));
+    }
+    Some(Detail::ReturnType { found, expected }) => {
+      obj.insert("found_type".into(), json!(&**found));
+      obj.insert("expected_type".into(), json!(&**expected));
+    }
+    Some(Detail::DiscardedValue { found }) => {
+      obj.insert("found_type".into(), json!(&**found));
+      obj.insert("expected_type".into(), json!("unit"));
     }
     None => {}
   }
@@ -756,6 +771,48 @@ mod tests {
     assert_eq!(v["secondary_type"], json!("str"));
     assert_eq!(v["signature"], json!("greet(name: str) -> str"));
     // The "operands" note doesn't apply to an argument mismatch.
+    assert_eq!(v["notes"].as_array().expect("array").len(), 0);
+  }
+
+  #[test]
+  fn missing_return_emits_found_and_expected() {
+    let source = "fun pick() -> int {\n}";
+    let err = Error::with_secondary(
+      ErrorKind::TypeMismatch,
+      Span::new(0, 3),
+      Span::new(14, 3),
+    );
+    let detail = Detail::ReturnType {
+      found: "unit".into(),
+      expected: "int".into(),
+    };
+
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&detail));
+
+    assert_eq!(v["found_type"], json!("unit"));
+    assert_eq!(v["expected_type"], json!("int"));
+    // The "operands" note doesn't apply.
+    assert_eq!(v["notes"].as_array().expect("array").len(), 0);
+    // Secondary span points at the return-type annotation.
+    assert_eq!(v["secondary"]["byte_start"], json!(14));
+  }
+
+  #[test]
+  fn discarded_value_emits_found_and_unit() {
+    let source = "fun pick() {\n  42\n}";
+    let err = Error::with_secondary(
+      ErrorKind::TypeMismatch,
+      Span::new(15, 2),
+      Span::new(4, 4),
+    );
+    let detail = Detail::DiscardedValue {
+      found: "int".into(),
+    };
+
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&detail));
+
+    assert_eq!(v["found_type"], json!("int"));
+    assert_eq!(v["expected_type"], json!("unit"));
     assert_eq!(v["notes"].as_array().expect("array").len(), 0);
   }
 
