@@ -1772,6 +1772,22 @@ impl Compiler {
         }
       }
 
+      // A program with semantic errors must never reach
+      // codegen — its SIR can be malformed (an invalid
+      // top-level `imu` leaves a `cast` of the no-value
+      // sentinel, for one), which panics the backend. Skip
+      // codegen/link; the post-loop handler renders the
+      // diagnostics and fails the build.
+      let has_hard_error = self
+        .reporter
+        .errors()
+        .iter()
+        .any(|error| matches!(error.severity(), Severity::Error));
+
+      if has_hard_error {
+        continue;
+      }
+
       self.profiler.start_phase(CODEGEN_NAME);
       let codegen = Codegen::new(target);
 
@@ -1996,27 +2012,38 @@ impl Compiler {
       ty_id: zo_ty::TyId(1), // equals to Ty::Unit.
     });
 
-    // Codegen + link (same path as compile).
-    let codegen = Codegen::new(target);
-    let type_view =
-      Some((session.ty_checker.tys(), &session.ty_checker.ty_table));
-    let abstract_state = Some(zo_codegen::AbstractState {
-      defs: semantic.abstract_defs.clone(),
-      impls: semantic.abstract_impls.clone(),
-    });
+    // Codegen + link (same path as compile). Gated on a
+    // clean analysis: malformed SIR from an errored program
+    // would panic the backend, so skip straight to rendering
+    // the diagnostics.
+    let has_hard_error = self
+      .reporter
+      .errors()
+      .iter()
+      .any(|error| matches!(error.severity(), Severity::Error));
 
-    let link_obj = codegen.generate(
-      &session.interner,
-      &semantic.sir,
-      type_view,
-      abstract_state,
-    );
+    if !has_hard_error {
+      let codegen = Codegen::new(target);
+      let type_view =
+        Some((session.ty_checker.tys(), &session.ty_checker.ty_table));
+      let abstract_state = Some(zo_codegen::AbstractState {
+        defs: semantic.abstract_defs.clone(),
+        impls: semantic.abstract_impls.clone(),
+      });
 
-    if let Err(err) = zo_linker::link(link_obj, output_path, target) {
-      eprintln!("zo: link failed: {err}");
+      let link_obj = codegen.generate(
+        &session.interner,
+        &semantic.sir,
+        type_view,
+        abstract_state,
+      );
+
+      if let Err(err) = zo_linker::link(link_obj, output_path, target) {
+        eprintln!("zo: link failed: {err}");
+      }
+
+      stage_runtime_artifacts(&semantic.sir, &session.interner, output_path);
     }
-
-    stage_runtime_artifacts(&semantic.sir, &session.interner, output_path);
 
     let errors = self.reporter.errors();
 

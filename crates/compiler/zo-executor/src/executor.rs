@@ -284,6 +284,14 @@ pub struct Executor<'a> {
   /// in `self.x += 1`). Set when the target is a field,
   /// consumed by `finalize_pending_compound`.
   pending_compound_receiver: Option<Symbol>,
+  /// Nested field compound assign (`a.b.c op= expr`). The
+  /// one-level receiver path can't address it — the field
+  /// lives in a sub-struct, not the root type. Carries the
+  /// read recovered from the last `TupleIndex` so finalize
+  /// emits `BinOp + FieldStore` directly, at any depth.
+  /// `(base, field_idx, field_ty, old_val, op, root, span)`.
+  pending_compound_field:
+    Option<(ValueId, u32, TyId, ValueId, BinOp, Symbol, Span)>,
   /// Array context stack — one entry per open `[ ... ]`.
   array_ctx: Vec<ArrayCtx>,
   /// Pending array element assignment (deferred to Semicolon).
@@ -850,6 +858,7 @@ impl<'a> Executor<'a> {
       pending_assign: None,
       pending_compound: None,
       pending_compound_receiver: None,
+      pending_compound_field: None,
       array_ctx: Vec::new(),
       pending_array_assign: None,
       pending_field_assign: None,
@@ -3229,6 +3238,20 @@ impl<'a> Executor<'a> {
           self.execute_potential_call(idx);
           self.apply_deferred_short_circuit();
           self.drain_pending_unop();
+        }
+        // Closes a `recv.method(..)` dot-call nested inside an
+        // outer grouping (`(recv.method(x)) - y`). `rparen_-
+        // closes_call` misses the dot shape, so without this
+        // the tuple-close branch below would pop the OUTER
+        // `tuple_ctx` and rebuild the un-consumed receiver +
+        // args into a bogus `TupleLiteral`, dropping the call.
+        // Dispatch via the same path the un-grouped method
+        // call uses (`execute_potential_call`), leaving the
+        // outer grouping for its own RParen.
+        else if self.rparen_closes_dot_method_call(idx) {
+          self.apply_deferred_short_circuit();
+          self.execute_potential_call(idx);
+          self.apply_deferred_short_circuit();
         }
         // Check if this closes a tuple/grouping context.
         else if let Some(depth) = self.tuple_ctx.pop() {
@@ -5847,25 +5870,12 @@ impl<'a> Executor<'a> {
             let field_idx = *index;
             let field_ty = *ty_id;
 
-            // Pull the receiver symbol straight from the
-            // parse tree so both `self.x = …` (Param) and
-            // `f.x = …` (Local) reach finalize. Walking the
-            // SIR back to a `LoadSource::Local` would miss
-            // the `self` case — `self` lowers to
-            // `LoadSource::Param(0)`, not `Local(SELF)`.
-            // recv_idx is `target_idx - 2`: postorder for
-            // `recv.field` is `recv, field, Dot`, so two
-            // back from `Dot` is the receiver token.
-            let recv_idx = target_idx.saturating_sub(2);
-
-            let recv_name = match self.tree.nodes[recv_idx].token {
-              Token::SelfLower => Some(Symbol::SELF_LOWER),
-              Token::Ident => self.node_value(recv_idx).and_then(|v| match v {
-                NodeValue::Symbol(s) => Some(s),
-                _ => None,
-              }),
-              _ => None,
-            };
+            // The mutability check needs the root variable,
+            // not the immediate receiver. `recv_sir` already
+            // addresses the right struct at any depth (it is
+            // the read's base pointer), so a nested LHS like
+            // `a.b.c = …` only has to walk back to `a`.
+            let recv_name = self.field_assign_root(target_idx);
 
             if let Some(name) = recv_name {
               self.value_stack.pop();
@@ -8237,7 +8247,8 @@ impl<'a> Executor<'a> {
     // Compound/regular assignments are statements — they
     // don't produce a return value. Track whether one was
     // finalized so the implicit return emits unit.
-    let had_compound = self.pending_compound.is_some();
+    let had_compound =
+      self.pending_compound.is_some() || self.pending_compound_field.is_some();
     let had_assign = self.pending_assign.is_some();
 
     self.finalize_pending_compound();
@@ -9679,6 +9690,38 @@ impl<'a> Executor<'a> {
           value: sv,
           ty_id: value_ty,
         });
+      }
+    }
+  }
+
+  /// Walk a field-access LHS (`a.b.c`) back to its root
+  /// variable, so a field assignment checks the root's
+  /// mutability rather than an intermediate field.
+  ///
+  /// @note — `dot_idx` is the outermost `Dot`. In postorder
+  /// a receiver subtree ends two tokens back, so a nested
+  /// receiver is itself a `Dot` we follow inward until the
+  /// leftmost leaf (`Ident` or `self`).
+  fn field_assign_root(&self, dot_idx: usize) -> Option<Symbol> {
+    let mut probe = dot_idx;
+
+    loop {
+      if probe < 2 {
+        return None;
+      }
+
+      let recv_idx = probe - 2;
+
+      match self.tree.nodes[recv_idx].token {
+        Token::Dot => probe = recv_idx,
+        Token::SelfLower => return Some(Symbol::SELF_LOWER),
+        Token::Ident => {
+          return match self.node_value(recv_idx) {
+            Some(NodeValue::Symbol(sym)) => Some(sym),
+            _ => None,
+          };
+        }
+        _ => return None,
       }
     }
   }
@@ -14885,6 +14928,35 @@ impl<'a> Executor<'a> {
     method_name
   }
 
+  /// Count the explicit arguments of a `(...)` call spanning
+  /// `lparen_idx..rparen_idx`. Commas at brace/paren/bracket
+  /// depth 0 separate arguments; a trailing comma (`f(a, b,)`)
+  /// closes the last argument rather than introducing an
+  /// empty one, so it isn't counted (optional, like Rust).
+  fn count_call_args(&self, lparen_idx: usize, rparen_idx: usize) -> usize {
+    if lparen_idx + 1 >= rparen_idx {
+      return 0;
+    }
+
+    let mut commas = 0;
+    let mut depth = 0i32;
+
+    for i in (lparen_idx + 1)..rparen_idx {
+      match self.tree.nodes[i].token {
+        Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+        Token::RParen | Token::RBracket | Token::RBrace => depth -= 1,
+        Token::Comma if depth == 0 => commas += 1,
+        _ => {}
+      }
+    }
+
+    if self.tree.nodes[rparen_idx - 1].token == Token::Comma {
+      commas
+    } else {
+      commas + 1
+    }
+  }
+
   /// Executes a dot-call `receiver.method(args)`.
   /// The receiver is already on the stack (left by the
   /// Dot handler). Injects it as the first argument.
@@ -14931,20 +15003,7 @@ impl<'a> Executor<'a> {
 
       // Count explicit args between parens at depth 0
       // (same shape as the non-dyn dispatch below).
-      let has_content = lparen_idx + 1 < rparen_idx;
-      let mut comma_count = 0;
-      let mut depth = 0i32;
-
-      for i in (lparen_idx + 1)..rparen_idx {
-        match self.tree.nodes[i].token {
-          Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
-          Token::RParen | Token::RBracket | Token::RBrace => depth -= 1,
-          Token::Comma if depth == 0 => comma_count += 1,
-          _ => {}
-        }
-      }
-
-      let explicit_args = if has_content { comma_count + 1 } else { 0 };
+      let explicit_args = self.count_call_args(lparen_idx, rparen_idx);
 
       // Drain the explicit args off the back of the
       // value stacks in one shot. `drain` preserves
@@ -14998,16 +15057,7 @@ impl<'a> Executor<'a> {
     if name_str.starts_with("__abstract::") {
       // Pop explicit args first, then receiver — same
       // order as the non-abstract dot-call path.
-      let has_content = lparen_idx + 1 < rparen_idx;
-      let mut comma_count = 0;
-
-      for i in (lparen_idx + 1)..rparen_idx {
-        if self.tree.nodes[i].token == Token::Comma {
-          comma_count += 1;
-        }
-      }
-
-      let explicit_args = if has_content { comma_count + 1 } else { 0 };
+      let explicit_args = self.count_call_args(lparen_idx, rparen_idx);
 
       let mut arg_sirs = Vec::with_capacity(explicit_args + 1);
 
@@ -15087,27 +15137,14 @@ impl<'a> Executor<'a> {
       }
     }
 
-    // Count explicit args between parens. Depth-track
-    // `(` / `[` / `{` so commas inside a nested closure
-    // parameter list (`fold(0, fn(acc, x) => ...)`) or
-    // tuple literal don't get tallied as additional
-    // dot-call arguments — without the gate, the pop
-    // loop below over-pops the stack and the mono
-    // dispatcher binds the wrong substitutions.
-    let has_content = lparen_idx + 1 < rparen_idx;
-    let mut comma_count = 0;
-    let mut depth = 0i32;
-
-    for i in (lparen_idx + 1)..rparen_idx {
-      match self.tree.nodes[i].token {
-        Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
-        Token::RParen | Token::RBracket | Token::RBrace => depth -= 1,
-        Token::Comma if depth == 0 => comma_count += 1,
-        _ => {}
-      }
-    }
-
-    let explicit_args = if has_content { comma_count + 1 } else { 0 };
+    // Count explicit args between parens. `count_call_args`
+    // depth-tracks `(` / `[` / `{` so commas inside a nested
+    // closure parameter list (`fold(0, fn(acc, x) => ...)`)
+    // or tuple literal don't get tallied as additional
+    // dot-call arguments — without the gate, the pop loop
+    // below over-pops the stack and the mono dispatcher binds
+    // the wrong substitutions.
+    let explicit_args = self.count_call_args(lparen_idx, rparen_idx);
 
     // Pop explicit args from stack. Retain the value-
     // stack `ValueId` (in `args`) alongside `arg_types`
@@ -15457,8 +15494,7 @@ impl<'a> Executor<'a> {
     let Ty::Enum(eid) = self.ty_checker.kind_of(last_ty) else {
       return;
     };
-    let Some(enum_name) =
-      self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name)
+    let Some(enum_name) = self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name)
     else {
       return;
     };
@@ -19069,6 +19105,36 @@ impl<'a> Executor<'a> {
       let field_idx = target_idx - 1;
       let recv_idx = target_idx - 2;
 
+      // Nested receiver (`a.b.c op= …`): the field lives in
+      // a sub-struct, so a one-level lookup by name can't
+      // find it. Recover the read the Dot handler emitted —
+      // base pointer + field index are correct at any depth.
+      if self.tree.nodes[recv_idx].token == Token::Dot
+        && let Some(Insn::TupleIndex {
+          dst,
+          tuple,
+          index,
+          ty_id,
+        }) = self.sir.instructions.last()
+      {
+        let old_val = *dst;
+        let base = *tuple;
+        let field_ordinal = *index;
+        let field_ty = *ty_id;
+        let span = self.tree.spans[target_idx - 1];
+
+        self.value_stack.pop();
+        self.ty_stack.pop();
+        self.sir_values.pop();
+
+        if let Some(root) = self.field_assign_root(target_idx) {
+          self.pending_compound_field =
+            Some((base, field_ordinal, field_ty, old_val, op, root, span));
+        }
+
+        return;
+      }
+
       if let Some(NodeValue::Symbol(field_name)) = self.node_value(field_idx) {
         // Pop the dot result (or whatever is on the stack).
         self.value_stack.pop();
@@ -19149,6 +19215,55 @@ impl<'a> Executor<'a> {
 
   /// Finalize a pending compound assignment at Semicolon.
   fn finalize_pending_compound(&mut self) {
+    // Nested field compound assign recovered its field read
+    // up front; combine with the RHS and store through the
+    // base pointer directly.
+    if let Some((base, field_idx, field_ty, old_val, op, root, span)) =
+      self.pending_compound_field.take()
+    {
+      let (Some(_rhs_value), Some(_rhs_ty)) =
+        (self.value_stack.pop(), self.ty_stack.pop())
+      else {
+        return;
+      };
+      let rhs_sir = self.sir_values.pop();
+
+      let is_mutable = self
+        .locals
+        .iter()
+        .rev()
+        .find(|l| l.name == root)
+        .is_some_and(|l| l.mutability == Mutability::Yes);
+
+      if !is_mutable {
+        self.report(ErrorKind::ImmutableVariable, span);
+
+        return;
+      }
+
+      if let Some(rhs_s) = rhs_sir {
+        let new_val = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        self.sir.emit(Insn::BinOp {
+          dst: new_val,
+          op,
+          lhs: old_val,
+          rhs: rhs_s,
+          ty_id: field_ty,
+        });
+
+        self.sir.emit(Insn::FieldStore {
+          base,
+          index: field_idx,
+          value: new_val,
+          ty_id: field_ty,
+        });
+      }
+
+      return;
+    }
+
     let (name, op, span) = match self.pending_compound.take() {
       Some(c) => c,
       None => return,
@@ -20545,6 +20660,32 @@ impl<'a> Executor<'a> {
       || self.resolve_pack_dotted_call(idx).is_some()
   }
 
+  /// Returns true if `rparen_idx` closes a `recv.method(..)`
+  /// dot-call.
+  ///
+  /// `rparen_closes_call` only recognizes the direct (`f(`)
+  /// and pack-dotted (`pack.fn(`) shapes — a dot-method
+  /// call's LParen sits behind a `Dot`, so it slips through.
+  /// Without this check, a method call nested inside an outer
+  /// grouping (`(recv.method(x)) - y`) reaches the
+  /// tuple-close branch first, which pops the *outer*
+  /// `tuple_ctx` and rebuilds the un-consumed receiver + args
+  /// into a bogus `TupleLiteral` — dropping the call entirely.
+  ///
+  /// Keyed on `dot_method_recv_ty`: the Dot handler stashes
+  /// an entry there only after `is_dot_method_call` classifies
+  /// the dot as a method call, so this confirms the dispatch
+  /// rather than re-deriving it.
+  fn rparen_closes_dot_method_call(&self, rparen_idx: usize) -> bool {
+    let Some(lparen_idx) = self.find_matching_lparen(rparen_idx) else {
+      return false;
+    };
+
+    lparen_idx >= 1
+      && self.tree.nodes[lparen_idx - 1].token == Token::Dot
+      && self.dot_method_recv_ty.contains_key(&(lparen_idx - 1))
+  }
+
   /// Checks if RParen closes a function call and executes it.
   fn execute_potential_call(&mut self, rparen_idx: usize) {
     // Look back to find matching LParen
@@ -21302,24 +21443,9 @@ impl<'a> Executor<'a> {
     };
 
     if let Some(func) = func {
-      // Count arguments by commas at depth 0.
-      // 0 commas + non-empty = 1 arg, N commas = N+1.
-      let has_content = lparen_idx + 1 < rparen_idx;
-      let mut comma_count = 0;
-      let mut depth = 0;
-
-      for i in (lparen_idx + 1)..rparen_idx {
-        match self.tree.nodes[i].token {
-          Token::LParen => depth += 1,
-          Token::RParen => depth -= 1,
-          Token::LBrace => depth += 1,
-          Token::RBrace => depth -= 1,
-          Token::Comma if depth == 0 => comma_count += 1,
-          _ => {}
-        }
-      }
-
-      let arg_count = if has_content { comma_count + 1 } else { 0 };
+      // Count arguments by commas at depth 0; a trailing
+      // comma closes the last arg rather than adding one.
+      let arg_count = self.count_call_args(lparen_idx, rparen_idx);
 
       // Type check: correct number of arguments.
       // For closures, user args = total params - capture_count.

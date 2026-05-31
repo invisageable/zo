@@ -1,0 +1,45 @@
+-- tests-run-pass: parenthesized mut-self method call,
+-- cast int->float, then an FP binop. Regression for the
+-- executor mis-parsing `(recv.method(x)) - y` as a tuple
+-- of the receiver + args instead of dispatching the call.
+
+load core::random::*;
+
+fun main() {
+  mut rng: Rng = Rng::new(42);
+
+  -- Bare cast (no grouping) — the always-worked baseline.
+  imu w: float = rng.range(0, 100) as float;
+
+  -- Grouped method call + cast + FP binop. Before the fix
+  -- the outer `(` opened a tuple context that the inner
+  -- method-call RParen wrongly closed, building a bogus
+  -- `(recv, lo, hi)` tuple and dropping the call. The
+  -- pointer-sized receiver then landed in the float.
+  imu v: float = (rng.range(0, 100) as float) - 3.0;
+  imu u: float = (rng.range(0, 100) as float) + 0.0;
+
+  -- A bare grouping of the method call (no arithmetic) must
+  -- also stay a call, not collapse to a tuple.
+  imu g: int = (rng.range(0, 100));
+
+  -- Seed 42 yields a deterministic xorshift stream: draws
+  -- are 32, 72, 34, 88 in `[0, 100)`.
+  check@eq(w as int, 32);
+  check@eq(v as int, 69);
+  check@eq(u as int, 34);
+  check@eq(g, 88);
+
+  showln(w as int);
+  showln(v as int);
+  showln(u as int);
+  showln(g);
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 32
+-- 69
+-- 34
+-- 88
+-- DONE

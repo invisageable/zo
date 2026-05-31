@@ -989,7 +989,8 @@ impl<'a> ARM64Gen<'a> {
         Insn::ConstInt { dst, .. }
         | Insn::ConstFloat { dst, .. }
         | Insn::ConstBool { dst, .. }
-        | Insn::Load { dst, .. } => {
+        | Insn::Load { dst, .. }
+        | Insn::TupleIndex { dst, .. } => {
           self.value_def_insert(*dst, widx);
         }
         _ => {}
@@ -2897,8 +2898,10 @@ impl<'a> ARM64Gen<'a> {
           // TODO: it must be implement in core.
           "Vec::new" => self.emit_vec_new(args, idx),
           "Vec::push" => {
-            let elem_ty =
-              args.get(1).and_then(|v| self.type_of(*v)).unwrap_or(TyId(0));
+            let elem_ty = args
+              .get(1)
+              .and_then(|v| self.type_of(*v))
+              .unwrap_or(TyId(0));
 
             self.emit_vec_push(args, idx, elem_ty);
           }
@@ -2913,8 +2916,10 @@ impl<'a> ARM64Gen<'a> {
             self.emit_vec_get(args, idx, elem_ty);
           }
           "Vec::set" => {
-            let elem_ty =
-              args.get(2).and_then(|v| self.type_of(*v)).unwrap_or(TyId(0));
+            let elem_ty = args
+              .get(2)
+              .and_then(|v| self.type_of(*v))
+              .unwrap_or(TyId(0));
 
             self.emit_vec_set(args, idx, elem_ty);
           }
@@ -3145,7 +3150,7 @@ impl<'a> ARM64Gen<'a> {
               let c_sym: &'static str =
                 c_sym_for(self.interner, *name, link_name).leak();
 
-              self.emit_ffi_call(c_sym, &abi, args, idx);
+              self.emit_ffi_call(c_sym, &abi, args, idx, all_insns);
               return;
             }
 
@@ -4313,15 +4318,30 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
-      // Struct field write: STR value to base + index * 8.
+      // Struct field write: store value to base + index * 8.
+      // Float fields live in the FP file — a GP `STR` would
+      // spill an uninitialized X register, so pick the store
+      // by field type, mirroring the `TupleIndex` read.
       Insn::FieldStore {
-        base, index, value, ..
+        base,
+        index,
+        value,
+        ty_id,
       } => {
         let base_reg = self.alloc_reg(*base).unwrap_or(X0);
-        let val_reg = self.alloc_reg(*value).unwrap_or(X1);
         let offset = (*index as i16) * (STACK_SLOT_SIZE as i16);
+        let is_flt =
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
 
-        self.emitter.emit_str(val_reg, base_reg, offset);
+        if is_flt {
+          let fp_src = self.alloc_fp_reg(*value).unwrap_or(D0);
+
+          self.emitter.emit_str_fp(fp_src, base_reg, offset as u16);
+        } else {
+          let val_reg = self.alloc_reg(*value).unwrap_or(X1);
+
+          self.emitter.emit_str(val_reg, base_reg, offset);
+        }
       }
 
       Insn::Cast {
@@ -6218,6 +6238,7 @@ impl<'a> ARM64Gen<'a> {
     abi: &crate::abi::AbiCall,
     args: &[ValueId],
     idx: usize,
+    all_insns: &[Insn],
   ) {
     use crate::abi::{AbiArg, AbiRet};
 
@@ -6233,6 +6254,12 @@ impl<'a> ARM64Gen<'a> {
     // registers and the field count so the post-move pass
     // emits the right `ldr` sequence in reverse field order.
     let mut composite_loads: Vec<Vec<Register>> = Vec::new();
+    // Scalar FP args whose source value isn't in an FP
+    // register: materialized from memory AFTER the
+    // register-resident FP moves (Step 3b) so a still-live
+    // FP-move source can't be clobbered by a materialize
+    // that writes the same physical register first.
+    let mut fp_materializes: Vec<(FpRegister, ValueId)> = Vec::new();
 
     for (i, abi_arg) in abi.args.iter().enumerate() {
       let arg_value = args[i];
@@ -6244,8 +6271,17 @@ impl<'a> ARM64Gen<'a> {
         }
 
         AbiArg::Fp { reg: dst_reg, .. } => {
-          let src = self.alloc_fp_reg(arg_value).unwrap_or(*dst_reg);
-          fp_moves.push((*dst_reg, src));
+          // When the value is already in an FP register, queue
+          // a clobber-safe move. Otherwise defer a load from
+          // its stable home (constant pool, struct base, spill
+          // / param slot) to run AFTER the register-resident
+          // moves — the old no-op `(dst, dst)` fallback left
+          // the arg register holding garbage.
+          if let Some(src) = self.alloc_fp_reg(arg_value) {
+            fp_moves.push((*dst_reg, src));
+          } else {
+            fp_materializes.push((*dst_reg, arg_value));
+          }
         }
 
         AbiArg::Hfa { regs, .. } => {
@@ -6331,6 +6367,13 @@ impl<'a> ARM64Gen<'a> {
     // Step 3b: clobber-safe FP moves all at once.
     if !fp_moves.is_empty() {
       self.emit_safe_fp_arg_moves(&fp_moves);
+    }
+
+    // Step 3c: memory-sourced FP args. Runs after the
+    // register moves so a still-live FP-move source can't be
+    // overwritten by a load into the same physical register.
+    for (dst_fp, value) in std::mem::take(&mut fp_materializes) {
+      self.materialize_fp_value_into(dst_fp, value, all_insns);
     }
 
     // Step 4: per-arg post-marshaling narrow.
@@ -7228,7 +7271,12 @@ impl<'a> ARM64Gen<'a> {
       let outer = self.struct_field_count(elem_ty);
       let inner_cursor = live_base + outer * STACK_SLOT_SIZE;
 
-      self.emit_vec_rematerialize_struct(elem_ty, val_off, live_base, inner_cursor);
+      self.emit_vec_rematerialize_struct(
+        elem_ty,
+        val_off,
+        live_base,
+        inner_cursor,
+      );
       self.emit_add_sp_offset(X16, live_base);
       self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
     } else {
@@ -7266,9 +7314,7 @@ impl<'a> ARM64Gen<'a> {
     if is_struct {
       let live_words = self
         .type_view
-        .and_then(|view| {
-          flat_struct_slots_of(elem_ty, view.tys, view.ty_table)
-        })
+        .and_then(|view| flat_struct_slots_of(elem_ty, view.tys, view.ty_table))
         .unwrap_or(val_words);
 
       self.next_struct_slot += live_words * STACK_SLOT_SIZE;
@@ -7705,6 +7751,95 @@ impl<'a> ARM64Gen<'a> {
         LoadSource::Param(pidx) => {
           if let Some(&offset) = self.param_slots.get(pidx) {
             self.emit_ldr_sp(X16, offset);
+
+            return true;
+          }
+
+          false
+        }
+      },
+      _ => false,
+    }
+  }
+
+  /// Materialize a scalar FP argument value into `dst_fp`
+  /// by re-emitting its producing instruction's load /
+  /// constant. The FP analog of `materialize_value_into_x16`.
+  ///
+  /// Returns `true` when `dst_fp` holds the value. Returns
+  /// `false` for computed values (BinOp on floats, Call,
+  /// etc.) — the caller falls back to the register
+  /// allocator's reg.
+  ///
+  /// Why: the generic AAPCS `AbiArg::Fp` arm assumed the
+  /// argument was already resident in an FP register and
+  /// fell back to a no-op `(dst, dst)` move when
+  /// `alloc_fp_reg` missed it (a liveness / visit_uses gap,
+  /// or a value the allocator parked in memory). The dst FP
+  /// arg register then held garbage. A struct-field float
+  /// passed straight to an FP-arg FFI (`draw_circle(...,
+  /// roid.size, ...)`) hit exactly this. Re-emitting the
+  /// producer at the call site loads the right bits into the
+  /// arg register from a stable source (constant pool, struct
+  /// base, or spill / param slot) before the f32 narrow.
+  ///
+  /// X16 is the AAPCS intra-procedure scratch — outside the
+  /// allocator pool — so the const path's `MOVK X16` never
+  /// clobbers a live value during call-site marshaling.
+  fn materialize_fp_value_into(
+    &mut self,
+    dst_fp: FpRegister,
+    value: ValueId,
+    all_insns: &[Insn],
+  ) -> bool {
+    let Some(InsnIdx(def_pos)) = self.value_def_idx.get(value) else {
+      return false;
+    };
+
+    match &all_insns[def_pos as usize] {
+      Insn::ConstFloat { value, .. } => {
+        self.emit_mov_imm_64(X16, value.to_bits());
+        self.emitter.emit_fmov_gp_to_fp(dst_fp, X16);
+
+        true
+      }
+      // Struct / tuple float field — load from base + slot.
+      Insn::TupleIndex {
+        tuple,
+        index,
+        ty_id,
+        ..
+      } if ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX => {
+        let Some(base) = self.alloc_reg(*tuple) else {
+          return false;
+        };
+        let offset = (*index * STACK_SLOT_SIZE) as u16;
+
+        self.emitter.emit_ldr_fp(dst_fp, base, offset);
+
+        true
+      }
+      Insn::Load { src, .. } => match src {
+        LoadSource::Local(sym) => {
+          let slot = sym.as_u32();
+
+          if let Some(&offset) = self.mutable_slots.get(&slot) {
+            self.emit_ldr_fp_sp(dst_fp, offset);
+
+            return true;
+          }
+
+          if let Some(&(offset, _)) = self.param_sym_slots.get(&slot) {
+            self.emit_ldr_fp_sp(dst_fp, offset);
+
+            return true;
+          }
+
+          false
+        }
+        LoadSource::Param(pidx) => {
+          if let Some(&offset) = self.param_slots.get(pidx) {
+            self.emit_ldr_fp_sp(dst_fp, offset);
 
             return true;
           }

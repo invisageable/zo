@@ -509,6 +509,60 @@ fun main() {
 }
 
 #[test]
+fn test_nested_field_assign_lowers_to_field_store() {
+  // `a.b.c = expr` was a silent no-op: the receiver walk read
+  // the token two back from `=`, an inner `Dot` rather than a
+  // variable, so the mutability check failed and no store was
+  // emitted. The walk now climbs to the root variable.
+  assert_sir_structure(
+    r#"struct Position { x: float, y: float }
+struct Body { position: Position }
+
+fun main() {
+  mut body: Body = Body { position = Position { x = 1.0, y = 2.0 } };
+  body.position.x = 7.0;
+}"#,
+    |sir| {
+      let has_field_store =
+        sir.iter().any(|i| matches!(i, Insn::FieldStore { .. }));
+
+      assert!(
+        has_field_store,
+        "expected FieldStore for `body.position.x = 7.0`"
+      );
+    },
+  );
+}
+
+#[test]
+fn test_nested_field_compound_assign_lowers_to_field_store() {
+  // `a.b.c op= expr` recomputed the field offset from the root
+  // type, which only addresses one level deep, so a nested
+  // target found no field and bailed. It now recovers the base
+  // pointer + field index from the read and emits BinOp + Store.
+  assert_sir_structure(
+    r#"struct Position { x: float, y: float }
+struct Body { position: Position }
+
+fun main() {
+  mut body: Body = Body { position = Position { x = 10.0, y = 2.0 } };
+  body.position.x -= 3.0;
+}"#,
+    |sir| {
+      let has_binop = sir.iter().any(|i| matches!(i, Insn::BinOp { .. }));
+      let has_field_store =
+        sir.iter().any(|i| matches!(i, Insn::FieldStore { .. }));
+
+      assert!(has_binop, "compound assign must emit a BinOp");
+      assert!(
+        has_field_store,
+        "expected FieldStore for `body.position.x -= 3.0`"
+      );
+    },
+  );
+}
+
+#[test]
 fn test_self_field_assign_lowers_to_field_store() {
   // `self.field = expr` inside an `apply` method must reach
   // `Insn::FieldStore` too. `self` lowers to `Param(0)`, not
