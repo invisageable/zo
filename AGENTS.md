@@ -157,7 +157,7 @@ All build commands go through `just` (the justfile is the single source of truth
   - DO NOT violate our principles such as DRY and KiSS
   - DO NOT ADD `#[allow(...)]` to suppress clippy warnings — FiX the underlying issue
 
-## Comments & Documentation.
+## Comments and Documentation.
 
 DO NOT write narration-style or explanatory comments that summarize the code. A comment must explain the "why" an implementation has been made that way. WE DON'T CARE about descriptive comments.
 
