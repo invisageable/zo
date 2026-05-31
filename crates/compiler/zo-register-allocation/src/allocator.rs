@@ -1,11 +1,12 @@
 use crate::{
   ALLOCATABLE_FP, ALLOCATABLE_GP, EmitTiming, FunctionInfo, RegAlloc,
-  RegisterClass, SpillKind, SpillOp,
+  RegisterClass, SpillKind, SpillOp, flat_struct_slots_of,
 };
 
 use zo_interner::{Interner, Symbol};
 use zo_liveness::{LivenessInfo, liveness};
 use zo_sir::{Insn, LoadSource};
+use zo_ty::{Ty, TyId, TyTable, struct_leaf_words};
 use zo_value::FunctionKind;
 use zo_value::ValueId;
 
@@ -232,6 +233,12 @@ pub struct AllocCtx<'a> {
   /// by the `Call` arm to budget caller frame slots
   /// without re-scanning the whole SIR per call.
   pub struct_return_fns: &'a HashMap<Symbol, u32>,
+  /// Struct element type of a `Vec` access, keyed by the
+  /// `Call`'s `ValueId` (`Sir::vec_elem_tys`). The `Vec`
+  /// budget arm reads it to size the struct scratch.
+  pub vec_elem_tys: &'a std::collections::HashMap<u32, TyId>,
+  /// Type tables, for sizing struct element scratch.
+  pub type_view: Option<(&'a [Ty], &'a TyTable)>,
 }
 
 /// Run the forward allocation pass for a single function.
@@ -248,6 +255,8 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
     num_values,
     interner,
     struct_return_fns,
+    vec_elem_tys,
+    type_view,
   } = *ctx;
   let n = end - start;
 
@@ -644,10 +653,37 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
       // `write_file` / `append_file`: 5 slots for
       // Result. Other Call variants check for
       // struct-returning callees in the catch-all.
-      Insn::Call { name, .. } => {
+      Insn::Call { name, dst, .. } => {
         let fn_name = interner.get(*name);
 
+        // A struct element needs more scratch than the scalar
+        // budget below. These are upper bounds —
+        // `flat_struct_slots_of` covers the live layout plus
+        // the flatten save slots — so they never under-reserve
+        // against codegen's `next_struct_slot` bumps in
+        // `emit_vec_*`, which would corrupt the frame.
+        let struct_elem_dims = vec_elem_tys.get(&dst.0).and_then(|elem| {
+          let (tys, tt) = type_view?;
+
+          Some((
+            struct_leaf_words(*elem, tys, tt),
+            flat_struct_slots_of(*elem, tys, tt).unwrap_or(1),
+          ))
+        });
+
         match fn_name {
+          "Vec::push" | "Vec::set" if struct_elem_dims.is_some() => {
+            let (leaf, live) = struct_elem_dims.unwrap();
+
+            struct_slots += leaf + live;
+          }
+          "Vec::get" | "Vec::pop" | "Vec::remove"
+            if struct_elem_dims.is_some() =>
+          {
+            let (leaf, live) = struct_elem_dims.unwrap();
+
+            struct_slots += leaf + 2 + live;
+          }
           "read_file" | "readln" | "read" => {
             struct_slots += crate::IO_RESULT_FRAME_SLOTS;
           }

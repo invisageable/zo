@@ -43,6 +43,7 @@ fn run_allocator(insns: &[Insn], interner: &Interner) -> RegAlloc {
   result.value_ids = value_ids.clone();
 
   let struct_return_fns = HashMap::default();
+  let vec_elem_tys = std::collections::HashMap::new();
   let ctx = AllocCtx {
     insns,
     start: 0,
@@ -51,6 +52,8 @@ fn run_allocator(insns: &[Insn], interner: &Interner) -> RegAlloc {
     num_values: max_vid,
     interner,
     struct_return_fns: &struct_return_fns,
+    vec_elem_tys: &vec_elem_tys,
+    type_view: None,
   };
 
   allocate_function(&ctx, &mut result);

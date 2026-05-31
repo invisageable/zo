@@ -1,0 +1,55 @@
+-- tests-run-pass: a struct literal with MORE THAN ONE
+-- nested struct-literal field, where a nested field is not
+-- the last field. `nested_struct_literal.zo` only covers a
+-- single nested field in last position; this exercises the
+-- continuation after a non-last nested `}`.
+--
+-- The struct-construct field walk tracks brace depth across
+-- tokens a nested literal's handler already resolved (via
+-- `skip_until`). Before the fix the skipped inner `}` never
+-- decremented depth, so the comma after the first nested
+-- field went unseen and `vel` / `id` leaked out as undefined
+-- variables.
+-- @cmd — zo run nested_struct_literal_multi.zo
+
+struct V2 {
+  x: int,
+  y: int,
+}
+
+struct Body {
+  pos: V2,
+  vel: V2,
+  id: int,
+}
+
+fun main() {
+  imu b: Body = Body {
+    pos = V2 { x = 1, y = 2 },
+    vel = V2 { x = 3, y = 4 },
+    id = 7,
+  };
+
+  check@eq(b.pos.x, 1);
+  check@eq(b.pos.y, 2);
+  check@eq(b.vel.x, 3);
+  check@eq(b.vel.y, 4);
+  check@eq(b.id, 7);
+
+  -- inline as a function argument — same shape the Asteroids
+  -- entity spawns use.
+  imu c: Body = make(V2 { x = 9, y = 8 }, V2 { x = 7, y = 6 });
+
+  check@eq(c.pos.x, 9);
+  check@eq(c.vel.y, 6);
+  check@eq(c.id, 0);
+
+  showln("DONE");
+}
+
+fun make(p: V2, v: V2) -> Body {
+  Body { pos = p, vel = v, id = 0 }
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

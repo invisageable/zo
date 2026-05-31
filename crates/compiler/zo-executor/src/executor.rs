@@ -7270,7 +7270,18 @@ impl<'a> Executor<'a> {
         }
         _ => vec![0, 8, 0],
       },
-      "Vec::new" => vec![0, 8, 0],
+      "Vec::new" => match args {
+        Some([t]) => {
+          let words = zo_ty::struct_leaf_words(
+            *t,
+            self.ty_checker.tys(),
+            &self.ty_checker.ty_table,
+          );
+
+          vec![0, words as u64 * 8, 0]
+        }
+        _ => vec![0, 8, 0],
+      },
       _ => Vec::new(),
     }
   }
@@ -10582,6 +10593,30 @@ impl<'a> Executor<'a> {
         }
       }
 
+      // Record a generic struct binding's type arguments
+      // (`Vec<V2>` → `[V2]`) under the bound name so apply-
+      // method dispatch can substitute the receiver's `$T` —
+      // construction-via-literal records it directly, but a
+      // `Vec::new()` init doesn't.
+      if let Some(generic_args) =
+        self.decl_annotation_args.get(&decl.name.as_u32()).cloned()
+        && !generic_args.is_empty()
+      {
+        let resolved: Vec<TyId> = generic_args
+          .iter()
+          .map(|t| self.ty_checker.resolve_id(*t))
+          .collect();
+
+        if resolved
+          .iter()
+          .any(|t| !matches!(self.ty_checker.kind_of(*t), Ty::Infer(_)))
+        {
+          self
+            .local_struct_type_args
+            .insert(decl.name.as_u32(), resolved);
+        }
+      }
+
       // Emit initial Store so the value is on the stack
       // frame. Load instructions will read from this
       // slot.
@@ -11310,6 +11345,23 @@ impl<'a> Executor<'a> {
                   break;
                 }
 
+                // Update depth BEFORE the `skip_until` skip
+                // below, so a nested literal's closing `}`
+                // (skipped after its `{` was executed) still
+                // decrements depth. Otherwise depth stays
+                // positive and the comma after a non-last
+                // nested field is missed — trailing fields then
+                // leak out as undefined variables.
+                match tok {
+                  Token::LParen | Token::LBracket | Token::LBrace => {
+                    depth += 1;
+                  }
+                  Token::RParen | Token::RBracket | Token::RBrace => {
+                    depth -= 1;
+                  }
+                  _ => {}
+                }
+
                 // Handlers may consume more than one node and
                 // advance `skip_until` past tokens already
                 // resolved semantically (e.g. the variant ident
@@ -11319,16 +11371,6 @@ impl<'a> Executor<'a> {
                   idx += 1;
 
                   continue;
-                }
-
-                match tok {
-                  Token::LParen | Token::LBracket | Token::LBrace => {
-                    depth += 1;
-                  }
-                  Token::RParen | Token::RBracket | Token::RBrace => {
-                    depth -= 1;
-                  }
-                  _ => {}
                 }
 
                 let node = self.tree.nodes[idx];
@@ -15353,6 +15395,82 @@ impl<'a> Executor<'a> {
       self.value_stack.push(result_val);
       self.ty_stack.push(call_return_ty);
       self.sir_values.push(result_sir);
+    }
+
+    self.record_collection_struct_elem(mangled_name, dot_idx, dst);
+  }
+
+  /// Record a struct-typed `Vec` element for the backend.
+  /// The generic `Option<$T>` return the mono path leaves
+  /// unsubstituted carries no element type, so both consumers
+  /// recover it here from the receiver's
+  /// `local_struct_type_args`:
+  ///
+  /// - `Sir::vec_elem_tys` drives the regalloc frame budget
+  ///   and codegen's flatten / re-materialize path.
+  /// - `var_return_type_args` (reads only) types the matched
+  ///   `Option<T>` payload as the concrete struct.
+  fn record_collection_struct_elem(
+    &mut self,
+    mangled_name: Symbol,
+    dot_idx: usize,
+    call_dst: ValueId,
+  ) {
+    // `Vec<$T>`'s element is type arg 0 for every method. A
+    // read returns `Option<$T>`; a write takes `$T`.
+    let is_read = match self.interner.get(mangled_name) {
+      "Vec::push" | "Vec::set" => false,
+      "Vec::get" | "Vec::pop" | "Vec::remove" => true,
+      _ => return,
+    };
+
+    let Some(&(_, Some(recv_sym))) = self.dot_method_recv_ty.get(&dot_idx)
+    else {
+      return;
+    };
+
+    let Some(elem_ty) = self
+      .local_struct_type_args
+      .get(&recv_sym.as_u32())
+      .and_then(|args| args.first().copied())
+    else {
+      return;
+    };
+
+    // Only struct elements take the flatten / re-materialize
+    // path. Scalars use the inline 8-byte slot the scalar
+    // budget already covers, and a scalar payload resolves
+    // through the match binder's own fallback.
+    if !matches!(self.ty_checker.kind_of(elem_ty), Ty::Struct(_)) {
+      return;
+    }
+
+    // Drives both the regalloc frame budget and codegen's
+    // struct marshaling path.
+    self.sir.vec_elem_tys.insert(call_dst.0, elem_ty);
+
+    if !is_read {
+      return;
+    }
+
+    let last_ty = self.ty_stack.last().copied().unwrap_or(elem_ty);
+    let Ty::Enum(eid) = self.ty_checker.kind_of(last_ty) else {
+      return;
+    };
+    let Some(enum_name) =
+      self.ty_checker.ty_table.enum_ty(eid).map(|e| e.name)
+    else {
+      return;
+    };
+
+    let rta = vec![self.ty_checker.kind_of(elem_ty)];
+
+    self
+      .var_return_type_args
+      .insert(enum_name.as_u32(), rta.clone());
+
+    if let Some(ref decl) = self.pending_decl {
+      self.var_return_type_args.insert(decl.name.as_u32(), rta);
     }
   }
 

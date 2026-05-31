@@ -646,3 +646,23 @@ impl TyTable {
     &self.struct_fields[start..end]
   }
 }
+
+/// Word count of `ty_id` serialized flat into a `Vec` slot:
+/// each scalar / `str` leaf is one word, a struct sums its
+/// fields recursively. Distinct from `flat_struct_slots_of`
+/// (live slots) — the serialized form inlines leaves so the
+/// stored bytes hold no stack pointers. The one source the
+/// executor's slot size and codegen's offset walks share.
+pub fn struct_leaf_words(ty_id: TyId, tys: &[Ty], ty_table: &TyTable) -> u32 {
+  match tys.get(ty_id.0 as usize).copied().unwrap_or(Ty::Error) {
+    Ty::Struct(sid) => match ty_table.struct_ty(sid) {
+      Some(st) => ty_table
+        .struct_fields(st)
+        .iter()
+        .map(|f| struct_leaf_words(f.ty_id, tys, ty_table))
+        .sum(),
+      None => 1,
+    },
+    _ => 1,
+  }
+}

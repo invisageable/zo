@@ -182,6 +182,25 @@ pub type EnumVariantStructFields = Vec<(u32, TyId)>;
 /// [`RegAlloc::enum_payload_struct_fields`] for the why.
 pub type EnumPayloadFields = HashMap<Symbol, Vec<EnumVariantStructFields>>;
 
+/// Inputs to [`RegAlloc::allocate`], bundled so the entry
+/// point takes one argument rather than a long borrow list.
+pub struct AllocInput<'a> {
+  /// Whole-program SIR instruction stream.
+  pub insns: &'a [Insn],
+  /// Total `ValueId` count — sizes liveness bitsets.
+  pub next_value_id: u32,
+  /// Interner for resolving `Call` / runtime symbol names.
+  pub interner: &'a Interner,
+  /// Type tables, when available (ARM path). Drives
+  /// nested-struct-return budgeting and struct-element
+  /// collection scratch sizing.
+  pub type_view: Option<(&'a [Ty], &'a TyTable)>,
+  /// Concrete element type of struct-element collection
+  /// reads/writes, keyed by the `Call`'s destination
+  /// `ValueId` (`Sir::vec_elem_tys`).
+  pub vec_elem_tys: &'a std::collections::HashMap<u32, TyId>,
+}
+
 impl RegAlloc {
   /// Run register allocation on the SIR instruction stream.
   ///
@@ -193,12 +212,15 @@ impl RegAlloc {
   /// slot. With `None` the accounting falls back to flat
   /// field count — safe for any program that doesn't
   /// return nested-struct shapes.
-  pub fn allocate(
-    insns: &[Insn],
-    next_value_id: u32,
-    interner: &Interner,
-    type_view: Option<(&[Ty], &TyTable)>,
-  ) -> Self {
+  pub fn allocate(input: AllocInput<'_>) -> Self {
+    let AllocInput {
+      insns,
+      next_value_id,
+      interner,
+      type_view,
+      vec_elem_tys,
+    } = input;
+
     let value_ids = compute_value_ids(insns);
     let n = insns.len();
     let mut result = Self {
@@ -244,6 +266,8 @@ impl RegAlloc {
         num_values: next_value_id,
         interner,
         struct_return_fns: &struct_return_fns,
+        vec_elem_tys,
+        type_view,
       };
 
       allocator::allocate_function(&ctx, &mut result);
