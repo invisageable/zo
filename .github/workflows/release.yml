@@ -58,7 +58,11 @@ jobs:
           # `command not found` even though nightly is on disk.
           brew uninstall --ignore-dependencies rustup-init 2>/dev/null || true
           brew uninstall --ignore-dependencies rustup 2>/dev/null || true
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+          # Fetch from the static CDN, not the `sh.rustup.rs`
+          # vanity host, whose name intermittently fails to
+          # resolve on macOS runners. The CDN host always does.
+          curl --proto '=https' --tlsv1.2 -sSf \
+            https://static.rust-lang.org/rustup/rustup-init.sh | \
             sh -s -- -y --default-toolchain nightly --profile minimal --no-modify-path
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
         shell: bash
