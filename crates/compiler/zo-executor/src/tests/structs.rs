@@ -1,14 +1,10 @@
-use crate::Executor;
-use crate::tests::common::{assert_execution_error, assert_sir_structure};
+use crate::tests::common::{
+  assert_execution_error, assert_no_errors, assert_sir_structure,
+};
 
 use zo_error::ErrorKind;
-use zo_interner::Interner;
-use zo_parser::Parser;
-use zo_reporter::collect_errors;
 use zo_sir::Insn;
-use zo_tokenizer::Tokenizer;
 use zo_ty::SelfKind;
-use zo_ty_checker::TyChecker;
 
 #[test]
 fn test_struct_empty() {
@@ -179,29 +175,7 @@ fun main() {
   check@eq(n, 10);
 }"#;
 
-  let mut interner = Interner::new();
-  let tokenizer = Tokenizer::new(source, &mut interner);
-  let tokenization = tokenizer.tokenize();
-  let parser = Parser::new(&tokenization, source);
-  let parsing = parser.parse();
-
-  let mut ty_checker = TyChecker::new();
-
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut interner,
-    &tokenization.literals,
-    &mut ty_checker,
-  );
-
-  let (_, _, _, _, _, _, _) = executor.execute();
-  let errors = collect_errors();
-
-  assert!(
-    errors.is_empty(),
-    "apply instance method should not error: {:?}",
-    errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
-  );
+  assert_no_errors(source);
 }
 
 // === PUB FIELDS ===
@@ -410,29 +384,7 @@ fun main() {
   imu a := r.area();
 }"#;
 
-  let mut interner = Interner::new();
-  let tokenizer = Tokenizer::new(source, &mut interner);
-  let tokenization = tokenizer.tokenize();
-  let parser = Parser::new(&tokenization, source);
-  let parsing = parser.parse();
-
-  let mut ty_checker = TyChecker::new();
-
-  let executor = Executor::new(
-    &parsing.tree,
-    &mut interner,
-    &tokenization.literals,
-    &mut ty_checker,
-  );
-
-  let (_, _, _, _, _, _, _) = executor.execute();
-  let errors = collect_errors();
-
-  assert!(
-    errors.is_empty(),
-    "apply static+instance should not error: {:?}",
-    errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
-  );
+  assert_no_errors(source);
 }
 
 // === MUT PARAM (NON-SELF) ===

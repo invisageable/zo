@@ -21900,8 +21900,21 @@ impl<'a> Executor<'a> {
         };
 
       if let Some(kind) = collection_kind {
-        let decl_args = self.pending_decl.as_ref().and_then(|d| {
-          self.decl_annotation_args.get(&d.name.as_u32()).cloned()
+        // The element type comes from the binding annotation,
+        // keyed by the target variable. A declaration carries the
+        // target in `pending_decl`; a bare reassignment
+        // (`v = Vec::new()`) carries it in `pending_assign`.
+        // Without the fall-through the reassigned vec defaults to
+        // a one-word element, so a struct element loses every
+        // field past the first.
+        let target = self
+          .pending_decl
+          .as_ref()
+          .map(|decl| decl.name)
+          .or_else(|| self.pending_assign.as_ref().map(|(name, _)| *name));
+
+        let decl_args = target.and_then(|name| {
+          self.decl_annotation_args.get(&name.as_u32()).cloned()
         });
 
         let prepend_args =

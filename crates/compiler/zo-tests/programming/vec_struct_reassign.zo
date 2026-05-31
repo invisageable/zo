@@ -1,0 +1,44 @@
+-- tests-run-pass: reassigning a `Vec<struct>` local through
+-- `Vec::new()` must keep the element size. The reassigned vec
+-- defaulted to a one-word element, so a pushed struct kept only
+-- its first leaf field — a laser respawned at y=0 with speed=0
+-- after a game restart, then sat frozen at the top of the
+-- screen.
+-- @cmd — zo run vec_struct_reassign.zo
+
+struct Position { x: float, y: float }
+struct Laser { position: Position, speed: float }
+
+fun main() {
+  mut lasers: Vec<Laser> = Vec::new();
+  lasers.push(Laser {
+    position = Position { x = 397.0, y = 520.0 },
+    speed = 10.0,
+  });
+
+  -- restart: free the buffer, reassign a fresh vec, push again.
+  lasers.free();
+  lasers = Vec::new();
+  lasers.push(Laser {
+    position = Position { x = 397.0, y = 520.0 },
+    speed = 10.0,
+  });
+
+  match lasers.get(0) {
+    Option::Some(laser) => {
+      showln(laser.position.x as int);
+      showln(laser.position.y as int);
+      showln(laser.speed as int);
+    }
+    Option::None => { showln(-1); }
+  }
+
+  lasers.free();
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 397
+-- 520
+-- 10
+-- DONE
