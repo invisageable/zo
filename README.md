@@ -85,6 +85,41 @@ SUCCESFULLY BUiLD AN EXECUTABLE AND DiSPLAY A CLEAR OUTPUT ABOUT THE COMPiLATiON
   chan1: 10
   ```
 
+BUiLD TiME iS LiNEAR, THE MORE LiNES YOU HAVE, THE MORE SPEED YOU GET. FOR EXAMPLE, zo COMPiLES 500K LiNES (iNCLUDiNG BLANK LiNES AND COMMENTS) iN LESS THAN A SECONDS (iT TAKES 749.563 ms). YOU CAN VERiFY THiS CLAiM WiTH:
+
+  - @RUN — `zo build crates/compiler/zo-benches/benches/stress_fun_500k/stress_fun_500k.zo`
+
+> *This sample is not a real-world program example. It exist to highlight the speed of the compiler. Our goal is to be able to compile 5M LoC/s. Let see where it will goes.*
+
+**-provider**
+
+  ```zo
+  load core::c::*;
+  load provider::raylib;
+
+  fun main() {
+    raylib::init_window(800, 600, CStr::new("zo + raylib — follow mouse"));
+    raylib::set_target_fps(60);
+
+    loop {
+      if raylib::window_should_close() { break }
+      if raylib::is_key_pressed(32)    { break }   -- SPACE.
+
+      imu mouse: Vector2 = raylib::get_mouse_position();
+
+      raylib::begin_drawing();
+        raylib::clear_background(0xFFFFFFFF);                            -- white.
+        raylib::draw_circle_v(mouse, 25.0, 0xFFFD5FF0);                  -- magenta.
+        raylib::draw_text(CStr::new("follow the mouse"), 12, 12, 24, 0xFF000000);
+      raylib::end_drawing();
+    }
+
+    raylib::close_window();
+  }
+  ```
+
+WE'RE GLAD TO SUPPORT [`raylib`](https://www.raylib.com) FROM [Ray](https://github.com/raysan5).
+
 ## why zo?
 
 zo iS BUiLT FROM THE GROUND UP USiNG DATA-ORiENTED DESiGN. BY HAND-ROLLiNG THE COMPiLER STAGES AND EMiTTiNG MACHiNE CODE DiRECTLY, zo ELiMiNATES THE OVERHEAD OF HEAVY ABSTRACTiONS AND EXTERNAL LiNKERS.
@@ -99,7 +134,7 @@ zo iS BUiLT FROM THE GROUND UP USiNG DATA-ORiENTED DESiGN. BY HAND-ROLLiNG THE C
 | **clang** | 148 ms      | ~67K LoC/s      | 2.4x slower       |
 | **rustc** | 321 ms      | ~31K LoC/s      | 5.3x slower       |
 
-*Workload: 10,000 lines of code compiled to native ARM64 binary (including Hindley-Milner type inference, monomorphization, type checking, constant folding, propagation, dead code elimination and link passes). No parallelization (for now).*
+*Workload: 10,000 lines of code compiled to native ARM64 binary (including Hindley-Milner type inference, monomorphization, type checking, constant folding, propagation, dead code elimination and link passes).*
 
 [@methodology-and-full-numbers](./crates/compiler/zo-benches)
 

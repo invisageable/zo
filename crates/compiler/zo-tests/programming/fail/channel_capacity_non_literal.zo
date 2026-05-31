@@ -1,0 +1,10 @@
+-! # how to errors: channel_capacity_non_literal.zo
+-!
+-! @cmd: `zo build channel_capacity_non_literal.zo`
+
+fun main() {
+  val BUF: int = 4;
+  nursery {
+    imu ch := channel(BUF);
+  }
+}

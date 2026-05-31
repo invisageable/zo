@@ -102,6 +102,11 @@ pub struct TyChecker {
   /// before analysis so every `report_error` call in the
   /// type checker carries the correct source file.
   current_file_id: u16,
+  /// Gate for `report`. When set, `unify` runs its full
+  /// logic but emits no diagnostic, so a caller that knows
+  /// better spans (e.g. a branch's two arms) can report the
+  /// mismatch itself. See [`TyChecker::unify_silent`].
+  suppress_reports: bool,
 }
 impl TyChecker {
   /// Create a new type checker with pre-registered primitives.
@@ -130,6 +135,7 @@ impl TyChecker {
       subst_undo: Vec::new(),
       subst_marks: Vec::new(),
       current_file_id: 0xFFFF,
+      suppress_reports: false,
     };
 
     // Core types.
@@ -207,7 +213,28 @@ impl TyChecker {
 
   /// Reports an error tagged with the current file.
   fn report(&self, kind: ErrorKind, span: Span) {
+    if self.suppress_reports {
+      return;
+    }
+
     report_error(Error::with_file(kind, span, self.current_file_id));
+  }
+
+  /// Unify without emitting a diagnostic on failure.
+  ///
+  /// The caller inspects the `None` result and reports the
+  /// mismatch with spans it controls — e.g. a branch's
+  /// offending arm as the primary and the first arm as the
+  /// secondary. Substitutions are still installed; only the
+  /// report is withheld.
+  pub fn unify_silent(&mut self, t1: TyId, t2: TyId) -> Option<TyId> {
+    self.suppress_reports = true;
+
+    let result = self.unify(t1, t2, Span::ZERO);
+
+    self.suppress_reports = false;
+
+    result
   }
 
   pub fn register_abstract(&mut self, name: Symbol) {
@@ -720,6 +747,25 @@ impl TyChecker {
     let repr = self.resolve_id(ty);
 
     self.tys[repr.0 as usize]
+  }
+
+  /// Read-only [`kind_of`] — follows inference-variable
+  /// substitutions without path compression. For the
+  /// diagnostic path, where the caller holds `&self` (e.g.
+  /// while a `FunCtx` is borrowed).
+  pub fn kind_of_ro(&self, ty: TyId) -> Ty {
+    let mut cur = ty;
+
+    loop {
+      match self.tys.get(cur.0 as usize) {
+        Some(Ty::Infer(var)) => match self.substitutions.get(var) {
+          Some(&subst) => cur = subst,
+          None => return Ty::Infer(*var),
+        },
+        Some(kind) => return *kind,
+        None => return Ty::Error,
+      }
+    }
   }
 
   /// Occurs check - prevents infinite types like α = List<α>

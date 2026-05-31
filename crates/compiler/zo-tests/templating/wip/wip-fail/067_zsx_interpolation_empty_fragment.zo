@@ -36,12 +36,12 @@ fun main() {
 -!    Hollow fragments are "noise" that we do not allow.
 
 -- EXPECTED OUTPUT:
--- [E0067] Error: Empty interpolation inside fragment
+-- [E0067] Error • Empty interpolation inside fragment
 --    ┌─ 067_zsx_interpolation_empty_fragment.zo:15:22
 --    │
 -- 15 │   imu view: </> = <> {} </>;
 --    │                      ^^ empty signal inside fragment
 --    │
---    = Note: An interpolation `{}` must contain a valid expression to produce a value.
---    = Help: Add a variable or value inside the braces `{}` or remove the fragment.
+--    = Note • An interpolation `{}` must contain a valid expression to produce a value.
+--    = Help • Add a variable or value inside the braces `{}` or remove the fragment.
 -- ────╯

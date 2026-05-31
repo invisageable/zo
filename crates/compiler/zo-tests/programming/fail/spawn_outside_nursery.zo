@@ -1,0 +1,13 @@
+-! # how to errors: spawn_outside_nursery.zo
+-!
+-! @cmd: `zo build spawn_outside_nursery.zo`
+-!
+-! A bare `spawn f()` at function level has no parent to
+-! anchor to, so zo rejects it at compile time rather than
+-! silently inventing an implicit nursery.
+
+fun worker() {}
+
+fun main() {
+  spawn worker();
+}

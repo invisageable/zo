@@ -1,0 +1,24 @@
+-! # how to errors: undefined_variable_typo.zo
+-!
+-! @cmd: `zo build undefined_variable_typo.zo`
+-!
+-! Using a name that isn't in scope is an `Undefined variable`
+-! error. When the name is a near-typo of an in-scope binding,
+-! zo measures the edit distance and suggests the closest one —
+-! here `cont` is one character away from `count`.
+
+fun main() {
+  imu count: int = 0;
+  showln(cont);
+}
+
+-- EXPECTED OUTPUT:
+-- [E0301] Error • Undefined variable
+--     ╭─[ undefined_variable_typo.zo:12:10 ]
+--     │
+--  12 │   showln(cont);
+--     │          ──┬─
+--     │            ╰─── variable not found in scope
+--     │
+--     │ Help • did you mean `count`?
+-- ────╯

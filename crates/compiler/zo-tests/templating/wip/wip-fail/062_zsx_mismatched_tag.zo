@@ -34,7 +34,7 @@ fun main() {
 -! 3. **The Philosophy:** Symmetry is speed. Total Control.
 
 -- EXPECTED OUTPUT:
--- [E0062] Error: Mismatched ZSX tags
+-- [E0062] Error • Mismatched ZSX tags
 --    ┌─ 062_zsx_mismatched_tag.zo:16:19
 --    │
 -- 16 │   imu view: </> = <div>"Mismatched Exit"</span>;
@@ -42,6 +42,6 @@ fun main() {
 --    │                     │                     ╰── mismatched closing tag
 --    │                     ╰── opened as `<div>` here
 --    │
---    = Note: The closing tag must exactly match the name of the opening tag.
---    = Help: Change the `</span>` to `</div>` at line 16, column 37.
+--    = Note • The closing tag must exactly match the name of the opening tag.
+--    = Help • Change the `</span>` to `</div>` at line 16, column 37.
 -- ────╯

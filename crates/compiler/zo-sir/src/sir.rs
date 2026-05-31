@@ -299,46 +299,32 @@ impl Sir {
   /// Every value-producing instruction has an explicit `dst`
   /// field. Non-value instructions return a sentinel.
   pub fn emit(&mut self, insn: Insn) -> ValueId {
-    let value_id = match &insn {
-      // All value-producing instructions have explicit dst.
-      Insn::ConstInt { dst, .. }
-      | Insn::ConstFloat { dst, .. }
-      | Insn::ConstBool { dst, .. }
-      | Insn::ConstString { dst, .. }
-      | Insn::Call { dst, .. }
-      | Insn::Load { dst, .. }
-      | Insn::BinOp { dst, .. }
-      | Insn::UnOp { dst, .. }
-      | Insn::ArrayLiteral { dst, .. }
-      | Insn::ArrayIndex { dst, .. }
-      | Insn::ArrayLen { dst, .. }
-      | Insn::ArrayPop { dst, .. }
-      | Insn::TupleLiteral { dst, .. }
-      | Insn::TupleIndex { dst, .. }
-      | Insn::EnumConstruct { dst, .. }
-      | Insn::StructConstruct { dst, .. }
-      | Insn::Cast { dst, .. }
-      // Concurrency value-producing insns.
-      | Insn::ChannelCreate { dst, .. }
-      | Insn::ChannelRecv { dst, .. }
-      | Insn::TaskSpawn { dst, .. }
-      | Insn::TaskAwait { dst, .. }
-      | Insn::TaskCancelled { dst, .. }
-      | Insn::StrSlice { dst, .. }
-      | Insn::ToStr { dst, .. }
-      | Insn::StringFormat { dst, .. }
-      | Insn::CoerceToDyn { dst, .. }
-      | Insn::DynDispatch { dst, .. } => *dst,
-      // Template uses `id` as its value.
-      Insn::Template { id, .. } => *id,
-      // Non-value instructions.
-      _ => ValueId(u32::MAX),
-    };
+    let value_id = insn.value_id();
 
     self.instructions.push(insn);
     self.node_idxs.push(self.node_cursor);
 
     value_id
+  }
+
+  /// Parse-node index of the instruction that defines
+  /// `value`, or `None` for a sentinel / undefined value.
+  ///
+  /// Scans the emitted instructions in reverse for the
+  /// matching `dst`. Reserved for the diagnostic path — a
+  /// type mismatch recovers the source span of each
+  /// conflicting value here — so the linear scan never runs
+  /// on the happy path.
+  pub fn node_of_value(&self, value: ValueId) -> Option<u32> {
+    if value.0 == u32::MAX {
+      return None;
+    }
+
+    self
+      .instructions
+      .iter()
+      .rposition(|insn| insn.value_id() == value)
+      .and_then(|i| self.node_idxs.get(i).copied())
   }
 
   /// Offsets all `ValueId`s in instructions by `offset`.
@@ -380,6 +366,47 @@ impl Sir {
 }
 
 impl Insn {
+  /// The `ValueId` this instruction defines, or the
+  /// `u32::MAX` sentinel for a non-value instruction.
+  ///
+  /// Single source of truth for the dst of each variant —
+  /// `emit` stamps it onto the value stream and
+  /// `Sir::node_of_value` reads it back to recover a value's
+  /// source span on the diagnostic path.
+  pub fn value_id(&self) -> ValueId {
+    match self {
+      Insn::ConstInt { dst, .. }
+      | Insn::ConstFloat { dst, .. }
+      | Insn::ConstBool { dst, .. }
+      | Insn::ConstString { dst, .. }
+      | Insn::Call { dst, .. }
+      | Insn::Load { dst, .. }
+      | Insn::BinOp { dst, .. }
+      | Insn::UnOp { dst, .. }
+      | Insn::ArrayLiteral { dst, .. }
+      | Insn::ArrayIndex { dst, .. }
+      | Insn::ArrayLen { dst, .. }
+      | Insn::ArrayPop { dst, .. }
+      | Insn::TupleLiteral { dst, .. }
+      | Insn::TupleIndex { dst, .. }
+      | Insn::EnumConstruct { dst, .. }
+      | Insn::StructConstruct { dst, .. }
+      | Insn::Cast { dst, .. }
+      | Insn::ChannelCreate { dst, .. }
+      | Insn::ChannelRecv { dst, .. }
+      | Insn::TaskSpawn { dst, .. }
+      | Insn::TaskAwait { dst, .. }
+      | Insn::TaskCancelled { dst, .. }
+      | Insn::StrSlice { dst, .. }
+      | Insn::ToStr { dst, .. }
+      | Insn::StringFormat { dst, .. }
+      | Insn::CoerceToDyn { dst, .. }
+      | Insn::DynDispatch { dst, .. } => *dst,
+      Insn::Template { id, .. } => *id,
+      _ => ValueId(u32::MAX),
+    }
+  }
+
   /// Walks every `ValueId` in this instruction, applying `f`.
   /// Used by SIR passes that need to rewrite value IDs
   /// (e.g., module merging, monomorphization).

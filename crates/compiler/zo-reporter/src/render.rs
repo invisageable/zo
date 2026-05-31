@@ -1,13 +1,26 @@
 use crate::aggregator::ErrorAggregator;
+use crate::collector::Detail;
 
 use zo_error::{Error, ErrorKind, Severity};
 use zo_span::Span;
 
-use ariadne::{ColorGenerator, Label, Report, ReportKind, Source};
+use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 
 use std::io;
+use std::io::Write;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+
+/// Green (256-color palette) for a secondary span — the
+/// value a mismatch conflicts with. Contrasts the red primary
+/// so the two conflicting values stay visually distinct.
+const SECONDARY_COLOR: Color = Color::Fixed(155);
+
+/// The SGR reset sequence yansi (via ariadne) emits to close
+/// a colored run. Used to locate ariadne's `Note:` / `Help:`
+/// colons — which always follow a reset — for the bullet
+/// rewrite.
+const ANSI_RESET: &str = "\u{1b}[0m";
 
 /// Configuration for error rendering.
 #[derive(Debug, Clone)]
@@ -62,8 +75,6 @@ impl ErrorRenderer {
     aggregator: &ErrorAggregator,
     files: &[(PathBuf, String)],
   ) -> io::Result<()> {
-    let mut colors = ColorGenerator::new();
-
     for phase_errors in aggregator.errors() {
       let errors_to_show = phase_errors
         .errors
@@ -79,7 +90,12 @@ impl ErrorRenderer {
           continue;
         }
 
-        self.render_error(error, source, &filename, &mut colors)?;
+        self.render_error(
+          error,
+          source,
+          &filename,
+          aggregator.detail_for(error),
+        )?;
       }
 
       if phase_errors.errors.len() > self.config.max_errors_per_phase {
@@ -100,23 +116,28 @@ impl ErrorRenderer {
     error: &Error,
     source: &str,
     filename: &str,
-    colors: &mut ColorGenerator,
+    detail: Option<&Detail>,
   ) -> io::Result<()> {
     let span = error.span();
     let kind = error.kind();
     let range = span_to_range(span, source);
 
-    // Severity drives the visual style: red `Error:` for hard
-    // errors, yellow `Warning:` for soft diagnostics, blue
-    // `Advice:` for compiler-decision rationale. ariadne owns
-    // the colors per `ReportKind`.
-    let report_kind = match error.severity() {
-      Severity::Error => ReportKind::Error,
-      Severity::Warning => ReportKind::Warning,
-      Severity::Note => ReportKind::Advice,
+    // Severity drives the kind word and its color: red
+    // `Error` for hard errors, yellow `Warning` for soft
+    // diagnostics, blue `Note` for compiler-decision
+    // rationale. The headline message and the primary caret
+    // share the color so the claim and its pointer read as
+    // one unit.
+    let (kind_word, primary_color) = match error.severity() {
+      Severity::Error => ("Error", Color::Red),
+      Severity::Warning => ("Warning", Color::Yellow),
+      Severity::Note => ("Note", Color::Blue),
     };
 
-    let mut report = Report::build(report_kind, (filename, range.clone()));
+    let mut report = Report::build(
+      ReportKind::Custom(kind_word, primary_color),
+      (filename, range.clone()),
+    );
 
     // Add error code if configured. Code derived from
     // `zo-error`'s frozen `id_registry` — phase-position
@@ -125,50 +146,95 @@ impl ErrorRenderer {
       report = report.with_code(format!("E{:04}", kind.code()));
     }
 
-    // Set the main error message
-    report = report.with_message(error_message(kind));
+    // Headline message in the primary color.
+    report = report.with_message(error_message(kind).fg(primary_color));
 
-    // Add the error label at the span location
-    // For binary operations, this will point to the operator itself
-    let label_msg = match kind {
-      ErrorKind::TypeMismatch => "incompatible types for this operation",
-      _ => error_label(kind),
-    };
-    let color = colors.next();
+    // Primary label — the offending value. Caret AND message
+    // share the primary color (ariadne paints the caret;
+    // `.fg` paints the message to match). The detail names the
+    // value's type when present; otherwise fall back to the
+    // per-kind label.
+    let label_msg =
+      detail.and_then(Detail::primary_label).unwrap_or_else(|| {
+        if kind == ErrorKind::TypeMismatch {
+          "incompatible type here".to_owned()
+        } else {
+          error_label(kind).to_owned()
+        }
+      });
     report = report.with_label(
       Label::new((filename, range.clone()))
-        .with_message(label_msg)
-        .with_color(color),
+        .with_message(label_msg.fg(primary_color))
+        .with_color(primary_color),
     );
 
-    // Add secondary label if the error has two spans.
+    // Secondary label — the value the primary conflicts with.
+    // Fixed green to contrast the red primary; message colored
+    // to match its own caret, naming the type when known.
     if let Some(secondary) = error.secondary_span() {
       let sec_range = span_to_range(secondary, source);
-      let sec_color = colors.next();
+
+      let sec_msg = detail
+        .and_then(Detail::secondary_label)
+        .unwrap_or_else(|| secondary_label(kind).to_owned());
 
       report = report.with_label(
         Label::new((filename, sec_range))
-          .with_message(secondary_label(kind))
-          .with_color(sec_color),
+          .with_message(sec_msg.fg(SECONDARY_COLOR))
+          .with_color(SECONDARY_COLOR),
       );
     }
 
-    // Add help message if configured
-    if self.config.show_help
-      && let Some(help) = error_help(kind)
-    {
-      report = report.with_help(help);
+    // Add help. The detail carries its own resolution (a typo's
+    // closest match, a signature reminder, …) when present;
+    // otherwise fall back to the per-kind prose.
+    if self.config.show_help {
+      let help = detail
+        .and_then(Detail::help)
+        .or_else(|| error_help(kind).map(str::to_owned));
+
+      if let Some(help) = help {
+        // The help is the resolution, not the claim — leave the
+        // prose uncolored so it doesn't wear the error's red.
+        report = report.with_help(help);
+      }
     }
 
-    // Add notes for specific error kinds
-    if let Some(note) = error_note(kind) {
+    // Notes use the static per-kind text — except where the
+    // detail's own labels already explain the mismatch (an
+    // argument mismatch, a missing return, a discarded value).
+    if !detail.is_some_and(Detail::suppresses_note)
+      && let Some(note) = error_note(kind)
+    {
       report = report.with_note(note);
     }
 
-    // Finish and print the report
+    // Finish the report.
     let report = report.finish();
 
-    report.eprint((filename, Source::from(source)))?;
+    // ariadne hardcodes `:` after the kind, the `Note` label,
+    // and the `Help` label. Render to a buffer and swap those
+    // colons for ` • ` so the whole diagnostic reads
+    // `Kind • …`, `Note • …`, `Help • …`.
+    //
+    // Two distinct rewrites because ariadne colors them
+    // differently:
+    //  - Header: the colon is *inside* the colored kind chunk
+    //    (`…Error:` then reset), so match `{kind_word}:`. It's
+    //    the first line, so the first match is the header.
+    //  - Note / Help: the colon is *outside* the colored label
+    //    (`Note` then reset then `: `), so the colon always
+    //    follows a reset. Source colons sit inside their own
+    //    color span, so `<reset>: ` is unique to these labels.
+    let mut buf = Vec::new();
+
+    report.write((filename, Source::from(source)), &mut buf)?;
+
+    let rendered = String::from_utf8_lossy(&buf)
+      .replacen(&format!("{kind_word}:"), &format!("{kind_word} •"), 1)
+      .replace(&format!("{ANSI_RESET}: "), &format!("{ANSI_RESET} • "));
+
+    io::stderr().write_all(rendered.as_bytes())?;
 
     Ok(())
   }
@@ -584,6 +650,7 @@ fn secondary_label(kind: ErrorKind) -> &'static str {
       "vendor fallback also missing — expected under `<exe-dir>/../lib/vendor/`"
     }
     ErrorKind::BoundNotSatisfied => "bound declared here on this parameter",
+    ErrorKind::TypeMismatch => "conflicts with this type",
     _ => "related location",
   }
 }

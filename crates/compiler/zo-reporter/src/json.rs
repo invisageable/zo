@@ -61,14 +61,17 @@
 //! is the only escape hatch for incompatible changes.
 
 use crate::aggregator::{ErrorAggregator, Phase};
+use crate::collector::Detail;
 use crate::fixes::{FixIt, FixKind, fixes_for};
 use crate::render::{error_message, error_note};
 
 use zo_error::Error;
+use zo_span::Span;
 
 use serde_json::{Map, Value, json};
 
-use std::io::{self, Write};
+use std::io;
+use std::io::Write;
 use std::path::PathBuf;
 
 /// Schema version. Bump on incompatible shape changes
@@ -100,6 +103,7 @@ pub fn to_json<W: Write>(
         source,
         &filename,
         snippet_context,
+        aggregator.detail_for(error),
       );
       let line = serde_json::to_string(&obj)?;
 
@@ -162,32 +166,26 @@ fn encode(
   source: &str,
   filename: &str,
   snippet_context: usize,
+  detail: Option<&Detail>,
 ) -> Value {
   let kind = error.kind();
   let span = error.span();
   let byte_start = (span.start as usize).min(source.len());
   let byte_end = (span.end() as usize).min(source.len());
-  let ((line_start, col_start), (line_end, col_end)) =
-    line_col_pair(source, byte_start, byte_end);
   let snippet = extract_snippet(source, byte_start, byte_end, snippet_context);
   let fixes = encode_fixes(fixes_for(kind), filename, span.start, span.end());
 
   // Always an array — empty when the kind has no attached
-  // note — so consumers never need a presence check.
+  // note — so consumers never need a presence check. Where the
+  // detail's own fields already explain the mismatch, the
+  // generic per-kind note is redundant.
+  let suppress_note = detail.is_some_and(Detail::suppresses_note);
   let notes: Vec<Value> = match error_note(kind) {
-    Some(text) => vec![json!(text)],
-    None => Vec::new(),
+    Some(text) if !suppress_note => vec![json!(text)],
+    _ => Vec::new(),
   };
 
-  let mut obj = Map::with_capacity(10);
-
-  let mut span_obj = span_json(filename, span.start, span.end());
-  if let Value::Object(map) = &mut span_obj {
-    map.insert("line_start".into(), json!(line_start));
-    map.insert("line_end".into(), json!(line_end));
-    map.insert("col_start".into(), json!(col_start));
-    map.insert("col_end".into(), json!(col_end));
-  }
+  let mut obj = Map::with_capacity(11);
 
   obj.insert("$schema".into(), json!(SCHEMA_VERSION));
   obj.insert("id".into(), json!(kind.id()));
@@ -205,9 +203,95 @@ fn encode(
       "after":  snippet.2,
     }),
   );
-  obj.insert("span".into(), span_obj);
+  obj.insert("span".into(), full_span_json(filename, span, source));
+
+  // The conflicting value in a type mismatch (the green
+  // secondary in the human render). Present only when the
+  // diagnostic carries two spans.
+  if let Some(secondary) = error.secondary_span() {
+    obj.insert(
+      "secondary".into(),
+      full_span_json(filename, secondary, source),
+    );
+  }
+
+  // Dynamic detail, machine-readable. Type names are the
+  // grounds of a mismatch; a suggestion is the closest
+  // in-scope name for a typo, which also yields a replace fix.
+  match detail {
+    Some(Detail::Types(names)) => {
+      obj.insert("primary_type".into(), json!(&*names.primary));
+      obj.insert("secondary_type".into(), json!(&*names.secondary));
+    }
+    Some(Detail::Suggestion(name)) => {
+      obj.insert("suggestion".into(), json!(&**name));
+
+      // Append a machine-applicable fix: replace the
+      // undefined name with the suggestion.
+      if let Some(Value::Array(fixes)) = obj.get_mut("fixes") {
+        fixes.push(json!({
+          "kind":        FixKind::Replace.as_str(),
+          "text":        &**name,
+          "description": format!("replace with `{name}`"),
+          "span":        span_json(filename, span.start, span.end()),
+        }));
+      }
+    }
+    Some(Detail::ArgCount {
+      callee,
+      expected,
+      given,
+      signature,
+    }) => {
+      obj.insert("callee".into(), json!(&**callee));
+      obj.insert("expected_count".into(), json!(expected));
+      obj.insert("given_count".into(), json!(given));
+      obj.insert("signature".into(), json!(&**signature));
+    }
+    Some(Detail::ArgType {
+      callee,
+      found,
+      expected,
+      signature,
+    }) => {
+      obj.insert("callee".into(), json!(&**callee));
+      obj.insert("primary_type".into(), json!(&**found));
+      obj.insert("secondary_type".into(), json!(&**expected));
+      obj.insert("signature".into(), json!(&**signature));
+    }
+    Some(Detail::ReturnType { found, expected }) => {
+      obj.insert("found_type".into(), json!(&**found));
+      obj.insert("expected_type".into(), json!(&**expected));
+    }
+    Some(Detail::DiscardedValue { found }) => {
+      obj.insert("found_type".into(), json!(&**found));
+      obj.insert("expected_type".into(), json!("unit"));
+    }
+    None => {}
+  }
 
   Value::Object(obj)
+}
+
+/// Full span object — byte offsets plus 1-indexed line/col —
+/// for the primary span and the secondary (the value a
+/// mismatch conflicts with).
+fn full_span_json(filename: &str, span: Span, source: &str) -> Value {
+  let byte_start = (span.start as usize).min(source.len());
+  let byte_end = (span.end() as usize).min(source.len());
+  let ((line_start, col_start), (line_end, col_end)) =
+    line_col_pair(source, byte_start, byte_end);
+
+  let mut obj = span_json(filename, span.start, span.end());
+
+  if let Value::Object(map) = &mut obj {
+    map.insert("line_start".into(), json!(line_start));
+    map.insert("line_end".into(), json!(line_end));
+    map.insert("col_start".into(), json!(col_start));
+    map.insert("col_end".into(), json!(col_end));
+  }
+
+  obj
 }
 
 /// Builds the `span` sub-object shared by the diagnostic's
@@ -451,6 +535,7 @@ mod tests {
   use super::*;
 
   use crate::aggregator::ErrorAggregator;
+  use crate::collector::TyNames;
 
   use zo_error::{Error, ErrorKind};
   use zo_span::Span;
@@ -568,6 +653,160 @@ mod tests {
     assert_eq!(v["span"]["line_end"], json!(1));
     assert_eq!(v["span"]["col_start"], json!(71));
     assert_eq!(v["span"]["col_end"], json!(71));
+    // No secondary span on a single-span diagnostic.
+    assert!(v.get("secondary").is_none());
+  }
+
+  #[test]
+  fn type_mismatch_emits_secondary_span() {
+    // `1 + true`: primary caret on `true` (byte 4..8), the
+    // secondary on `1` (byte 0..1) — both values lit.
+    let source = "1 + true";
+    let err = Error::with_secondary(
+      ErrorKind::TypeMismatch,
+      Span::new(4, 4),
+      Span::new(0, 1),
+    );
+    let agg = aggregate(err);
+    let mut buf = Vec::new();
+
+    to_json(&agg, &files("foo.zo", source), 0, &mut buf).unwrap();
+    let v: Value =
+      serde_json::from_str(String::from_utf8(buf).unwrap().trim()).unwrap();
+
+    assert_eq!(v["span"]["byte_start"], json!(4));
+    assert_eq!(v["span"]["byte_end"], json!(8));
+
+    let sec = &v["secondary"];
+    assert_eq!(sec["file"], json!("foo.zo"));
+    assert_eq!(sec["byte_start"], json!(0));
+    assert_eq!(sec["byte_end"], json!(1));
+    assert_eq!(sec["line_start"], json!(1));
+    assert_eq!(sec["col_start"], json!(1));
+    // No type-name detail unless the aggregator carries it.
+    assert!(v.get("primary_type").is_none());
+  }
+
+  #[test]
+  fn type_mismatch_emits_type_names() {
+    // With detail present, the conflicting type names are
+    // emitted as machine-readable fields.
+    let source = "1 + true";
+    let err = Error::with_secondary(
+      ErrorKind::TypeMismatch,
+      Span::new(4, 4),
+      Span::new(0, 1),
+    );
+    let detail = Detail::Types(TyNames {
+      primary: "bool".into(),
+      secondary: "int".into(),
+    });
+
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&detail));
+
+    assert_eq!(v["primary_type"], json!("bool"));
+    assert_eq!(v["secondary_type"], json!("int"));
+  }
+
+  #[test]
+  fn undefined_variable_emits_suggestion_and_fix() {
+    // `cont` at byte 7..11, suggested fix `count`.
+    let source = "showln(cont)";
+    let err = Error::new(ErrorKind::UndefinedVariable, Span::new(7, 4));
+    let detail = Detail::Suggestion("count".into());
+
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&detail));
+
+    assert_eq!(v["suggestion"], json!("count"));
+
+    let fixes = v["fixes"].as_array().expect("`fixes` is an array");
+    assert_eq!(fixes.len(), 1, "the suggestion adds one replace fix");
+    assert_eq!(fixes[0]["kind"], json!("replace"));
+    assert_eq!(fixes[0]["text"], json!("count"));
+    assert_eq!(fixes[0]["span"]["byte_start"], json!(7));
+    assert_eq!(fixes[0]["span"]["byte_end"], json!(11));
+  }
+
+  #[test]
+  fn arg_count_mismatch_emits_counts_and_signature() {
+    let source = "add(1)";
+    let err = Error::new(ErrorKind::ArgumentCountMismatch, Span::new(0, 3));
+    let detail = Detail::ArgCount {
+      callee: "add".into(),
+      expected: 2,
+      given: 1,
+      signature: "add(a: int, b: int) -> int".into(),
+    };
+
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&detail));
+
+    assert_eq!(v["callee"], json!("add"));
+    assert_eq!(v["expected_count"], json!(2));
+    assert_eq!(v["given_count"], json!(1));
+    assert_eq!(v["signature"], json!("add(a: int, b: int) -> int"));
+  }
+
+  #[test]
+  fn arg_type_mismatch_emits_types_and_signature() {
+    let source = "greet(42)";
+    let err = Error::new(ErrorKind::TypeMismatch, Span::new(6, 2));
+    let detail = Detail::ArgType {
+      callee: "greet".into(),
+      found: "int".into(),
+      expected: "str".into(),
+      signature: "greet(name: str) -> str".into(),
+    };
+
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&detail));
+
+    assert_eq!(v["callee"], json!("greet"));
+    assert_eq!(v["primary_type"], json!("int"));
+    assert_eq!(v["secondary_type"], json!("str"));
+    assert_eq!(v["signature"], json!("greet(name: str) -> str"));
+    // The "operands" note doesn't apply to an argument mismatch.
+    assert_eq!(v["notes"].as_array().expect("array").len(), 0);
+  }
+
+  #[test]
+  fn missing_return_emits_found_and_expected() {
+    let source = "fun pick() -> int {\n}";
+    let err = Error::with_secondary(
+      ErrorKind::TypeMismatch,
+      Span::new(0, 3),
+      Span::new(14, 3),
+    );
+    let detail = Detail::ReturnType {
+      found: "unit".into(),
+      expected: "int".into(),
+    };
+
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&detail));
+
+    assert_eq!(v["found_type"], json!("unit"));
+    assert_eq!(v["expected_type"], json!("int"));
+    // The "operands" note doesn't apply.
+    assert_eq!(v["notes"].as_array().expect("array").len(), 0);
+    // Secondary span points at the return-type annotation.
+    assert_eq!(v["secondary"]["byte_start"], json!(14));
+  }
+
+  #[test]
+  fn discarded_value_emits_found_and_unit() {
+    let source = "fun pick() {\n  42\n}";
+    let err = Error::with_secondary(
+      ErrorKind::TypeMismatch,
+      Span::new(15, 2),
+      Span::new(4, 4),
+    );
+    let detail = Detail::DiscardedValue {
+      found: "int".into(),
+    };
+
+    let v = encode(&err, Phase::Analyzer, source, "foo.zo", 0, Some(&detail));
+
+    assert_eq!(v["found_type"], json!("int"));
+    assert_eq!(v["expected_type"], json!("unit"));
+    assert_eq!(v["notes"].as_array().expect("array").len(), 0);
   }
 
   #[test]

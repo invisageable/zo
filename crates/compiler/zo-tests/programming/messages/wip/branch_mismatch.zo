@@ -1,0 +1,3 @@
+fun main() {
+  imu y := when true ? 1 : true;
+}

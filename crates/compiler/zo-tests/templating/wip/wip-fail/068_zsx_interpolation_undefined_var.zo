@@ -40,13 +40,13 @@ fun main() {
 -!      every piece of data comes from. No "Ghost Variables."
 
 -- EXPECTED OUTPUT:
--- [E0068] Error: Undefined variable in ZSX interpolation
+-- [E0068] Error • Undefined variable in ZSX interpolation
 --    ┌─ 068_zsx_undefined_var.zo:17:35
 --    │
 -- 17 │   imu view: </> = <div> "Welcome, {user_id}" </div>;
 --    │                                   ^^^^^^^ unknown variable
 --    │
---    = Note: You are trying to use a variable that hasn't been declared yet.
---    = Help: Did you mean `name`? Check for typos or declare `user_id` 
+--    = Note • You are trying to use a variable that hasn't been declared yet.
+--    = Help • Did you mean `name`? Check for typos or declare `user_id` 
 --            before using it in the template.
 -- ────╯

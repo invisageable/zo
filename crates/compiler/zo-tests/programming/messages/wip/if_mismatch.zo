@@ -1,0 +1,9 @@
+fun pick() -> int {
+  if true {
+    1
+  } else {
+    true
+  }
+}
+
+fun main() {}

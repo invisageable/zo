@@ -132,6 +132,16 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
   - **How Should Compilers Explain Problems to Developers?**
     - https://static.barik.net/barik/publications/fse2018/barik_fse18.pdf — Titus Barik, Denae Ford, Emerson Murphy-Hill and Chris Parnin (2018)
 
+## web.
+
+  - **Whither Web Programming**
+    - https://www.infoq.com/presentations/web-programming-future — Gilad Bracha (2014)
+
+## research paper.
+
+  - **How to write a great research paper**
+    - https://www.microsoft.com/en-us/research/wp-content/uploads/2016/07/How-to-write-a-great-research-paper.pdf — Simon Peyton Jones (..)
+
 ## repository.
 
 **-compilers**

@@ -7,7 +7,10 @@ use zo_module_resolver::{
   AbstractDef, AbstractImpl, AbstractMethod, ExportedGenericBody,
   ExportedLiteral,
 };
-use zo_reporter::report_error;
+use zo_reporter::{
+  Detail, TyNames, report_error, report_error_with_detail,
+  report_error_with_suggestion, report_error_with_types,
+};
 use zo_sir::{
   BinOp, ComputedBinding, ImportKind, Insn, LinkEntry, LinkPath,
   LinkResolution, LinkSpec, ListBinding, ListItemCmd, LoadSource, NurseryKind,
@@ -249,6 +252,14 @@ pub struct Executor<'a> {
   pending_function: Option<FunDef>,
   /// True when the pending function has `-> Type` annotation.
   pending_fn_has_return_annotation: bool,
+  /// Span of the pending function's return-type annotation
+  /// (the `int` in `-> int`). Secondary caret for the
+  /// missing-return diagnostic.
+  pending_fn_return_ty_span: Span,
+  /// Span of the pending function's name identifier. Primary
+  /// caret for the missing-return diagnostic — never the
+  /// `fun` keyword.
+  pending_fn_name_span: Span,
   /// Counter for generating unique template IDs
   template_counter: u32,
   /// Pending variable name from imu/mut for template assignment
@@ -825,6 +836,8 @@ impl<'a> Executor<'a> {
       saved_outer_funs: Vec::new(),
       pending_function: None,
       pending_fn_has_return_annotation: false,
+      pending_fn_return_ty_span: Span::ZERO,
+      pending_fn_name_span: Span::ZERO,
       template_counter: 0,
       pending_var_name: None,
       widget_counter: Cell::new(0),
@@ -1529,6 +1542,176 @@ impl<'a> Executor<'a> {
     ));
   }
 
+  /// Source span of the expression that produced `value`,
+  /// or `None` for a synthetic / sentinel value with no
+  /// defining instruction. The diagnostic path uses it to
+  /// blame the conflicting value in a type mismatch.
+  fn span_of_value(&self, value: ValueId) -> Option<Span> {
+    self
+      .sir
+      .node_of_value(value)
+      .and_then(|node| self.tree.spans.get(node as usize).copied())
+  }
+
+  /// Build a `TypeMismatch` with `primary` as the main caret
+  /// and `secondary` as a second caret — dropping the secondary
+  /// when its span is absent (`Span::ZERO`), e.g. for a closure
+  /// whose name or return type was never captured.
+  fn type_mismatch_error(&self, primary: Span, secondary: Span) -> Error {
+    if secondary == Span::ZERO {
+      Error::with_file(ErrorKind::TypeMismatch, primary, self.current_file_id)
+    } else {
+      Error::with_file_and_secondary(
+        ErrorKind::TypeMismatch,
+        primary,
+        secondary,
+        self.current_file_id,
+      )
+    }
+  }
+
+  /// Report a type mismatch between two values, pointing the
+  /// primary caret at `primary.value` and the secondary at
+  /// `secondary.value`, and naming each value's type. Falls
+  /// back to `fallback` for whichever value has no
+  /// recoverable source span.
+  fn report_value_mismatch(
+    &self,
+    primary: MismatchValue,
+    secondary: MismatchValue,
+    fallback: Span,
+  ) {
+    let primary_span = self.span_of_value(primary.value).unwrap_or(fallback);
+    let secondary_span =
+      self.span_of_value(secondary.value).unwrap_or(fallback);
+
+    let error = Error::with_file_and_secondary(
+      ErrorKind::TypeMismatch,
+      primary_span,
+      secondary_span,
+      self.current_file_id,
+    );
+
+    report_error_with_types(
+      error,
+      TyNames {
+        primary: primary.ty_name.into(),
+        secondary: secondary.ty_name.into(),
+      },
+    );
+  }
+
+  /// Human display name for a type — `int`, `str`, a struct /
+  /// enum's name, etc. Used to name the conflicting types in
+  /// a mismatch diagnostic. `&self` (via `kind_of_ro`) so it
+  /// composes with an active `FunCtx` borrow.
+  fn ty_display_name(&self, ty_id: TyId) -> String {
+    let resolved = self.ty_checker.kind_of_ro(ty_id);
+
+    if let Some(name) = Self::primitive_ty_name_str(&resolved) {
+      return name.to_owned();
+    }
+
+    match resolved {
+      Ty::Struct(sid) => self
+        .ty_checker
+        .ty_table
+        .struct_ty(sid)
+        .map(|s| self.interner.get(s.name).to_owned())
+        .unwrap_or_else(|| "?".to_owned()),
+      Ty::Enum(eid) => self
+        .ty_checker
+        .ty_table
+        .enum_ty(eid)
+        .map(|e| self.interner.get(e.name).to_owned())
+        .unwrap_or_else(|| "?".to_owned()),
+      Ty::Array(aid) => match self.ty_checker.ty_table.array(aid) {
+        Some(arr) => {
+          let elem = self.ty_checker.kind_of_ro(arr.elem_ty);
+
+          match Self::primitive_ty_name_str(&elem) {
+            Some(name) => format!("[]{name}"),
+            None => "[]".to_owned(),
+          }
+        }
+        None => "array".to_owned(),
+      },
+      Ty::Unit => "unit".to_owned(),
+      _ => "?".to_owned(),
+    }
+  }
+
+  /// Render a callee's signature for a diagnostic help line,
+  /// e.g. `add(a: int, b: int) -> int`. Pre-rendered in the
+  /// executor because it needs the interner and ty-checker the
+  /// reporter doesn't have.
+  fn render_signature(&self, func: &FunDef) -> String {
+    let params: Vec<String> = func
+      .params
+      .iter()
+      .map(|(name, ty)| {
+        format!(
+          "{}: {}",
+          self.interner.get(*name),
+          self.ty_display_name(*ty)
+        )
+      })
+      .collect();
+
+    format!(
+      "{}({}) -> {}",
+      self.interner.get(func.name),
+      params.join(", "),
+      self.ty_display_name(func.return_ty),
+    )
+  }
+
+  /// Report an undefined variable, attaching the closest
+  /// in-scope name as a `did you mean …?` suggestion when one
+  /// is near enough to be a likely typo.
+  fn report_undefined_variable(&self, name: Symbol, span: Span) {
+    let error = Error::with_file(
+      ErrorKind::UndefinedVariable,
+      span,
+      self.current_file_id,
+    );
+
+    match self.suggest_variable(name) {
+      Some(suggestion) => report_error_with_suggestion(error, &suggestion),
+      None => report_error(error),
+    };
+  }
+
+  /// Closest in-scope variable name to `name` by edit
+  /// distance, if one is near enough to be a likely typo.
+  /// Candidates are the live locals — out-of-scope and
+  /// shadowed bindings are skipped.
+  fn suggest_variable(&self, name: Symbol) -> Option<String> {
+    let target = self.interner.get(name);
+    let mut best: Option<(usize, &str)> = None;
+
+    for local in &self.locals {
+      if local.name == name || !self.local_scope.contains(local.name) {
+        continue;
+      }
+
+      let candidate = self.interner.get(local.name);
+      let distance = levenshtein(target, candidate);
+
+      // A typo is a small edit relative to the longer name;
+      // scale the bound by length so short names stay strict.
+      let threshold = (target.len().max(candidate.len()) / 3).max(1);
+
+      if distance <= threshold
+        && best.is_none_or(|(best_distance, _)| distance < best_distance)
+      {
+        best = Some((distance, candidate));
+      }
+    }
+
+    best.map(|(_, name)| name.to_owned())
+  }
+
   /// Emit `Insn::PackDecl`, mark the pack name in scope,
   /// and seed `top_pack`. Returns `true` when the name was
   /// new — callers can branch on the return to decide
@@ -1919,9 +2102,12 @@ impl<'a> Executor<'a> {
 
     // Reset state that prescan mutated so the main pass
     // starts from a clean slate.
+    // TODO: create a reset function and put every reset thing in there.
     self.prescan_only = false;
     self.skip_until = 0;
     self.pending_fn_has_return_annotation = false;
+    self.pending_fn_return_ty_span = Span::ZERO;
+    self.pending_fn_name_span = Span::ZERO;
     self.type_params.clear();
     self.type_constraints.clear();
     self.apply_context = None;
@@ -2627,6 +2813,7 @@ impl<'a> Executor<'a> {
 
         self.branch_stack.push(BranchCtx {
           kind: BranchKind::Ternary,
+          span: self.tree.spans[idx],
           end_label,
           else_label: Some(else_label),
           // Store stack depth at When for deferred
@@ -2638,6 +2825,7 @@ impl<'a> Executor<'a> {
           scope_depth: self.scope_stack.len(),
           value_sink,
           value_sink_ty: None,
+          value_sink_value: None,
           stack_depth_at_entry: self.sir_values.len() as u32,
         });
       }
@@ -3189,6 +3377,8 @@ impl<'a> Executor<'a> {
             fundef_idx,
             has_explicit_return: false,
             has_return_type_annotation: self.pending_fn_has_return_annotation,
+            return_ty_span: self.pending_fn_return_ty_span,
+            name_span: self.pending_fn_name_span,
             pending_return: false,
             scope_depth: self.scope_stack.len(),
           });
@@ -3417,11 +3607,55 @@ impl<'a> Executor<'a> {
               // a return type (forced to unit by error recovery
               // in main). Stale values from control flow
               // (while/if) are NOT return values.
-              if has_value
-                && body_ty != unit_ty
-                && fun_ctx.has_return_type_annotation
-              {
-                self.report(ErrorKind::TypeMismatch, fn_span);
+              if has_value && body_ty != unit_ty {
+                // Point at the produced value, not the `fun`
+                // keyword.
+                let value_span = self
+                  .sir_values
+                  .last()
+                  .copied()
+                  .filter(|v| v.0 != u32::MAX)
+                  .and_then(|v| self.span_of_value(v))
+                  .unwrap_or(fn_span);
+
+                let found = self.ty_display_name(body_ty);
+
+                if fun_ctx.has_return_type_annotation {
+                  // `fun main() -> str { "DONE" }` — main is
+                  // forced to unit; the declared type clashes
+                  // with the body value.
+                  let error = Error::with_file(
+                    ErrorKind::TypeMismatch,
+                    value_span,
+                    self.current_file_id,
+                  );
+
+                  report_error_with_types(
+                    error,
+                    TyNames {
+                      primary: found.into(),
+                      secondary: "unit".into(),
+                    },
+                  );
+                } else {
+                  // The name is primary, the value secondary:
+                  // ariadne splits an out-of-order pair into two
+                  // boxes, so the earlier span must come first.
+                  let name_span = if fun_ctx.name_span == Span::ZERO {
+                    fn_span
+                  } else {
+                    fun_ctx.name_span
+                  };
+
+                  let error = self.type_mismatch_error(name_span, value_span);
+
+                  report_error_with_detail(
+                    error,
+                    Detail::DiscardedValue {
+                      found: found.into(),
+                    },
+                  );
+                }
               }
 
               (None, unit_ty)
@@ -3442,7 +3676,30 @@ impl<'a> Executor<'a> {
               // surfacing a spurious type-mismatch.
               (None, unit_ty)
             } else {
-              self.report(ErrorKind::TypeMismatch, fn_span);
+              // Missing return: a non-unit function falls off
+              // its end. Two carets like any type mismatch —
+              // the function returns no value (primary, on the
+              // name), and it's declared to return a type
+              // (secondary, on the annotation). Point at the
+              // name, never the `fun` keyword. Single caret
+              // when the spans weren't captured (closures).
+              let expected = self.ty_display_name(func_return_ty);
+              let name_span = if fun_ctx.name_span == Span::ZERO {
+                fn_span
+              } else {
+                fun_ctx.name_span
+              };
+              let return_ty_span = fun_ctx.return_ty_span;
+
+              let error = self.type_mismatch_error(name_span, return_ty_span);
+
+              report_error_with_detail(
+                error,
+                Detail::ReturnType {
+                  found: "unit".into(),
+                  expected: expected.into(),
+                },
+              );
 
               (None, unit_ty)
             };
@@ -4496,7 +4753,7 @@ impl<'a> Executor<'a> {
             {
               let span = self.tree.spans[idx];
 
-              self.report(ErrorKind::UndefinedVariable, span);
+              self.report_undefined_variable(sym, span);
 
               let error_id = self.values.store_runtime(u32::MAX);
 
@@ -5982,7 +6239,7 @@ impl<'a> Executor<'a> {
     let (lhs_ty, lhs_sir, rhs_ty, rhs_sir) =
       self.widen_mixed_float_binop(lhs_ty, lhs_sir, rhs_ty, rhs_sir);
 
-    match self.ty_checker.unify(lhs_ty, rhs_ty, span) {
+    match self.ty_checker.unify_silent(lhs_ty, rhs_ty) {
       Some(ty_id) => {
         // Try constant folding — but only if both operands
         // are compile-time constants. Skip when either is a
@@ -6323,10 +6580,26 @@ impl<'a> Executor<'a> {
         });
       }
       None => {
-        // `TyChecker::unify` has already reported
-        // `TypeMismatch` with the proper span; we just have
-        // to bail out without emitting a `BinOp` and push
-        // sentinel values so the stacks stay balanced.
+        // Point the carets at the two operands — `1` and
+        // `true` in `1 + true` — not at the operator. Primary
+        // on the right operand, secondary on the left. Bail
+        // without emitting a `BinOp` and push sentinels so
+        // the stacks stay balanced.
+        let rhs_name = self.ty_display_name(rhs_ty);
+        let lhs_name = self.ty_display_name(lhs_ty);
+
+        self.report_value_mismatch(
+          MismatchValue {
+            value: rhs_sir,
+            ty_name: &rhs_name,
+          },
+          MismatchValue {
+            value: lhs_sir,
+            ty_name: &lhs_name,
+          },
+          span,
+        );
+
         let error_id = self.values.store_runtime(u32::MAX);
 
         self.value_stack.push(error_id);
@@ -6360,10 +6633,35 @@ impl<'a> Executor<'a> {
     let span = self.tree.spans[node_idx];
     let str_ty = self.ty_checker.str_type();
 
-    // Type check: both must be str.
-    if self.ty_checker.unify(lhs_ty, str_ty, span).is_none()
-      || self.ty_checker.unify(rhs_ty, str_ty, span).is_none()
-    {
+    // Type check: both must be str. Blame the non-str
+    // operand (primary) and point the other as secondary —
+    // `42` and `"hi"` in `42 ++ "hi"`, not the `++`.
+    let lhs_ok = self.ty_checker.unify_silent(lhs_ty, str_ty).is_some();
+    let rhs_ok = self.ty_checker.unify_silent(rhs_ty, str_ty).is_some();
+
+    if !lhs_ok || !rhs_ok {
+      let ((primary_sir, primary_ty), (secondary_sir, secondary_ty)) =
+        if !lhs_ok {
+          ((lhs_sir, lhs_ty), (rhs_sir, rhs_ty))
+        } else {
+          ((rhs_sir, rhs_ty), (lhs_sir, lhs_ty))
+        };
+
+      let primary_name = self.ty_display_name(primary_ty);
+      let secondary_name = self.ty_display_name(secondary_ty);
+
+      self.report_value_mismatch(
+        MismatchValue {
+          value: primary_sir,
+          ty_name: &primary_name,
+        },
+        MismatchValue {
+          value: secondary_sir,
+          ty_name: &secondary_name,
+        },
+        span,
+      );
+
       let error_id = self.values.store_runtime(u32::MAX);
 
       self.value_stack.push(error_id);
@@ -7838,6 +8136,8 @@ impl<'a> Executor<'a> {
       fundef_idx,
       has_explicit_return: false,
       has_return_type_annotation: return_ty != self.ty_checker.unit_type(),
+      return_ty_span: Span::ZERO,
+      name_span: Span::ZERO,
       pending_return: false,
       scope_depth: self.scope_stack.len(),
     });
@@ -8132,6 +8432,12 @@ impl<'a> Executor<'a> {
     if name.is_none() {
       return;
     }
+
+    // Remember the name identifier's span (the primary caret
+    // for a missing return) and clear any stale return-type
+    // span from an outer function.
+    self.pending_fn_name_span = self.tree.spans[start_idx + 1];
+    self.pending_fn_return_ty_span = Span::ZERO;
 
     // Mangle name in apply / pack context:
     //   `apply Type { fun m }`         → `Type::m`
@@ -8458,6 +8764,9 @@ impl<'a> Executor<'a> {
               self.resolve_param_or_return_ty(idx, _end_idx)
             {
               return_ty = ty;
+              // Remember the return-type annotation's span —
+              // the secondary caret for a missing return.
+              self.pending_fn_return_ty_span = self.tree.spans[idx];
               // Compound types (`[]T`, `(T1, T2)`, `Fn(…)`)
               // own their type-args; only single-token names
               // can carry a trailing `<…>` generic-args list.
@@ -15471,14 +15780,37 @@ impl<'a> Executor<'a> {
     };
 
     // First arm to Store sets the sink type; later arms
-    // unify against it. type mismatch reports through
-    // the existing error path.
+    // unify against it. On a mismatch, point the primary
+    // caret at this arm's value and the secondary at the
+    // first arm's — the two conflicting values, not the
+    // construct keyword.
     let sink_ty = if let Some(prev) = ctx.value_sink_ty {
-      let span = Span::ZERO;
-      self.ty_checker.unify(prev, top_ty, span).unwrap_or(prev)
+      match self.ty_checker.unify_silent(prev, top_ty) {
+        Some(ty_id) => ty_id,
+        None => {
+          let first = ctx.value_sink_value.unwrap_or(top_sir);
+          let primary_name = self.ty_display_name(top_ty);
+          let secondary_name = self.ty_display_name(prev);
+
+          self.report_value_mismatch(
+            MismatchValue {
+              value: top_sir,
+              ty_name: &primary_name,
+            },
+            MismatchValue {
+              value: first,
+              ty_name: &secondary_name,
+            },
+            ctx.span,
+          );
+
+          prev
+        }
+      }
     } else {
       if let Some(c) = self.branch_stack.get_mut(ctx_idx) {
         c.value_sink_ty = Some(top_ty);
+        c.value_sink_value = Some(top_sir);
       }
 
       top_ty
@@ -15533,7 +15865,7 @@ impl<'a> Executor<'a> {
     self.sir_values.push(sv);
   }
 
-  fn execute_if(&mut self, _start_idx: usize, _end_idx: usize) {
+  fn execute_if(&mut self, start_idx: usize, _end_idx: usize) {
     let end_label = self.sir.next_label();
     let else_label = self.sir.next_label();
 
@@ -15542,6 +15874,7 @@ impl<'a> Executor<'a> {
 
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::If,
+      span: self.tree.spans[start_idx],
       end_label,
       else_label: Some(else_label),
       loop_label: None,
@@ -15551,6 +15884,7 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       value_sink,
       value_sink_ty: None,
+      value_sink_value: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
     });
   }
@@ -17583,6 +17917,7 @@ impl<'a> Executor<'a> {
 
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::While,
+      span: self.tree.spans[start_idx],
       end_label,
       else_label: None,
       loop_label: Some(loop_label),
@@ -17594,6 +17929,7 @@ impl<'a> Executor<'a> {
       // `loop { break value }` expression form yet.
       value_sink: None,
       value_sink_ty: None,
+      value_sink_value: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
     });
 
@@ -17733,7 +18069,7 @@ impl<'a> Executor<'a> {
   /// `branch_emitted = true` from the start so the LBrace
   /// handler knows there's nothing to emit and never
   /// touches the value stack expecting a condition.
-  fn execute_loop(&mut self, _start_idx: usize, _end_idx: usize) {
+  fn execute_loop(&mut self, start_idx: usize, _end_idx: usize) {
     let loop_label = self.sir.next_label();
     let end_label = self.sir.next_label();
 
@@ -17741,6 +18077,7 @@ impl<'a> Executor<'a> {
 
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::While,
+      span: self.tree.spans[start_idx],
       end_label,
       else_label: None,
       loop_label: Some(loop_label),
@@ -17750,6 +18087,7 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       value_sink: None,
       value_sink_ty: None,
+      value_sink_value: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
     });
   }
@@ -18070,6 +18408,7 @@ impl<'a> Executor<'a> {
     // Push branch context — RBrace will emit increment + jump.
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::For,
+      span: self.tree.spans[start_idx],
       end_label,
       else_label: None,
       loop_label: Some(loop_label),
@@ -18079,6 +18418,7 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       value_sink: None,
       value_sink_ty: None,
+      value_sink_value: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
     });
 
@@ -18487,6 +18827,7 @@ impl<'a> Executor<'a> {
     // Branch context: close path increments `idx_sym`.
     self.branch_stack.push(BranchCtx {
       kind: BranchKind::For,
+      span: self.tree.spans[colon_eq_idx],
       end_label,
       else_label: None,
       loop_label: Some(loop_label),
@@ -18496,6 +18837,7 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
       value_sink: None,
       value_sink_ty: None,
+      value_sink_value: None,
       stack_depth_at_entry: self.sir_values.len() as u32,
     });
 
@@ -19278,6 +19620,17 @@ impl<'a> Executor<'a> {
   ) {
     self.push_scope();
 
+    // Arms run for side effects — the select's value comes
+    // from the runtime `SelectRecv`, not an arm body's stack
+    // value. Snapshot the stacks so any value the body leaves
+    // (e.g. a `showln` unit result, or an unresolved channel
+    // element) is dropped instead of leaking past the select.
+    let stack_base = (
+      self.value_stack.len(),
+      self.ty_stack.len(),
+      self.sir_values.len(),
+    );
+
     let first_tok = self.tree.nodes.get(body_start).map(|n| n.token);
 
     if first_tok == Some(Token::Fn) {
@@ -19401,6 +19754,10 @@ impl<'a> Executor<'a> {
       self.skip_until = saved_skip;
     }
 
+    self.value_stack.truncate(stack_base.0);
+    self.ty_stack.truncate(stack_base.1);
+    self.sir_values.truncate(stack_base.2);
+
     self.pop_scope();
   }
 
@@ -19465,6 +19822,45 @@ impl<'a> Executor<'a> {
         } else {
           (None, self.ty_checker.unit_type())
         };
+
+      // The name is primary, the value secondary: ariadne
+      // splits an out-of-order pair into two boxes, so the
+      // earlier span must come first.
+      let unit_ty = self.ty_checker.unit_type();
+      let (fn_is_unit, no_annotation, name_span) = self
+        .current_function
+        .as_ref()
+        .map(|c| {
+          (
+            c.return_ty == unit_ty,
+            !c.has_return_type_annotation,
+            c.name_span,
+          )
+        })
+        .unwrap_or((true, true, Span::ZERO));
+
+      if return_ty != unit_ty && fn_is_unit && no_annotation {
+        let value_span = return_value
+          .and_then(|v| self.span_of_value(v))
+          .unwrap_or(name_span);
+
+        // With the name captured, point primary at it and the
+        // value second; without it, a single caret on the value.
+        let (primary, secondary) = if name_span == Span::ZERO {
+          (value_span, Span::ZERO)
+        } else {
+          (name_span, value_span)
+        };
+
+        let error = self.type_mismatch_error(primary, secondary);
+
+        report_error_with_detail(
+          error,
+          Detail::DiscardedValue {
+            found: self.ty_display_name(return_ty).into(),
+          },
+        );
+      }
 
       // Emit the Return instruction
       self.emit_return_drops();
@@ -20637,6 +21033,16 @@ impl<'a> Executor<'a> {
       .extract_literal_capacity(lparen_idx, rparen_idx)
       .unwrap_or(0);
 
+    // The capacity is read from the literal token, not the
+    // stack — so the value the main loop already evaluated for
+    // the argument is vestigial. Drop it, or it leaks past the
+    // call as a stray value.
+    if lparen_idx + 1 < rparen_idx {
+      self.value_stack.pop();
+      self.ty_stack.pop();
+      self.sir_values.pop();
+    }
+
     // Element type is a fresh inference var; concrete T
     // flows in from the first `send` / `recv` unification.
     let elem_ty = self.ty_checker.fresh_var();
@@ -20804,7 +21210,21 @@ impl<'a> Executor<'a> {
       if func.kind != FunctionKind::Intrinsic && arg_count != expected_args {
         let span = self.tree.spans[rparen_idx];
 
-        self.report(ErrorKind::ArgumentCountMismatch, span);
+        let error = Error::with_file(
+          ErrorKind::ArgumentCountMismatch,
+          span,
+          self.current_file_id,
+        );
+
+        report_error_with_detail(
+          error,
+          Detail::ArgCount {
+            callee: self.interner.get(func.name).into(),
+            expected: expected_args as u16,
+            given: arg_count as u16,
+            signature: self.render_signature(&func).into(),
+          },
+        );
 
         return;
       }
@@ -21008,11 +21428,32 @@ impl<'a> Executor<'a> {
 
           if self
             .ty_checker
-            .unify(param_ty, arg_types[i], span)
+            .unify_silent(param_ty, arg_types[i])
             .is_none()
           {
-            // `unify` already reported the mismatch — just
-            // drop the Call without double-diagnosing.
+            // Argument type doesn't match the parameter. Point
+            // at the argument value, name both types, and
+            // remind the caller of the signature.
+            let arg_span = self
+              .span_of_value(arg_sirs[capture_count + i])
+              .unwrap_or(span);
+
+            let error = Error::with_file(
+              ErrorKind::TypeMismatch,
+              arg_span,
+              self.current_file_id,
+            );
+
+            report_error_with_detail(
+              error,
+              Detail::ArgType {
+                callee: self.interner.get(func.name).into(),
+                found: self.ty_display_name(arg_types[i]).into(),
+                expected: self.ty_display_name(param_ty).into(),
+                signature: self.render_signature(&func).into(),
+              },
+            );
+
             return;
           }
         }
@@ -23556,6 +23997,8 @@ impl<'a> Executor<'a> {
             fundef_idx,
             has_explicit_return: false,
             has_return_type_annotation: true,
+            return_ty_span: Span::ZERO,
+            name_span: Span::ZERO,
             pending_return: false,
             scope_depth: self.scope_stack.len(),
           });
@@ -24373,11 +24816,51 @@ enum BranchKind {
   // avoids dead match arms.
 }
 
+/// Levenshtein edit distance between two strings — the
+/// minimum single-character insertions, deletions, and
+/// substitutions to turn one into the other. Drives the
+/// "did you mean …?" suggestion; runs only on the cold
+/// undefined-name path, so the two-row DP allocation is fine.
+fn levenshtein(source: &str, target: &str) -> usize {
+  let target: Vec<char> = target.chars().collect();
+  let mut prev: Vec<usize> = (0..=target.len()).collect();
+  let mut cur: Vec<usize> = vec![0; target.len() + 1];
+
+  for (i, source_char) in source.chars().enumerate() {
+    cur[0] = i + 1;
+
+    for (j, &target_char) in target.iter().enumerate() {
+      let cost = usize::from(source_char != target_char);
+
+      cur[j + 1] = (prev[j + 1] + 1).min(cur[j] + 1).min(prev[j] + cost);
+    }
+
+    std::mem::swap(&mut prev, &mut cur);
+  }
+
+  prev[target.len()]
+}
+
+/// One side of a type mismatch: a value and its type name.
+/// Groups the pair so `report_value_mismatch` stays within
+/// the 3-argument budget.
+struct MismatchValue<'a> {
+  /// SIR value whose source span anchors the caret.
+  value: ValueId,
+  /// Human display name of the value's type.
+  ty_name: &'a str,
+}
+
 /// Tracks context for a pending control flow branch.
 #[derive(Clone)]
 struct BranchCtx {
   /// The kind of branch.
   kind: BranchKind,
+  /// Source span of the branch construct. A type mismatch
+  /// between arm result values reports here, so the
+  /// diagnostic points at the offending expression instead
+  /// of nowhere.
+  span: Span,
   /// The label id for the end of the construct.
   end_label: u32,
   /// The label id for the else block (if only).
@@ -24412,6 +24895,11 @@ struct BranchCtx {
   /// first arm to `Store` into the sink; subsequent
   /// arms unify against it.
   value_sink_ty: Option<TyId>,
+  /// SIR value of the first arm's result, captured alongside
+  /// `value_sink_ty`. A later arm that fails to unify recovers
+  /// its source span as the secondary — the grounds pointing
+  /// at the type the branch already committed to.
+  value_sink_value: Option<ValueId>,
   /// `sir_values.len()` captured when the branch was
   /// pushed. `emit_branch_sink_store` uses this to tell
   /// "this arm produced a new value on top of the stack"
@@ -24437,6 +24925,12 @@ struct FunCtx {
   pub(crate) has_explicit_return: bool,
   /// True when the function declaration has `-> Type`.
   pub(crate) has_return_type_annotation: bool,
+  /// Span of the `-> Type` annotation. Secondary caret for a
+  /// missing-return diagnostic.
+  pub(crate) return_ty_span: Span,
+  /// Span of the function name identifier. Primary caret for a
+  /// missing-return diagnostic.
+  pub(crate) name_span: Span,
   /// Set when we see 'return' keyword, cleared when we emit Return insn.
   pub(crate) pending_return: bool,
   /// Scope depth when the function body was entered.

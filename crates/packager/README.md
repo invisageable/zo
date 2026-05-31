@@ -10,6 +10,5 @@ run
 
 /program — temp files and build 
 /src — entry of the project
-/tasks — scripts
 fret.zo — project configuration
 .gitignore

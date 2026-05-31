@@ -38,14 +38,14 @@ fun main() {
 -!    software. Total Information means no ambiguous names.
 
 -- EXPECTED OUTPUT:
--- [E0066] Error: Invalid ZSX attribute name
+-- [E0066] Error • Invalid ZSX attribute name
 --    ┌─ 066_zsx_invalid_attribute_name.zo:16:24
 --    │
 -- 16 │   imu view: </> = <div 1st-class="hero"> "Invalid Name" </div>;
 --    │                        ^ invalid start of attribute name
 --    │
---    = Note: Attribute names must start with a letter (a-z) and can 
+--    = Note • Attribute names must start with a letter (a-z) and can 
 --            contain letters, numbers, or hyphens.
---    = Help: Rename this attribute to start with a letter. 
+--    = Help • Rename this attribute to start with a letter. 
 --            Example: `first-class` or `primary-class`.
 -- ────╯

@@ -135,7 +135,11 @@ All build commands go through `just` (the justfile is the single source of truth
   - **Ownership**: If a unit/integration test don't have an equivalent or do not exist. Implemet it
   - **Understand before removing**: Know why code exists before deleting it
   - **Focus on details**: Use an agent without code review is not allowed
-  - **Consistency**: Avoid magic numbers
+  - **Consistency**: Avoid magic numbers, no more that 3 arguments for function, if more use a `struct`
+  - **Errors**: Never silently discard errors with `let _ =` on fallible operations. Always handle errors appropriately: Use propagation errors `?` or explicit error handling with `match` or `if let Err(...)` when you need custom logic
+  - **Modules**: Never create files with `mod.rs` paths - prefer `src/some_module.rs` instead of `src/some_module/mod.rs`.
+  - **Naming convention**: Use full words for variable names (no abbreviations like "q" for "queue")
+  - **Clarity**: Use variable shadowing to scope clones in async contexts for clarity, minimizing the lifetime of borrowed references.
 
 > *Before plan or implementation, use `karpathy-guidelines` skill.*
 
@@ -153,9 +157,15 @@ All build commands go through `just` (the justfile is the single source of truth
   - DO NOT violate our principles such as DRY and KiSS
   - DO NOT ADD `#[allow(...)]` to suppress clippy warnings — FiX the underlying issue
 
-## Comments & Documentation.
+## Comments and Documentation.
 
-DO NOT write narration-style or explanatory comments in code. Here are the recommendations from Eva Parish:
+DO NOT write narration-style or explanatory comments that summarize the code. A comment must explain the "why" an implementation has been made that way. WE DON'T CARE about descriptive comments.
+
+DO NOT expose internal plan information or reference to a plan as a comment. Maintainers do not shared plan together.
+
+Doc comments are important in Rust because there are converted into documentation. We commit to add them for mostly everything, `struct` and fields, `enum` variants, functions, types, constants to describe the data. In implementation scope we generally do not want to comment every lines, ONLY information that's matter to explain why a decision has been made.
+
+Here are the recommendations from Eva Parish:
 
   - DECiDE What you're actually saying
   - Simplify
@@ -168,11 +178,7 @@ DO NOT write narration-style or explanatory comments in code. Here are the recom
 
 Any doubt? Fetch [this](https://eva-parish.squarespace.com/blog/how-i-edit) and apply it. Do the same for [this](https://stackoverflow.blog/2021/12/23/best-practices-for-writing-code-comments)
 
-Every new/update feature should be documented in the zo [website](apps/site/src/content/initiation/en).
-
-Doc comments are important in Rust because there are converted into documentation. We commit to add them for mostly everything, `struct` and fields, `enum` variants, functions, types, constants to describe the data. In implementation scope we generally do not want to comment every lines, ONLY information that's matter to explain why a decision has been made.
-
-DO NOT expose internal plan information or reference to a plan. Maintainers do not shared plan together.
+Every new/update feature should be documented in the zo [initiation](apps/site/src/content/initiation/en).
 
 ## Testing
 
