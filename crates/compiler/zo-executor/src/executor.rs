@@ -1553,6 +1553,23 @@ impl<'a> Executor<'a> {
       .and_then(|node| self.tree.spans.get(node as usize).copied())
   }
 
+  /// Build a `TypeMismatch` with `primary` as the main caret
+  /// and `secondary` as a second caret — dropping the secondary
+  /// when its span is absent (`Span::ZERO`), e.g. for a closure
+  /// whose name or return type was never captured.
+  fn type_mismatch_error(&self, primary: Span, secondary: Span) -> Error {
+    if secondary == Span::ZERO {
+      Error::with_file(ErrorKind::TypeMismatch, primary, self.current_file_id)
+    } else {
+      Error::with_file_and_secondary(
+        ErrorKind::TypeMismatch,
+        primary,
+        secondary,
+        self.current_file_id,
+      )
+    }
+  }
+
   /// Report a type mismatch between two values, pointing the
   /// primary caret at `primary.value` and the secondary at
   /// `secondary.value`, and naming each value's type. Falls
@@ -3630,12 +3647,7 @@ impl<'a> Executor<'a> {
                     fun_ctx.name_span
                   };
 
-                  let error = Error::with_file_and_secondary(
-                    ErrorKind::TypeMismatch,
-                    name_span,
-                    value_span,
-                    self.current_file_id,
-                  );
+                  let error = self.type_mismatch_error(name_span, value_span);
 
                   report_error_with_detail(
                     error,
@@ -3679,20 +3691,7 @@ impl<'a> Executor<'a> {
               };
               let return_ty_span = fun_ctx.return_ty_span;
 
-              let error = if return_ty_span == Span::ZERO {
-                Error::with_file(
-                  ErrorKind::TypeMismatch,
-                  name_span,
-                  self.current_file_id,
-                )
-              } else {
-                Error::with_file_and_secondary(
-                  ErrorKind::TypeMismatch,
-                  name_span,
-                  return_ty_span,
-                  self.current_file_id,
-                )
-              };
+              let error = self.type_mismatch_error(name_span, return_ty_span);
 
               report_error_with_detail(
                 error,
@@ -19845,20 +19844,15 @@ impl<'a> Executor<'a> {
           .and_then(|v| self.span_of_value(v))
           .unwrap_or(name_span);
 
-        let error = if name_span == Span::ZERO {
-          Error::with_file(
-            ErrorKind::TypeMismatch,
-            value_span,
-            self.current_file_id,
-          )
+        // With the name captured, point primary at it and the
+        // value second; without it, a single caret on the value.
+        let (primary, secondary) = if name_span == Span::ZERO {
+          (value_span, Span::ZERO)
         } else {
-          Error::with_file_and_secondary(
-            ErrorKind::TypeMismatch,
-            name_span,
-            value_span,
-            self.current_file_id,
-          )
+          (name_span, value_span)
         };
+
+        let error = self.type_mismatch_error(primary, secondary);
 
         report_error_with_detail(
           error,
@@ -24827,16 +24821,16 @@ enum BranchKind {
 /// substitutions to turn one into the other. Drives the
 /// "did you mean …?" suggestion; runs only on the cold
 /// undefined-name path, so the two-row DP allocation is fine.
-fn levenshtein(a: &str, b: &str) -> usize {
-  let b: Vec<char> = b.chars().collect();
-  let mut prev: Vec<usize> = (0..=b.len()).collect();
-  let mut cur: Vec<usize> = vec![0; b.len() + 1];
+fn levenshtein(source: &str, target: &str) -> usize {
+  let target: Vec<char> = target.chars().collect();
+  let mut prev: Vec<usize> = (0..=target.len()).collect();
+  let mut cur: Vec<usize> = vec![0; target.len() + 1];
 
-  for (i, ca) in a.chars().enumerate() {
+  for (i, source_char) in source.chars().enumerate() {
     cur[0] = i + 1;
 
-    for (j, &cb) in b.iter().enumerate() {
-      let cost = usize::from(ca != cb);
+    for (j, &target_char) in target.iter().enumerate() {
+      let cost = usize::from(source_char != target_char);
 
       cur[j + 1] = (prev[j + 1] + 1).min(cur[j] + 1).min(prev[j] + cost);
     }
@@ -24844,7 +24838,7 @@ fn levenshtein(a: &str, b: &str) -> usize {
     std::mem::swap(&mut prev, &mut cur);
   }
 
-  prev[b.len()]
+  prev[target.len()]
 }
 
 /// One side of a type mismatch: a value and its type name.

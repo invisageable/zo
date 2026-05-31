@@ -176,17 +176,10 @@ fn encode(
   let fixes = encode_fixes(fixes_for(kind), filename, span.start, span.end());
 
   // Always an array — empty when the kind has no attached
-  // note — so consumers never need a presence check. The
-  // TypeMismatch note speaks of "operands"; suppress it for an
-  // argument mismatch where it doesn't apply.
-  let suppress_note = matches!(
-    detail,
-    Some(
-      Detail::ArgType { .. }
-        | Detail::ReturnType { .. }
-        | Detail::DiscardedValue { .. }
-    )
-  );
+  // note — so consumers never need a presence check. Where the
+  // detail's own fields already explain the mismatch, the
+  // generic per-kind note is redundant.
+  let suppress_note = detail.is_some_and(Detail::suppresses_note);
   let notes: Vec<Value> = match error_note(kind) {
     Some(text) if !suppress_note => vec![json!(text)],
     _ => Vec::new(),

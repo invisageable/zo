@@ -65,6 +65,81 @@ pub enum Detail {
   DiscardedValue { found: Box<str> },
 }
 
+impl Detail {
+  /// Whether this detail's own labels already explain the
+  /// mismatch, making the generic per-kind note redundant. The
+  /// human renderer and the JSON encoder share this rule so it
+  /// can't drift between them.
+  pub fn suppresses_note(&self) -> bool {
+    matches!(
+      self,
+      Detail::ArgType { .. }
+        | Detail::ReturnType { .. }
+        | Detail::DiscardedValue { .. }
+    )
+  }
+
+  /// Primary-caret label — the claim about the offending span.
+  /// `None` defers to the per-kind label (`Suggestion` carries
+  /// no claim of its own; the typo's kind speaks for it).
+  pub fn primary_label(&self) -> Option<String> {
+    Some(match self {
+      Detail::ReturnType { .. } => "returns no value".to_owned(),
+      Detail::DiscardedValue { .. } => {
+        "this function has no return type".to_owned()
+      }
+      Detail::ArgType {
+        found, expected, ..
+      } => format!("expected `{expected}`, found `{found}`"),
+      Detail::Types(names) => {
+        format!("incompatible type `{}` here", names.primary)
+      }
+      Detail::ArgCount {
+        expected, given, ..
+      } => format!("expected {expected} arguments, found {given}"),
+      Detail::Suggestion(_) => return None,
+    })
+  }
+
+  /// Secondary-caret label — the value the primary conflicts
+  /// with. `None` defers to the per-kind secondary label.
+  pub fn secondary_label(&self) -> Option<String> {
+    match self {
+      Detail::ReturnType { expected, .. } => {
+        Some(format!("expected `{expected}`"))
+      }
+      Detail::DiscardedValue { found } => {
+        Some(format!("this `{found}` is discarded"))
+      }
+      Detail::Types(names) => {
+        Some(format!("conflicts with this type `{}`", names.secondary))
+      }
+      _ => None,
+    }
+  }
+
+  /// Help text — the resolution. `None` defers to the per-kind
+  /// help prose.
+  pub fn help(&self) -> Option<String> {
+    match self {
+      Detail::Suggestion(name) => Some(format!("did you mean `{name}`?")),
+      Detail::ArgCount {
+        callee, signature, ..
+      }
+      | Detail::ArgType {
+        callee, signature, ..
+      } => Some(format!("match `{callee}`'s signature: `{signature}`")),
+      Detail::ReturnType { expected, .. } => {
+        Some(format!("return a value of type `{expected}` from the body"))
+      }
+      Detail::DiscardedValue { found } => Some(format!(
+        "declare `-> {found}` to return it, or drop the value"
+      )),
+      Detail::Types(_) => None,
+    }
+  }
+}
+
 /// Thread-local error reporter with fixed-size buffer.
 /// This provides zero-allocation error collection during compilation.
 pub struct ThreadLocalReporter {

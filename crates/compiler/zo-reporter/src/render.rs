@@ -118,45 +118,6 @@ impl ErrorRenderer {
     filename: &str,
     detail: Option<&Detail>,
   ) -> io::Result<()> {
-    // Split the detail into the shapes each section consumes.
-    let types = match detail {
-      Some(Detail::Types(names)) => Some(names),
-      _ => None,
-    };
-
-    let suggestion = match detail {
-      Some(Detail::Suggestion(name)) => Some(name),
-      _ => None,
-    };
-
-    let arg_count = match detail {
-      Some(Detail::ArgCount {
-        callee,
-        expected,
-        given,
-        signature,
-      }) => Some((callee, *expected, *given, signature)),
-      _ => None,
-    };
-
-    let arg_type = match detail {
-      Some(Detail::ArgType {
-        callee,
-        found,
-        expected,
-        signature,
-      }) => Some((callee, found, expected, signature)),
-      _ => None,
-    };
-    let return_type = match detail {
-      Some(Detail::ReturnType { found, expected }) => Some((found, expected)),
-      _ => None,
-    };
-    let discarded = match detail {
-      Some(Detail::DiscardedValue { found }) => Some(found),
-      _ => None,
-    };
-
     let span = error.span();
     let kind = error.kind();
     let range = span_to_range(span, source);
@@ -190,23 +151,17 @@ impl ErrorRenderer {
 
     // Primary label — the offending value. Caret AND message
     // share the primary color (ariadne paints the caret;
-    // `.fg` paints the message to match). A `TypeMismatch`
-    // names the value's type when the detail is present.
-    let label_msg = if return_type.is_some() {
-      "returns no value".to_owned()
-    } else if discarded.is_some() {
-      "this function has no return type".to_owned()
-    } else if let Some((_, found, expected, _)) = arg_type {
-      format!("expected `{expected}`, found `{found}`")
-    } else if let Some(t) = types.filter(|_| kind == ErrorKind::TypeMismatch) {
-      format!("incompatible type `{}` here", t.primary)
-    } else if let Some((_, expected, given, _)) = arg_count {
-      format!("expected {expected} arguments, found {given}")
-    } else if kind == ErrorKind::TypeMismatch {
-      "incompatible type here".to_owned()
-    } else {
-      error_label(kind).to_owned()
-    };
+    // `.fg` paints the message to match). The detail names the
+    // value's type when present; otherwise fall back to the
+    // per-kind label.
+    let label_msg =
+      detail.and_then(Detail::primary_label).unwrap_or_else(|| {
+        if kind == ErrorKind::TypeMismatch {
+          "incompatible type here".to_owned()
+        } else {
+          error_label(kind).to_owned()
+        }
+      });
     report = report.with_label(
       Label::new((filename, range.clone()))
         .with_message(label_msg.fg(primary_color))
@@ -219,16 +174,9 @@ impl ErrorRenderer {
     if let Some(secondary) = error.secondary_span() {
       let sec_range = span_to_range(secondary, source);
 
-      let sec_msg = if let Some((_, expected)) = return_type {
-        format!("expected `{expected}`")
-      } else if let Some(found) = discarded {
-        format!("this `{found}` is discarded")
-      } else if let Some(t) = types.filter(|_| kind == ErrorKind::TypeMismatch)
-      {
-        format!("conflicts with this type `{}`", t.secondary)
-      } else {
-        secondary_label(kind).to_owned()
-      };
+      let sec_msg = detail
+        .and_then(Detail::secondary_label)
+        .unwrap_or_else(|| secondary_label(kind).to_owned());
 
       report = report.with_label(
         Label::new((filename, sec_range))
@@ -237,30 +185,13 @@ impl ErrorRenderer {
       );
     }
 
-    // Add help, in the severity color. A name suggestion (a
-    // typo's closest in-scope match) takes precedence over the
-    // static help; otherwise fall back to the per-kind prose.
+    // Add help. The detail carries its own resolution (a typo's
+    // closest match, a signature reminder, …) when present;
+    // otherwise fall back to the per-kind prose.
     if self.config.show_help {
-      // The callee signature reminder is shared by both
-      // argument errors; a name suggestion takes precedence
-      // for an undefined name.
-      let signature_help = arg_count
-        .map(|(callee, _, _, signature)| (callee, signature))
-        .or(arg_type.map(|(callee, _, _, signature)| (callee, signature)));
-
-      let help = if let Some(name) = suggestion {
-        Some(format!("did you mean `{name}`?"))
-      } else if let Some((callee, signature)) = signature_help {
-        Some(format!("match `{callee}`'s signature: `{signature}`"))
-      } else if let Some((_, expected)) = return_type {
-        Some(format!("return a value of type `{expected}` from the body"))
-      } else if let Some(found) = discarded {
-        Some(format!(
-          "declare `-> {found}` to return it, or drop the value"
-        ))
-      } else {
-        error_help(kind).map(str::to_owned)
-      };
+      let help = detail
+        .and_then(Detail::help)
+        .or_else(|| error_help(kind).map(str::to_owned));
 
       if let Some(help) = help {
         // The help is the resolution, not the claim — leave the
@@ -269,12 +200,10 @@ impl ErrorRenderer {
       }
     }
 
-    // Notes use the static per-kind text — except the
-    // TypeMismatch "operands" note, which fits neither an
-    // argument mismatch nor a missing return.
-    if arg_type.is_none()
-      && return_type.is_none()
-      && discarded.is_none()
+    // Notes use the static per-kind text — except where the
+    // detail's own labels already explain the mismatch (an
+    // argument mismatch, a missing return, a discarded value).
+    if !detail.is_some_and(Detail::suppresses_note)
       && let Some(note) = error_note(kind)
     {
       report = report.with_note(note);
