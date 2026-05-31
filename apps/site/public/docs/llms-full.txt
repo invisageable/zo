@@ -6,9 +6,9 @@
 
 A short setup before we open the first page. Two commands, two minutes.
 
-## get the binary
-
 > « Simplicity is a prerequisite for reliability. » — Edsger W. Dijkstra
+
+## get the binary
 
   ```sh
   curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh
@@ -24,7 +24,7 @@ Confirm zo is reachable from your shell.
   zo --version
   ```
 
-You should see `zo x.x.x`. The number depends on the latest release.
+Succesfully it will display `zo x.x.x`. The number depends on the latest release.
 
 ## trouble?
 
@@ -555,11 +555,11 @@ zo has 53 keywords in total:
 
 # introduction
 
-This guide is your initiation to zo. Each chapter builds on the previous one — read in order on a first pass, jump around once you know the basics.
+This guide is your initiation to the zo programming language ecosystem. Read sequentially on your first pass, then skip around once you grasp the architectural patterns.
 
 ## how to use this guide
 
-Every lesson is a quick snapshot of a zo program. Read the doc-comments (`-!`), they provide explanation and describe all the concepts that you need.
+Every lesson delivers a high-fidelity snapshot of a functional zo program. Pay close attention to the comments: documents comments (`-!`) leverage raw Markdown formatting to establish systemic guidelines, while line (`--`) and block (`-* *-`) markers isolate execution mechanics.
 
   ```zo
   -! Sup? I'm a doc comment, I support markdown
@@ -573,13 +573,11 @@ Every lesson is a quick snapshot of a zo program. Read the doc-comments (`-!`), 
   ```zo
   -*
     From my side I'm a block comment, I'm happy to help
-    for details that matter
+    for details that matter.
   *-
   ```
 
-<!-- roadmap of the book -->
-
-In zo, each program has to contain an entry point:
+Every executable compilation unit inside zo must expose an explicit, non-colored entry block called `main`:
 
   ```zo
   -- Wassup?! I'm `main` a function.
@@ -590,21 +588,22 @@ In zo, each program has to contain an entry point:
 
   -! ## the capstone.
   -!
-  -!   - every programs must have a `main` function.
+  -!   - every programs must declare a `main` block
+  -!     to serve as the runtime launchpad.
   ```
-
-That's it. Turn the page.
 
 ---
 
 # hello
+
+Let's spin up your first interactive instance. We trigger text printing operations via an internal optimized wrapper.
 
   ```zo
   -! Yo! Let's start with a simple program.
   -! In this lesson, we learn how to print a message.
 
   fun main() {
-    -- In our case, we call our buddy `showln`.
+    -- We call our buddy `showln`.
     -- It tells the compiler to display the value
     -- passed as argument with a newline at the end.
     showln("hello, hacker");
@@ -612,7 +611,8 @@ That's it. Turn the page.
 
   -! ## the capstone.
   -!
-  -!   - `showln` is a builtin. No need to import it.
+  -!   - `showln` is an internal compiler builtin. No
+  -!     import or namespace matching required.
   ```
 
 ---
@@ -621,14 +621,9 @@ That's it. Turn the page.
 
 ## numbers
 
-Programming is just moving data around. In zo, data comes in a few basic
-flavors called "literals".
+Programming boils down to memory allocation layout and data mutations. Data arrives in primary primitives called literals. You do not need to memorize these constraints instantly, but you must respect their sizes.
 
-You don't need to memorize all of these right now. Just know they exist. The
-most important thing: zo is smart. It "infers" types so you don't have to be
-a keyboard typist just to declare a number.
-
-> All snippets in this guide run inside `fun main()`. Wrap them when you copy-paste.
+> *All contextual code snippets assume code is running inside an active `fun main()` execution block.*
 
 ### integers
 
@@ -644,8 +639,8 @@ a keyboard typist just to declare a number.
   -- by default for any bare number you write.
   -- I scale up to `s64` if you need more room.
   42
-  -- I'm the Big Daddy Kane so I support big numbers 
-  -- natively — `600851475143` just works.
+  -- I support large values natively — `600851475143` 
+  -- allocates down without complex object types.
   600851475143
   ```
 
@@ -663,9 +658,8 @@ a keyboard typist just to declare a number.
   -- `.` and you get me. 
   14.0
   3.14159
-  -- Yeah! But you don't speak scientific. Bro! Don't
-  -- listen to this guy. I'm the smarter `1.0e10`, 
-  -- `2.5e-3` — same family, different notation.
+  -- I support scientific notation natively. No
+  -- overhead, just quick compilation values.
   1.0e10
   2.5e-3
   ```
@@ -673,41 +667,27 @@ a keyboard typist just to declare a number.
 ### bases
 
   ```zo
-  -! Let's go the basics.
-  -! 
-  -! ## The mask-on integer prefixes.
-  -!
-  -!   `0b`: binary
-  -!   `0o`: octal
-  -!   `0x`: hexadecimal
+  -! Mask-on integer prefixes change internal notation
+  -! views.
 
-  -- Woop-woop, we're integers in disguise. Same value,
-  -- different notation.
-  0b11110000 -- 240
-  0o77       -- 63
-  0xff       -- 255
+  0b11110000 -- Binary notation evaluates to 240
+  0o77       -- Octal notation evaluates to 63
+  0xff       -- Hexadecimal notation evaluates to 255
   ```
 
 ### parse modifiers
 
   ```zo
-  -! ## The parser integer prefixes.
-  -!
-  -!   `b#`: binary
-  -!   `o#`: octal
-  -!   `x#`: hexadecimal
+  -! Parse modifiers perform quick inline conversions.
 
-  -- Same as the prefix forms, just inline shorthand.
-  b#30 -- 24
-  o#75 -- 61
-  x#76 -- 118
+  b#30 -- Evaluation: 24
+  o#75 -- Evaluation: 61
+  x#76 -- Evaluation: 118
   ```
 
 ## booleans
 
   ```zo
-  -! And we finished with The Fraternal twins.
-
   -- Wordup, we're `bool` — only `true` and `false`.
   -- No "truthy" or "falsy" mind games here."
   true
@@ -717,7 +697,7 @@ a keyboard typist just to declare a number.
 ## strings
 
   ```zo
-  -- Bitch! I'm `str` — a string literal. I live in 
+  -- Look out! I'm `str` — a string literal. I live in 
   -- the binary's read-only data section hood, so I
   -- cost nothing at runtime. Skuuuuuu!"
   "JOiN THE DEVOLUTiON."
@@ -726,124 +706,120 @@ a keyboard typist just to declare a number.
 ## chars
 
   ```zo
-  -- And me, I'm `char` — a single Unicode scalar 
-  -- wrapped in single quotes.
+  -- Call me `char` — a single Unicode scalar wrapped
+  -- in single quotes.
   'z'
   ```
 
 ## bytes
 
   ```zo
-  -! My man, introduce yourself!
-
-  -- Call me `bytes` — raw byte value, written with 
-  -- backticks. No Unicode, just the 8 bits."
-  `z`
+  -- Call me `bytes` — a multi-byte buffer wrapped in
+  -- backticks. Same layout as `str`, but without the
+  -- UTF-8 safety validation promise. Every raw byte 
+  -- is preserved.
+  `hello`
+  `¥orld`
   ```
 
 ---
 
 # variables
 
-Data needs a name. In zo, you have three ways to name a value:
-`val` for constants, `imu` for immutable locals, and `mut` when things change.
-
-Pick the least powerful one that works — that's the zo way.
+Data bindings demand structured tracking. zo enforces variable clarity using three dedicated allocation keywords: `val` for global or local compile-time constants, `imu` for unalterable execution parameters, and `mut` for active stack transformations.
 
 ## constants
 
   ```zo
-  -- Hi, I'm `val` — your compile-time constant. I 
-  -- never change, and I need an explicit type (you 
-  -- can't infer me).
+  -- Hi, I'm `val` — your compile-time constant.
   val VERSION: str = "1.0.0";
   val MAX_HEALTH: int = 100;
-  -- I work at the top level or inside a function.
   ```
 
 ## locals
-
-### immutables
 
   ```zo
   -- Hey, I'm `imu` — your immutable local. Set me 
   -- once, read me many.
   imu name: str = "johndoe";
-  ```
 
-### mutables
-
-  ```zo
   -- And me, I'm `mut` — your mutable local. I can be
-  -- reassigned. Reach for me only when something 
-  -- genuinely changes over time.
+  -- reassigned.
   mut health: int = 22;
-
-  -- Reassign a `mut` like this:
-  health = 50;
+  health = 50; -- Legal modification mutation.
   ```
 
 ## shadowing
 
   ```zo
-  -- Call me `shadowing` — I let you re-declare a name
-  -- in the same scope. Each declaration creates a new
-  -- variable; the old one is untouched.
+  -- Variable shadowing isolates structural scopes.
+  -- Each statement allocates a fresh slot, shadowing
+  -- the predecessor safely.
   imu x: int = 40;
-  imu x: int = x + 1; -- shadows; new x is 41
-  imu x: int = x + 1; -- shadows again; new x is 42
+  imu x: int = x + 2; -- x now safely evaluates to 42.
   ```
-
-In this lesson, we wrote every type explicitly (like `: int`). In practice, zo can almost always figure it out. We'll stay explicit for now to help you learn, but soon we'll let the compiler do the heavy lifting in `Inference`.
 
 ---
 
 # interpolation
 
-Numbers are useless if you can't show them. In zo, you drop values directly into strings with `{variable}` — no format functions, no concatenation. 
-
-> *Interpolation does not allow expressions, like binop, function calls, etc. It needs the variable name.*
+Drop variables into any string with `{variable_name}`. The compiler resolves each hole at compile time — no runtime parsing, no format functions.
 
   ```zo
-  -- Hi, I'm `{}` — a string interpolation. Wrap any 
-  -- in-scope variable in braces and I expand it 
-  -- inline at compile time.
   imu name: str = "johndoe";
   imu hp: int = 100;
+  imu attack: int = 15;
+
   showln("hero: {name}, hp: {hp}");
   ```
 
-## multiple values
+Interpolation works in every string context — assignments, arguments, return values.
 
   ```zo
-  -- Interpolate as many as you like in one go.
-  imu x: int = 10;
-  imu y: int = 12;
-  showln("position: {x}, {y}");
+  imu power: int = hp + attack;
+  imu status: str = "power level: {power}";
+
+  showln(status);
   ```
 
-## under the hood
-
-`showln("hp: {hp}")` is NOT a runtime format call. The compiler desugars it:
+All scalar types resolve automatically: `str`, `int`, `float`, `bool`, `char`.
 
   ```zo
-  show("hp: ");
-  showln(hp);
+  imu pi: float = 3.14;
+  imu active: bool = true;
+  imu label: str = "pi={pi}, ok={active}";
+
+  showln(label);
   ```
 
-Three things this buys you: zero allocations, zero runtime parsing, zero surprises. As fast as writing the calls by hand.
+## how it works
 
-## try this
+Interpolated strings compile into a single allocation that concatenates all segments. Each non-`str` variable converts to its string representation first, then everything merges in one pass.
 
-  - Interpolate a variable that hasn't been declared. Watch the compiler protect you.
-  - Interpolate a `float` and a `bool` — any primitive works.
+  ```zo
+  showln("hp: {hp}");
+  -- Desugars to:
+  --   show("hp: ");
+  --   showln(hp);
+  ```
+
+  ```zo
+  imu msg: str = "hp: {hp}";
+  -- Compiles to:
+  --   to_str(hp) → "100"
+  --   multi_concat("hp: ", "100") → "hp: 100"
+  ```
+
+Direct output through `showln` skips the heap entirely — each segment writes straight to the file descriptor Assigned strings allocate once regardless of how many `{}` holes they contain.
 
   ```zo
   -! ## the capstone.
   -!
-  -!   - any in-scope variable can be interpolated.
-  -!   - works for any primitive type.
-  -!   - desugared at compile time — no runtime cost.
+  -!   - `{variable}` inside any `"string"` resolves the variable.
+  -!   - `\{` produces a literal brace, not interpolation.
+  -!   - direct output (`showln`) allocates nothing.
+  -!   - assigned strings allocate once, not per segment.
+  -!   - all scalar types (`str`, `int`, `float`, `bool`, `char`) supported.
   ```
 
 ---
@@ -855,261 +831,111 @@ Operators are how you transform values. zo keeps them small and predictable — 
 ## arithmetic
 
   ```zo
-  -- Hi, we're the arithmetic operators:
-  -- `+`, `-`, `*`, `/`, `%`. Same precedence and 
-  -- associativity as math.
-  imu hp: int = 100;
-  imu attack: int = 15;
-
-  imu power: int = hp + attack;   -- 115
-  imu damage: int = attack * 2;   -- 30
-  imu rest: int = 10 % 3;         -- 1 (remainder)
-  ```
-
-## reassignment
-
-  ```zo
-  -- Reassign a `mut` with a plain `=`. The variable's
-  -- type stays fixed; only its value changes.
+  imu power: int = hp + attack; -- + - * / %
   mut current_hp: int = 100;
-  imu damage: int = 25;
-
-  current_hp = current_hp - damage; -- 75
+  current_hp -= 25; -- += -= *= /=
   ```
-
-## compound assignment
-
-  ```zo
-  -- And me, I'm compound assignment:
-  -- `+=`, `-=`, `*=`, `/=`. Just shorthand for 
-  -- `x = x + y`. Read-and-write in one shot.
-  mut current_hp: int = 100;
-
-  current_hp -= 25; -- 75
-  current_hp += 30; -- 105
-  current_hp *= 2;  -- 210
-  ```
-
-## try this
-
-- Use `%` to detect even numbers: `showln(10 % 2);`.
-- Try `current_hp /= 0;` and watch the compiler/runtime react.
-
-```zo
--! ## the capstone.
--!
--!   - `+ - * / %` are arithmetic same rules as math.
--!   - `=` are reassignment, only on `mut` variables.
--!   - `+= -= *= /=` are compound.
-```
 
 ---
 
 # strings
 
-Sequences of bytes you can store, combine, and index. zo string literals live in the binary's read-only data section — no heap allocation, no copy at startup.
+All strings adhere to valid UTF-8 formats, supporting raw character arrays, unicode hex variants, layout escapes, and structural symbols seamlessly.
 
   ```zo
-  -- What's up, cuh? Remember me? — the string. I'm 
-  -- immutable; once created, my bytes never change. 
-  -- I'm versatile, so my shapes are yours:
+  -- Custom strings are completely immutable. The
+  -- internal data bytes never change.
   "\e[32mHello!\v\e[34mWorld\e[0m\n"
-  "\x48\x65\x6c\x6c\x6f"              -- hex
-  "\u{e9}\u{e8}\u{ea}"                -- latin
-  "\u{2603} \u{2602} \u{2600}"        -- bmp
-  "\u{1F600} \u{1F680} \u{1F4A9}"     -- emoji
+  "\x48\x65\x6c\x6c\x6f"          -- hex char
+  "\u{e9}\u{e8}\u{ea}"            -- latin char
+  "\u{1F600} \u{1F680} \u{1F4A9}" -- decoded emoji
+  "🙈🙉🙊"                        -- raw unicode literals
   ```
 
 ## concatenation
 
+The `++` operator acts as your layout welding torch. Merging literals fuses values immediately inside the binary compilation phase, yielding zero performance penalties at execution time.
+
   ```zo
-  -- `++` joins two strings. With variables: a fresh
-  -- string at runtime. With literals: folded at 
-  -- compile time — zero runtime cost.
   imu greeting: str = "hello";
   imu name: str = "johndoe";
   imu full: str = greeting ++ ", " ++ name ++ "!";
-  imu title: str = "the " ++ "devolution";
+
+  -- Direct character index extraction evaluates
+  -- efficiently.
+  showln(greeting[0]); -- Evaluates to 'h'
   ```
-
-The originals are untouched — concatenation produces a new string, never mutates an input.
-
-## indexing
 
   ```zo
-  -- `s[i]` returns the `char` at byte position `i`.
-  -- O(1) — a single byte load, bounds-checked at 
-  -- compile time when the index is known.
-  imu greeting: str = "hello";
-  showln(greeting[0]); -- h
-  showln(greeting[4]); -- o
+  -! ## the capstone.
+  -!
+  -!   - `str` is immutable.
+  -!   - `++` concatenates.
+  -!   - `s[i]` for string indexing.
   ```
-
-## under the hood
-
-zo strings are length-prefixed: `[len:u64][bytes][null]`. The length is always known, so there's no terminator scanning, no `strlen` walk. Indexing, slicing, and length lookups are all O(1).
-
-```zo
--! ## the capstone.
--!
--!   - `str` is immutable.
--!   - `++` concatenates.
--!   - `s[i]` is O(1) char access, bounds-checked.
-```
 
 ---
 
 # tuples
 
-A fixed-size group of values, possibly of different types, accessed by position. Heterogeneous, immutable, zero-overhead grouping — no heap, no headers.
+A tuple organizes items into a fixed-length, ordered sequence. Unlike arrays, a single tuple can house distinct
+data types within the same memory footprint.
 
   ```zo
-  -- A tuple literal: parens + comma-separated values.
-  -- The type follows the values: `(int, int, int)`.
-  imu point := (1, 2, 3);
-  showln(point); -- (1, 2, 3)
-  ```
+  imu point: (int, str, int) = (100, "john", 3);
 
-## indexing
+  -- Extract parameters via positional indices.
+  showln(point.0);
 
-  ```zo
-  -- `.N` reads the Nth field. Positional, 0-indexed.
-  imu tup := (10, 20);
-  showln(tup.0);       -- 10
-  showln(tup.1);       -- 20
-  showln(tup.0 + tup.1); -- 30
-  ```
+  -- Deconstruct the memory layer instantly via
+  -- structured binding patterns.
+  imu (x, y, z): (int, int, int) = point; -- Structured destructuring binding
 
-## type annotations
-
-  ```zo
-  -- The type mirrors the literal: parens around
-  -- comma-separated types. Mix types freely.
-  imu pair: (int, int) = (10, 20);
-  imu mixed: (str, int) = ("alice", 30);
-  ```
-
-## destructuring
-
-  ```zo
-  -- Bind each field to its own name in one shot.
-  imu (x, y, z) := (1, 2, 3);
-  showln(x); -- 1
-  showln(y); -- 2
-  showln(z); -- 3
-
-  imu (name, age) := ("alice", 30);
-  showln(name); -- alice
-  showln(age);  -- 30
-  ```
-
-## naming a shape
-
-  ```zo
-  -- `type` names a recurring tuple — clearer 
-  -- signatures, same zero-cost layout.
-  type Point = (int, int);
-
-  fun translate(p: Point, dx: int, dy: int) -> Point {
-    return (p.0 + dx, p.1 + dy);
-  }
-
-  imu origin: Point = (0, 0);
-  imu next: Point = translate(origin, 5, 5); -- (5, 5)
-  ```
-
-## under the hood
-
-A tuple is a flat struct with positional fields: `[field0][field1]...[fieldN]`, no headers, no padding beyond alignment. Field access (`t.N`) is a constant-offset load — same cost as struct field access. Tuples pass by value: `imu b = a` copies the fields.
-
-  ```zo
-  -! ## the capstone.
-  -!
-  -!   - tuples group values of different types.
-  -!   - `t.N` reads field N (positional, 0-indexed).
-  -!   - `imu (a, b) := t` destructures.
-  -!   - `type Pair = (int, int)` names a shape.
+  -- Declare structural type aliases for fast shape
+  -- replication.
+  type Point = (int, int); -- Type shaping alias
   ```
 
 ---
 
 # arrays
 
-An ordered, **homogeneous** sequence of values — every element shares the same type. Two flavors: fixed-size when the length is part of the type, dynamic when it grows at runtime.
+Arrays host homogeneous components where every single block matches a identical data type. They come in static and dynamic variants.
 
-## static arrays
+## static array
+
+The notation format `[N]T` fuses the length constraint straight into the data classification layer. The memory block is determined at compile-time and guarantees safe bounds-checking verification parameters during constant array access tasks.
 
   ```zo
-  -- `[N]T`: length is part of the type. Layout is
-  -- known at compile time; bounds-checked when the
-  -- index is constant.
   imu nums: [3]int = [10, 20, 30];
-
-  showln(nums[0]);       -- 10
-  showln(nums.len);      -- 3
-
-  -- `[v...]` fills with `v`. Count is read from 
-  -- `[N]T`.
   imu zeros: [5]int = [0...]; -- [0, 0, 0, 0, 0]
-
-  -- destructure by ordered position. Use `:=` —
-  -- types come from the rhs.
-  imu [a, b, c] := nums;
-  showln(a);             -- 10
-  ```
-
-## multi-dimensional static arrays
-
-  ```zo
-  -- `[N][M]T` is an array of N arrays of M T's. Index
-  -- with chained brackets.
   imu grid: [2][3]int = [[1, 2, 3], [4, 5, 6]];
 
-  showln(grid[0][0]);    -- 1
-  showln(grid[1][2]);    -- 6
-  showln(grid);          -- [[1, 2, 3], [4, 5, 6]]
+  -- Unpack items instantly using assignment sequences.
+  imu [a, b, c]: [int, int, int] = nums;
   ```
 
-## dynamic arrays
+## dynamic array
+
+The designation `[]T` offloads length calculations to execution headers rather than structural types. Coupling
+arrays with a `mut` binding permits array extensions.
 
   ```zo
-  -- `[]T`: length lives in the runtime header, not in
-  -- the type. With `mut`, the array grows.
   mut arr: []int = [];
-
   arr.push(10);
-  arr.push(20);
-  arr.push(30);
 
-  showln(arr);           -- [10, 20, 30]
-  showln(arr.len);       -- 3
+  imu last: int = arr.pop(); - Safely extracts 10
 
-  imu last: int = arr.pop();
-  showln(last);          -- 30
-  showln(arr);           -- [10, 20]
-
-  -- `[v...n]` is the explicit-count repeat — useful
-  -- with `[]T` since there's no annotation length.
+  -- The `[value...count]` expression triggers explicit
+  -- array expansion routines.
   imu sevens: []int = [7...4]; -- [7, 7, 7, 7]
-  ```
-
-## under the hood
-
-zo arrays are length-prefixed: `[len:8][cap:8][elem0][elem1]...[elemN]`. The header is 16 bytes (length + capacity); element offsets start at `+16`. `arr.len` is a single load — no walk, no terminator. Indexing is constant-offset arithmetic. `push`/`pop` mutate in place; reallocation kicks in when capacity is exhausted.
-
-  ```zo
-  -! ## the capstone.
-  -!
-  -!   - `[N]T` is fixed-size, `[]T` is dynamic.
-  -!   - `a[i]` reads, `a.len` counts (O(1)).
-  -!   - `[v...]` / `[v...n]` are repeat literals.
-  -!   - `imu [a, b, c] := arr` destructures.
-  -!   - `mut` enables `push` / `pop` / resize.
   ```
 
 ---
 
 # blocks
+
+...
 
 ---
 
@@ -1132,12 +958,12 @@ zo arrays are length-prefixed: `[len:8][cap:8][elem0][elem1]...[elemN]`. The hea
 
   ```zo
   -- closure:block.
-  imu f: Fn(int) -> int = fn(x: int) -> int {
+  imu square: Fn(int) -> int = fn(x: int) -> int {
     return x * x;
   };
 
   -- closure:line.
-  imu f: Fn(int) -> int = fn(x: int) -> int => x * x;
+  imu square: Fn(int) -> int = fn(x: int) -> int => x * x;
 
 
   -- Then you can call me, like this:
@@ -1148,66 +974,44 @@ zo arrays are length-prefixed: `[len:8][cap:8][elem0][elem1]...[elemN]`. The hea
 
 # structures
 
+Custom structures package operations into meaningful domain boundaries. The `struct` keyword models complex custom fields, while the `apply` keyword assigns functional behavior logic to those types.
+
 ## struct
 
+Every field inside a `struct` definition must declare an explicit fallback assignment metric. The compiler enforces default initialization rules to maintain optimizations throughout compilation phases.
+
   ```zo
-  -- ...
   struct Point {
     x: int,
     y: int,
   }
 
-  -- Then you created me:
-  imu point: Point = Point {
-    x = 1,
-    y = 2
-  };
-
-  -- And used me like the following:
-  point.y -- 2
-  ```
-
-talk about the default value. All fields must have a default value to be valid. otherwise the compiler will complain.
-
-  ```zo
-  -- ...
   struct Rect {
     x: int = 10,
     y: int = 20,
     w: int = 100,
     h: int = 200,
   }
+
+  struct Counter {
+    x: int = 0,
+  }
   ```
 
 ## methods
 
-talk about the usage of apply keyword to define methods.
+Use the apply statement block to bind custom functions to a target structure definition.
 
   ```zo
-  struct Counter {
-    x: int,
-  }
-
-  -- ...
   apply Counter {
-    -- static method
+    -- Static instantiation function block.
     fun new() -> Self {
       Self { x = 0 }
     }
 
-    -- ...
-    fun hello(self) -> int {
-      return 12345;
-    }
-
-    -- ...
+    -- Mutable state tracking modifier function.
     fun incr(mut self) {
       self.x += 1;
-    }
-
-    -- ...
-    fun x(self) -> int {
-      self.x
     }
   }
   ```
@@ -1216,15 +1020,17 @@ talk about the usage of apply keyword to define methods.
 
 # enums
 
+Enums manage disjoint data states safely, supporting direct discriminants along with tuple-wrapped inline data tracking blocks.
+
   ```zo
   -- ...
   enum Foo {
     Bar,
-    Oof(str), -- tuple
-    Rab = 42, -- discriminant
+    Oof(str), -- Structural data tuple binding
+    Rab = 42, -- Assigned explicit discriminant value
   }
 
-  -- construct
+  -- Instance consumption example.
   imu foo: Foo = Foo::Bar;
   imu foo: Foo = Foo::Oof("What's crackin'?");
   ```
@@ -1233,9 +1039,8 @@ talk about the usage of apply keyword to define methods.
 
 # abstracts
 
-Abstracts are zo's form of **ad-hoc polymorphism** — one contract, many implementations. Each `apply Abstract for Type` block provides type-specific behavior dispatched on the
-receiver's type. The other form, **parametric polymorphism**,
-is covered by [generics](#019-generics).
+Abstracts establish zo's architecture for ad-hoc polymorphism. You define a structural contract once, then
+declare custom implementation tracks across varying types via explicit implementation mappings: `apply Abstract for TargetType`.
 
   ```zo
   abstract Display {
@@ -1249,10 +1054,60 @@ is covered by [generics](#019-generics).
 
   apply Display for Point {
     fun display(self) -> str {
-      return "point";
+      return self.x ++ ", " ++ self.y;
     }
   }
   ```
+
+## using abstracts as parameters.
+
+Functions that accept elements under abstract contract bounds choose between three compilation techniques balancing raw execution speed against binary sizing limits.
+
+### form 1 — implicit-mono.
+
+  ```zo
+  fun render(item: Display) -> str {
+    item.display()
+  }
+  ```
+
+The compiler manages the heavy lifting under the hood: it automatically generates a hidden type variable, extracts parameters straight from the call site, and generates a dedicated, static monomorphized copy of the function block per unique type. Zero runtime cost, zero vtable tracking lookups. Violating limits triggers error diagnostics immediately.
+
+### form 2 — explicit-mono.
+
+  ```zo
+  fun render<$T: Display>(item: $T) -> str {
+    item.display()
+  }
+  ```
+
+This follows the exact same performance-optimal static compilation track as Form 1. Use this explicit syntax strategy whenever you must reuse the type constraint identifier across signature bounds—such as enforcing matched input types or coordinating return paths.
+
+### form 3 — dynamic dispatch.
+
+  ```zo
+  fun render(item: any Display) -> str {
+    item.display()
+  }
+  ```
+
+Prepend the type parameter with any to box the instances safely behind a uniform vtable layout pointer. The compiler generates exactly one execution block in the final binary, executing code paths via runtime lookup addresses. This trade-off incurs slight call overhead but permits heterogeneous data grouping inside shared array vectors.
+
+  ```zo
+  mut widgets: []any Drawable = [];
+  widgets.push(Button { label = "ok" });
+  widgets.push(Slider { value = 42 });
+
+  for w := widgets {
+    showln(w.draw());
+  }
+  ```
+
+| Engineering Requirement                                             | Optimal Architectural Choice        |
+| :------------------------------------------------------------------ | :---------------------------------- |
+| Maximum dispatch velocity; isolated single types per call site.     | `item: Abstract (Form 1)`           |
+| Shared type bounds enforcement across arguments or return paths.    | `<$T: Abstract>(item: $T) (Form 2)` |
+| Mixed collection handling; minimal compiled binary space footprint. | `item: any Abstract (Form 3)`       |
 
 ---
 
@@ -1296,7 +1151,7 @@ Generics are zo's form of **parametric polymorphism** — one body of code that 
   if 1 == 2 {
     false
   } else if 2 == 3 {
-    false
+    false;
   } else if 3 == 4 {
     false
   } else {
@@ -1398,31 +1253,56 @@ Generics are zo's form of **parametric polymorphism** — one body of code that 
 
 # concurrency
 
-description:
-  - green and os threads
-  - scheduler
+The zo runtime ignores standard state-machine `async`/`await` transforms entirely, eliminating function coloring bugs across your system. Execution runs inside native runtime-managed green threads tracking execution scope blocks called nurseries. Blocking a task triggers immediate context frame swaps inside the scheduler.
+
+## nursery
+
+A `nursery` container sets strict lexical boundaries for concurrent task Lifecycles. The execution block cannot exit until every spawned green thread unwinds completely.
+
+  ```zo
+  fun worker(id: int, tx: Tx<int>) {
+    showln("worker: {id}");
+    tx.send(id * 10);
+  }
+
+  fun main() {
+    imu (tx, rx) := channel();
+  
+    -- The nursery handles concurrent task tracking
+    -- smechanics cleanly.
+    nursery {
+      spawn worker(1, tx);
+      spawn worker(2, tx);
+    } -- exical boundary block: execution holds here
+    --  until both tasks complete.
+
+    imu res1 := rx.recv();
+    imu res2 := rx.recv();
+    showln("collected results: {res1}, {res2}");
+  }
+  ```
+
+- **True Stackful Green Threads**: Every concurrent execution task allocates a lightweight runtime execution stack. Deep nested calls compile natively without restructuring code into complex async state loops.
+- **Unified Runtime Scheduler**: The internal task coordinator monitors state mutations directly. Invoking `rx.recv()` on an empty channel yields execution, swapping out active thread contexts immediately.
+- **Structural Cancellation**: Nurseries form distinct isolation islands. Triggering task cancellations propagates downstream through children stacks because the underlying runtime owns the stack handles.
 
 ## supervise
 
   ```zo
   ```
 
-## nursery
-
-  ```zo
-  ```
-
 ## select
 
+Coordinate communication states across multiple channel references using the non-blocking select block format:
+
   ```zo
+  select {
+    rx1 => fn(value: int) => showln("chan1: {value}"),
+    rx2 => fn(value: int) => showln("chan2: {value}"),
+  }
   ```
 
 ## thread
-
-  ```zo
-  ```
-
-## spawn
 
   ```zo
   ```
@@ -1440,10 +1320,15 @@ description:
 
 # zsx
 
-markup basics: tags, attributes, interpolation.
+The compiler builds an inline UI interface engine called zsx (zo Syntax Extension). It compiles interface markup nodes into static target rendering definitions at build-time, completely freeing the stack from heavy application bundles or runtime framework assets.
 
   ```zo
-  -- ...
+  fun user_account(username: str, score: int) {
+    imu view: </> ::= <div class="card">
+      <h2>User: {username}</h2>
+      <p>Current Score: {score}</p>
+    </div>;
+  }
   ```
 
 ## @events
@@ -1453,19 +1338,34 @@ markup basics: tags, attributes, interpolation.
   ```zo
   ```
 
-## style
-
-  ```zo
-  -- ...
-  $: {}
-
-  -- ...
-  pub $: {}
-  ```
-
 ## components
 
 ...
+
+## style
+
+Target style behaviors directly inside your source file using scoped lexical style assignment scopes (`$: {}`). The declarations remain completely isolated to the compilation package module boundary, guaranteeing style isolation.
+
+  ```zo
+  -- Isolated module styles stay bound to local markup
+  -- components.
+  $: {
+    card {
+      background: #161b22;
+      border-radius: 4px;
+      padding: 16px;
+    }
+    button {
+      background-color: #ff79c6;
+      color: #0d1117;
+      font-weight: bold;
+    }
+  }
+
+  -- Use the public prefix modifier to pass declaration
+  -- metrics globally.
+  pub $: {}
+  ```
 
 ---
 
@@ -1478,15 +1378,88 @@ markup basics: tags, attributes, interpolation.
 
 # foreign function interfaces
 
+zo calls C-ABI libraries directly. You declare the foreign function once, tell the linker where its symbol lives, and call it like any zo function — no wrapper layer, no runtime cost.
+
+## declaring a foreign function
+
+A `pub ffi` declaration names a function that lives in a C library. It has no body; the symbol resolves at link time.
+
   ```zo
-  -- ...
-  ffi sqrt(a: int) -> int;
-  
-  -- ...
-  ffi sqrt(a: int) -> int {
-    -- ...
+  -- A declaration ends in `;` — no body.
+  pub ffi sqrt(x: f64) -> f64;
+
+  -- A void function omits the return.
+  pub ffi close_window();
+  ```
+
+zo drives the call straight from this signature: it places arguments in registers per the platform ABI, narrows or widens scalars, and passes structs by value. Adding a function costs one line.
+
+## linking a library
+
+A `#link` block tells the linker which dylib owns the symbols in the file. One block covers every `pub ffi` in the same pack.
+
+  ```zo
+  #link {
+    macos: "@executable_path/libzo_provider_sqlite.dylib",
+    linux: "@executable_path/libzo_provider_sqlite.so",
+  }
+
+  pub ffi zo_sqlite_open(path: CStr) -> int;
+  pub ffi zo_sqlite_close(handle: int);
+  ```
+
+C strings cross the boundary as `CStr` (from `core::c`), never `str` — a zo `str` carries a length header that a C function would misread.
+
+## calling a library
+
+Foreign libraries ship as opt-in providers. Load one and call it:
+
+  ```zo
+  load core::c::*;
+  load provider::sqlite::*;
+
+  fun main() {
+    imu db: int = zo_sqlite_open(CStr::new("scores.db"));
+    zo_sqlite_exec(db, CStr::new("CREATE TABLE s (score int)"));
+    zo_sqlite_close(db);
   }
   ```
+
+## the binding generator
+
+Hand-writing a `pub ffi` line per function — and keeping each one in sync with the library — is the tedious part. `zo-binder` writes those declarations for you, from one of two sources.
+
+### from a rust library
+
+Wrap any Rust crate in a small shim that exports plain C functions:
+
+  ```rust
+  // crates/compiler/zo-provider-undoredo/src/lib.rs
+  #[unsafe(no_mangle)]
+  pub extern "C" fn undo_stack_new() -> i64 { /* ... */ }
+  ```
+
+Then generate the bindings:
+
+  ```sh
+  just bind undoredo
+  ```
+
+zo-binder reads the shim's signatures and writes `provider/undoredo/undoredo.zo` — the `#link` block plus one `pub ffi` per function, ready to `load`.
+
+### from a c header
+
+For a C library, feed zo-binder the header's machine-readable API. raylib emits one through its `rlparser` tool:
+
+  ```sh
+  zo-binder --json raylib_api.json --lib raylib \
+    --macos /opt/homebrew/lib/libraylib.dylib \
+    --linux /usr/lib/x86_64-linux-gnu/libraylib.so
+  ```
+
+zo-binder maps each C type to its zo equivalent, generates the structs, renames `InitWindow` to `init_window`, and skips what it cannot map — callbacks, variadics — reporting each one.
+
+The generated file is committed and reviewed like any other source. Nothing runs during `zo run`: you regenerate bindings deliberately, the way you would run a formatter.
 
 ---
 
@@ -1539,7 +1512,7 @@ markup basics: tags, attributes, interpolation.
     showln(i);               -- 0 1 2 3 4
   }
 
-  imu slice = xs[2..5];      -- slicing
+  imu slice: []int = xs[2..5];   -- slicing
   ```
 
 ## collection types
@@ -1638,6 +1611,12 @@ markup basics: tags, attributes, interpolation.
   load std::math::pow;
   load std::math::(pow, abs);
   ```
+
+---
+
+# error messages
+
+...
 
 ---
 

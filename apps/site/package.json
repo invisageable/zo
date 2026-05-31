@@ -12,7 +12,7 @@
     "preview": "astro preview",
     "astro": "astro",
     "zo:install": "cp ../../tasks/zo-install.sh public/install.sh",
-    "zo:docs": "node tasks/build-llms-full.mjs"
+    "zo:docs": "node ../site-tasks/build-llms-full.mjs"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.2",

@@ -3,8 +3,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
-const SRC = join(ROOT, "..", "src", "content", "initiation", "en");
-const OUT = join(ROOT, "..", "public", "docs", "llms-full.txt");
+const SRC = join(ROOT, "..", "site", "src", "content", "initiation", "en");
+const OUT = join(ROOT, "..", "site", "public", "docs", "llms-full.txt");
 
 const HEADER = `# zo programming language — full documentation
 
