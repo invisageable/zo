@@ -47,3 +47,11 @@ pub ffi draw_rectangle(x: int, y: int, width: int, height: int, color: int);
 -! @param color — RGBA packed color.
 %% link_name = "DrawRectangleLines".
 pub ffi draw_rectangle_lines(x: int, y: int, width: int, height: int, color: int);
+
+-! Draw a single pixel.
+-!
+-! @param x — The x-coordinate.
+-! @param y — The y-coordinate.
+-! @param color — RGBA packed color.
+%% link_name = "DrawPixel".
+pub ffi draw_pixel(x: int, y: int, color: int);
