@@ -1,1 +1,174 @@
-fun main() {}
+load core::c::*;
+load core::random::*;
+load provider::raylib;
+
+val SCREEN_WIDTH: int = 800;
+val SCREEN_HEIGHT: int = 600;
+val CELL_SIZE: int = 10; -- 10x10 pixels per cell -> 80x60 grid.
+
+val COLS: int = 80;
+val ROWS: int = 60;
+val TOTAL_CELLS: int = 4800; -- 80 * 60.
+
+val KEY_SPACE: int = 32;
+
+val COLOR_BLACK: int = 0xFF000000;
+val COLOR_WHITE: int = 0xFFFFFFFF;
+val COLOR_GREEN: int = 0xFF3EFDCC;
+
+-- A rectangular slice of the grid — one parallel quadrant's bounds.
+struct Rect {
+  x_start: int,
+  x_end: int,
+  y_start: int,
+  y_end: int,
+}
+
+-- Count living neighbors of `(x, y)`, wrapping at the edges so the
+-- board is a torus.
+fun count_neighbors(grid: Vec<int>, x: int, y: int) -> int {
+  mut count: int = 0;
+
+  for dy := -1..2 {
+    for dx := -1..2 {
+      if dx == 0 && dy == 0 { continue; }
+
+      imu nx := (x + dx + COLS) % COLS;
+      imu ny := (y + dy + ROWS) % ROWS;
+      imu idx := ny * COLS + nx;
+
+      match grid.get(idx) {
+        Option::Some(cell) => { if cell == 1 { count += 1; } }
+        Option::None => {}
+      }
+    }
+  }
+
+  return count;
+}
+
+-- Evolve one quadrant of the board into `next_grid` under the B3/S23
+-- rules. Reads the whole shared `grid`, writes only its own region —
+-- so four of these run concurrently without locks.
+fun calculate_quadrant(grid: Vec<int>, mut next_grid: Vec<int>, bounds: Rect) {
+  for y := bounds.y_start..bounds.y_end {
+    for x := bounds.x_start..bounds.x_end {
+      imu idx := y * COLS + x;
+      imu neighbors := count_neighbors(grid, x, y);
+
+      match grid.get(idx) {
+        Option::Some(alive) => {
+          mut next_state: int = 0;
+          if alive == 1 {
+            if neighbors == 2 || neighbors == 3 {
+              next_state = 1; -- Lives.
+            }
+          } else {
+            if neighbors == 3 {
+              next_state = 1; -- Reproduces.
+            }
+          }
+          next_grid.set(idx, next_state);
+        }
+        Option::None => {}
+      }
+    }
+  }
+}
+
+-- Seed the board: each cell is alive with 25% probability. The fixed
+-- seed makes every run start from the same pattern.
+fun spawn_initial_grid() -> Vec<int> {
+  mut grid: Vec<int> = Vec::new();
+  mut rng: Rng = Rng::new(1337);
+
+  for i := 0..TOTAL_CELLS {
+    imu cell: int = when rng.range(0, 100) < 25 ? 1 : 0;
+    grid.push(cell);
+  }
+
+  grid
+}
+
+fun main() {
+  raylib::init_window(
+    SCREEN_WIDTH,
+    SCREEN_HEIGHT,
+    CStr::new("zo parallel life"),
+  );
+
+  raylib::set_target_fps(15); -- Slow enough to watch the evolution.
+
+  mut grid: Vec<int> = spawn_initial_grid();
+
+  mut next_grid: Vec<int> = Vec::new();
+  for i := 0..TOTAL_CELLS { next_grid.push(0); }
+
+  -- Four quadrants, one green task each.
+  imu q1: Rect = Rect { x_start = 0,  x_end = 40, y_start = 0,  y_end = 30 };
+  imu q2: Rect = Rect { x_start = 40, x_end = 80, y_start = 0,  y_end = 30 };
+  imu q3: Rect = Rect { x_start = 0,  x_end = 40, y_start = 30, y_end = 60 };
+  imu q4: Rect = Rect { x_start = 40, x_end = 80, y_start = 30, y_end = 60 };
+
+  mut paused: bool = false;
+
+  loop {
+    if raylib::window_should_close() { break }
+    if raylib::is_key_pressed(KEY_SPACE) { paused = !paused; }
+
+    if !paused {
+      -- Dispatch the four quadrants concurrently over the shared
+      -- grid. The nursery joins all four before we swap buffers; the
+      -- writes are disjoint, so no locks are needed.
+      nursery {
+        spawn calculate_quadrant(grid, next_grid, q1);
+        spawn calculate_quadrant(grid, next_grid, q2);
+        spawn calculate_quadrant(grid, next_grid, q3);
+        spawn calculate_quadrant(grid, next_grid, q4);
+      }
+
+      -- Promote the freshly computed generation into `grid`. A
+      -- pointer swap would reassign `grid` on only the unpaused
+      -- path, which reads as a path-dependent free; copying keeps
+      -- both buffers owned start to finish.
+      for i := 0..TOTAL_CELLS {
+        match next_grid.get(i) {
+          Option::Some(cell) => { grid.set(i, cell); }
+          Option::None => {}
+        }
+      }
+    }
+
+    raylib::begin_drawing();
+      raylib::clear_background(COLOR_BLACK);
+
+      for y := 0..ROWS {
+        for x := 0..COLS {
+          imu idx := y * COLS + x;
+          match grid.get(idx) {
+            Option::Some(cell) => {
+              if cell == 1 {
+                raylib::draw_rectangle(
+                  x * CELL_SIZE,
+                  y * CELL_SIZE,
+                  CELL_SIZE - 1, -- -1 leaves a 1px grid line.
+                  CELL_SIZE - 1,
+                  COLOR_GREEN,
+                );
+              }
+            }
+            Option::None => {}
+          }
+        }
+      }
+
+      if paused {
+        raylib::draw_text(CStr::new("PAUSED"), 350, 280, 30, COLOR_WHITE);
+      }
+    raylib::end_drawing();
+  }
+
+  grid.free();
+  next_grid.free();
+  raylib::close_window();
+}

@@ -385,6 +385,12 @@ pub enum ErrorKind {
   /// and erodes the visual cue that distinguishes a
   /// one-liner from a multi-statement loop.
   MixedLoopBodyForms,
+  /// A reserved keyword appeared where an identifier was
+  /// required — as a binding name, parameter, field, or
+  /// pattern binder (e.g. `match … { Some(state) => … }`,
+  /// where `state` is the typestate keyword). Reserved
+  /// words can never name a value.
+  ReservedKeyword,
 
   // linker errors
   LinkerError,

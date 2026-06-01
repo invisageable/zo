@@ -316,6 +316,7 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
 
     // Parser errors
     ErrorKind::UnexpectedToken => "Unexpected token",
+    ErrorKind::ReservedKeyword => "Reserved keyword used as an identifier",
     ErrorKind::ExpectedIdentifier => "Expected identifier",
     ErrorKind::ExpectedType => "Expected type annotation",
     ErrorKind::ExpectedExpression => "Expected expression",
@@ -528,6 +529,7 @@ fn error_label(kind: ErrorKind) -> &'static str {
       "no matching opening delimiter for this"
     }
     ErrorKind::MismatchedDelimiter => "delimiter type doesn't match opening",
+    ErrorKind::ReservedKeyword => "this reserved word can't name a value",
     ErrorKind::ExpectedIdentifier => "expected an identifier here",
     ErrorKind::ExpectedLParen => "expected '(' here",
     ErrorKind::ExpectedRParen => "expected ')' here",
@@ -669,6 +671,9 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
     ErrorKind::UnmatchedClosingDelimiter => {
       Some("Remove this delimiter or add its opening pair")
     }
+    ErrorKind::ReservedKeyword => Some(
+      "Reserved words name language constructs, so they can't name a value — rename the binding",
+    ),
     ErrorKind::ExpectedIdentifier => {
       Some("Provide a valid identifier (e.g., variable or function name)")
     }

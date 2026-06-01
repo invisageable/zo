@@ -11887,6 +11887,28 @@ impl<'a> Executor<'a> {
             idx += 1;
           }
         }
+        other if other.is_reserved_word() && !other.is_ty() => {
+          // A non-type reserved keyword in field-name position
+          // (e.g. `struct S { state: int }`). Without this the
+          // field was silently dropped, leaving the struct
+          // short a member. Type keywords are excluded — they
+          // appear legitimately in a field's type, including as
+          // generic arguments (`HashMap<str, str>`), which the
+          // field-type resolver may leave for this loop to skip.
+          // Skip past `: Type` so the type isn't mis-reported.
+          self.report(ErrorKind::ReservedKeyword, self.tree.spans[idx]);
+
+          idx += 1;
+
+          while idx < end_idx
+            && !matches!(
+              self.tree.nodes[idx].token,
+              Token::Comma | Token::RBrace
+            )
+          {
+            idx += 1;
+          }
+        }
         _ => idx += 1,
       }
     }
@@ -17430,14 +17452,17 @@ impl<'a> Executor<'a> {
               continue;
             }
 
-            // Reject type keywords (str, int, bytes, etc.)
-            // as binding names — the tokenizer turns them
-            // into type tokens, making them unusable as
-            // variable references in the arm body.
-            if tok.is_ty() {
+            // Reject reserved keywords as binding names. The
+            // tokenizer maps them to dedicated tokens — a type
+            // keyword (`str`/`int`/`bytes`/…) or a word like
+            // `state`/`match` — so they can't be a variable
+            // reference in the arm body. Without this the
+            // binding is silently dropped and the name reads
+            // garbage at runtime.
+            if tok.is_reserved_word() {
               let span = self.tree.spans[bind_idx];
 
-              self.report(ErrorKind::ExpectedIdentifier, span);
+              self.report(ErrorKind::ReservedKeyword, span);
 
               bind_idx += 1;
               field_i += 1;

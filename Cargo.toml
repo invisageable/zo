@@ -172,6 +172,7 @@ hashbrown = { version = "0.16.0",  default-features = true, features = [
 js-sys = "0.3.81"
 kanal = "0.1.1"
 libm = "0.2.15"
+libzstd-rs-sys = "0.0.0"
 lyon_geom = "1.0.17"
 image = { version = "0.25.10", default-features = false, features = [
   "jpeg",

@@ -279,7 +279,12 @@ impl Token {
     )
   }
 
-  /// Checks if the token kind is a keyword.
+  /// Statement-introducing keywords — the narrow subset the
+  /// operand buffer must NOT reorder as a value. This is NOT
+  /// the full reserved-word set (it excludes the value
+  /// keywords `true`/`false`/`self` and the type keywords,
+  /// which ARE operands); use [`Self::is_reserved_word`] to
+  /// ask "can this be an identifier?".
   #[inline(always)]
   pub fn is_keyword(&self) -> bool {
     matches!(
@@ -296,6 +301,57 @@ impl Token {
         | Self::For
         | Self::Test
     )
+  }
+
+  /// Checks if the token is a reserved word — any keyword the
+  /// tokenizer maps to a dedicated `Token`, so it can never be
+  /// an identifier (variable, parameter, field, or pattern
+  /// binder). Composed from the narrower classifiers plus the
+  /// remaining keywords, so every keyword is listed exactly
+  /// once. Keep the remainder in lockstep with the keyword
+  /// table in `zo-tokenizer`.
+  #[inline(always)]
+  pub fn is_reserved_word(&self) -> bool {
+    self.is_keyword()
+      || self.is_ty()
+      || matches!(
+        self,
+        // declarations and modifiers.
+        Self::Pub
+          | Self::Ffi
+          | Self::Pack
+          | Self::Load
+          | Self::Wasm
+          | Self::Type
+          | Self::Struct
+          | Self::Enum
+          | Self::Group
+          | Self::Apply
+          | Self::Abstract
+          | Self::State
+          | Self::Raw
+          // control flow and value keywords.
+          | Self::When
+          | Self::Loop
+          | Self::Match
+          | Self::Break
+          | Self::Continue
+          | Self::And
+          | Self::As
+          | Self::Is
+          | Self::Any
+          | Self::True
+          | Self::False
+          | Self::SelfLower
+          | Self::SelfUpper
+          | Self::Fn
+          // concurrency keywords.
+          | Self::Nursery
+          | Self::Supervise
+          | Self::Spawn
+          | Self::Await
+          | Self::Select
+      )
   }
 
   /// Returns the source text for type keyword tokens.
