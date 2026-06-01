@@ -82,6 +82,8 @@ fun main() {
         spawn calculate_band(b3);
         spawn calculate_band(b4);
       }
+
+      raylib::draw_fps(10, 10);
     raylib::end_drawing();
   }
 

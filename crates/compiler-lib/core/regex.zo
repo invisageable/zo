@@ -11,41 +11,41 @@ load core::c::(CBytes, CStr);
   linux: "@executable_path/libzo_runtime.so",
 }
 
-
+-! ...
 pub ffi zo_regex_compile(pattern: CStr, flags: CStr) -> int;
-
+-! ...
 pub ffi zo_regex_free(handle: int);
-
+-! ...
 pub ffi zo_regex_matches(handle: int, s: CStr) -> int;
-
+-! ...
 pub ffi zo_regex_find(handle: int, s: CStr) -> int;
-
+-! ...
 pub ffi zo_regex_find_end(handle: int, s: CStr) -> int;
-
+-! ...
 pub ffi zo_regex_exec(handle: int, s: CStr) -> int;
-
+-! ...
 pub ffi zo_regex_match_free(handle: int);
-
+-! ...
 pub ffi zo_regex_match_start(handle: int) -> int;
-
+-! ...
 pub ffi zo_regex_match_end(handle: int) -> int;
-
+-! ...
 pub ffi zo_regex_match_group_count(handle: int) -> int;
-
+-! ...
 pub ffi zo_regex_match_group(handle: int, index: int) -> CBytes;
-
+-! ...
 pub ffi zo_regex_replace(
   handle: int,
   s: CStr,
   replacement: CStr,
 ) -> CBytes;
-
+-! ...
 pub ffi zo_regex_replace_all(
   handle: int,
   s: CStr,
   replacement: CStr,
 ) -> CBytes;
-
+-! ...
 pub ffi zo_regex_split(handle: int, s: CStr) -> []str;
 
 

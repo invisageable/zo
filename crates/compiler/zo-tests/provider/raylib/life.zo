@@ -165,6 +165,8 @@ fun main() {
       if paused {
         raylib::draw_text(CStr::new("PAUSED"), 350, 280, 30, COLOR_WHITE);
       }
+
+      raylib::draw_fps(10, 10);
     raylib::end_drawing();
   }
 

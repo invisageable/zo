@@ -271,6 +271,8 @@ fun main() {
         raylib::draw_text(CStr::new("GAME OVER"), 300, 260, 40, COLOR_RED);
         raylib::draw_text(CStr::new("PRESS ENTER"), 312, 312, 20, COLOR_WHITE);
       }
+
+      raylib::draw_fps(10, 10);
     raylib::end_drawing();
   }
 
