@@ -5,8 +5,8 @@
 //! mangled symbol (not the bare method name).
 //!
 //! These are pipeline tests: they inline `apply <Prim> { ... }`
-//! just to exercise the dispatch mechanism. Ship-facing std
-//! methods live in `compiler-lib/std/<primitive>.zo`.
+//! just to exercise the dispatch mechanism. Ship-facing
+//! methods live in `compiler-lib/core/<primitive>.zo`.
 
 use crate::tests::common::assert_sir_structure;
 
@@ -130,7 +130,7 @@ fn test_std_char_is_digit_dispatches() {
   // on a `char` local must route through the mangled callee
   // `char::is_digit`. We only assert the dispatch shape — the
   // method's semantics are exercised by
-  // `programming/std-char.zo`.
+  // `programming/core_char.zo`.
   assert_sir_structure(
     r#"fun main() {
   imu c: char = '7';

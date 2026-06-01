@@ -12,7 +12,7 @@ env:
   # `zo-misato/build.rs` links against `libraylib` at compile
   # time. Every job that compiles the workspace must put raylib
   # on the search path before `cargo {check,clippy,build,test}`.
-  # Pinned in lockstep with `compiler-lib/std/raylib.zo`'s
+  # Pinned in lockstep with `compiler-lib/provider/raylib`'s
   # `pub ffi` surface — same version `release.yml` packages.
   RAYLIB_VERSION: "5.5"
 

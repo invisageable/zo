@@ -42,7 +42,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Auto-detect the std lib search path so every caller of
+/// Auto-detect the system-pack search paths so every caller of
 /// `Compiler::new()` (the zo CLI driver, the fret build
 /// pipeline, integration tests, …) gets `preload`/`io`/etc.
 /// resolved without each one having to wire its own search
@@ -469,8 +469,8 @@ struct DfsCtx {
   module_next_label_id: u32,
   /// System-pack roots (`core`, `provider`, …) — loads
   /// through these bypass the user lib.zo membership
-  /// check because the std layout is what governs them,
-  /// not the user's `pack` declarations.
+  /// check because the system-pack layout is what governs
+  /// them, not the user's `pack` declarations.
   system_pack_roots: HashSet<Symbol>,
   /// `true` when the user file is paired with a sibling
   /// `lib.zo` package manifest. Drives the "missing pack
@@ -550,7 +550,7 @@ impl Compiler {
     self.module_resolver.search_paths()
   }
 
-  /// detected std lib search path. Every caller (zo CLI,
+  /// detected system-pack search path. Every caller (zo CLI,
   /// fret build pipeline, integration tests) gets
   /// `preload`/`io`/etc. resolved without per-call wiring.
   pub fn new() -> Self {
@@ -829,7 +829,7 @@ impl Compiler {
 
     // System-pack roots bypass the user lib.zo membership
     // check: loads through `core` / `provider` are governed
-    // by the std layout, not the user's pack declarations.
+    // by the system-pack layout, not the user's declarations.
     ctx.system_pack_roots = zo_host_paths::SYSTEM_PACK_ROOTS
       .iter()
       .map(|n| session.interner.intern(n))

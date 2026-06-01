@@ -1,5 +1,5 @@
 //! zo-provider-sqlite — runtime backing the user-facing
-//! `compiler-lib/std/sqlite.zo`. The user opens a database
+//! `compiler-lib/provider/sqlite`. The user opens a database
 //! handle, runs DDL/DML, and reads single-int query
 //! results; this crate forwards each call through
 //! `rusqlite` (which embeds `bundled` SQLite).

@@ -24,7 +24,7 @@ fn snapshot_realistic_program() {
     r#"
     pack main;
 
-    load std::io::(read, readln);
+    load core::io::(read, readln);
     load math;
 
     struct Point {

@@ -7021,7 +7021,7 @@ impl<'a> Executor<'a> {
           }
         }
         // Primitive type keywords (`bool`/`char`/`int`/`str`,
-        // …) share names with std packs that extend them
+        // …) share names with core packs that extend them
         // (`load core::bool::*;` etc.). The tokenizer emits
         // them as `Token::BoolType`/`StrType`/…, not `Ident`,
         // so we re-intern the keyword string into a Symbol.
@@ -7071,7 +7071,7 @@ impl<'a> Executor<'a> {
     // First name token after `pack` — either a regular
     // `Ident` (most packs) or a primitive type keyword
     // (`pack char;` / `pack int;` / `pack bool;` /
-    // `pack str;` etc., where the std pack shares its name
+    // `pack str;` etc., where the core pack shares its name
     // with the primitive it extends). Without the latter,
     // `name` stays `None` for those preload packs,
     // `top_pack` never gets set, and any `pub fun` emitted

@@ -11,8 +11,8 @@
 use std::path::PathBuf;
 
 /// Top-level packages shipped with the zo distribution.
-/// Single source of truth for the std-layout discovery
-/// (`default_std_search_paths`) AND for the user-project
+/// Single source of truth for distribution-pack discovery
+/// (`existing_lib_dirs`) AND for the user-project
 /// load-gate exemption (loads through these roots bypass
 /// the project lib.zo's pack declarations).
 pub const SYSTEM_PACK_ROOTS: &[&str] = &["core", "provider"];

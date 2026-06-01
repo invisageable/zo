@@ -1,5 +1,5 @@
 //! zo-misato — runtime backing the user-facing
-//! `compiler-lib/std/misato.zo`. The user writes scenes
+//! `compiler-lib/core/graphics/misato`. The user writes scenes
 //! with `Scene`, `PerspectiveCamera`, `Mesh`,
 //! `BoxGeometry`, `MeshStandardMaterial`; this crate is
 //! the Rust runtime those types delegate to via FFI.

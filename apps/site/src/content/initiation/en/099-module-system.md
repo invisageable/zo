@@ -13,6 +13,6 @@
 ## load
 
   ```zo
-  load std::math::pow;
-  load std::math::(pow, abs);
+  load core::math::pow;
+  load core::math::(pow, abs);
   ```
