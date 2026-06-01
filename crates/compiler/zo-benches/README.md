@@ -105,6 +105,26 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | odin     | 319.6 KB |
 | rustc    | 455.5 KB |
 
+#### mandelbrot.
+
+@RUN: `just zo_bench mandelbrot`
+
+| Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      | Speed vs zo      |
+| :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
+| **zo**   | 20.00ms  | 5.82ms   | 5.88ms   | 6.38ms   | 7.09ms   | **9.03ms**   | **1.0x**         |
+| clang    | 129.80ms | 42.39ms  | 39.71ms  | 41.26ms  | 40.32ms  | **58.70ms**  | **6.5x slower**  |
+| rustc    | 69.46ms  | 71.83ms  | 69.06ms  | 69.55ms  | 72.20ms  | **70.42ms**  | **7.8x slower**  |
+| odin     | 311.04ms | 151.96ms | 153.38ms | 152.06ms | 150.62ms | **183.81ms** | **20.4x slower** |
+
+**-AWTY—are-we-tiny-yet?**
+
+| Compiler | Size     |
+| :------- | :------- |
+| **zo**   | 32.6 KB  |
+| clang    | 32.6 KB  |
+| odin     | 185.6 KB |
+| rustc    | 455.3 KB |
+
 #### munchhausen numbers.
 
 @RUN: `just zo_bench munchhausen`
@@ -189,6 +209,7 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **EXECUTE** AN EXECUTABLE FiLE.
 | `arithmetic`     | __7.0x__ faster | __9.5x__ faster  | __23.6x__ faster |
 | `fibonacci`      | __7.9x__ faster | __11.9x__ faster | __28.0x__ faster |
 | `hello`          | __8.0x__ faster | __12.1x__ faster | __28.2x__ faster |
+| `mandelbrot`     | __6.5x__ faster | __7.8x__ faster  | __20.4x__ faster |
 | `munchhausen`    | __5.8x__ faster | __9.3x__ faster  | __23.0x__ faster |
 | `rule_110`       | __6.6x__ faster | __14.6x__ faster | __28.3x__ faster |
 | `stress_fun_10k` | __1.8x__ faster | __4.0x__ faster  | __3.5x__ faster  |

@@ -719,14 +719,12 @@ fn benchmark_zo(
     let _ = fs::remove_file(output);
 
     let start = Instant::now();
-
     let result = Command::new(&zo_path)
       .arg("build")
       .arg(source)
       .arg("-o")
       .arg(output)
       .output();
-
     let elapsed = start.elapsed().as_nanos() as u64;
 
     match result {
@@ -740,7 +738,6 @@ fn benchmark_zo(
 
   if !times.is_empty() {
     let avg = (times.iter().sum::<u64>()) / times.len() as u64;
-
     println!("Average: {}", fmt_dur(avg));
   }
 
@@ -769,7 +766,6 @@ fn benchmark_zo(
 
 fn count_lines(path: &PathBuf) -> std::io::Result<usize> {
   let content = fs::read_to_string(path)?;
-
   Ok(content.lines().count())
 }
 
@@ -809,19 +805,38 @@ fn cleanup_dylibs(bench_dir: &PathBuf) {
 // ================================================================
 
 fn load_baseline(path: &PathBuf) -> BTreeMap<String, Baseline> {
-  let content = match fs::read_to_string(path) {
-    Ok(c) => c,
-    Err(_) => return BTreeMap::new(),
+  // A missing file is normal (first run) — no baseline yet.
+  let Ok(content) = fs::read_to_string(path) else {
+    return BTreeMap::new();
   };
 
-  serde_json::from_str(&content).unwrap_or_default()
+  // A file that exists but won't parse is NOT normal: silently
+  // returning empty disables every regression check with no
+  // trace (how a stale `zo_hot_avg_ms` baseline went unnoticed
+  // after the ns migration). Warn loudly and point at the fix.
+  match serde_json::from_str(&content) {
+    Ok(baselines) => baselines,
+    Err(error) => {
+      eprintln!(
+        "warning: baseline {} failed to parse ({error}); \
+         regression checks are off — regenerate with \
+         `--update-baseline`",
+        path.display(),
+      );
+
+      BTreeMap::new()
+    }
+  }
 }
 
 fn save_baseline(path: &PathBuf, results: &BTreeMap<String, u64>) {
-  let baselines: BTreeMap<String, Baseline> = results
-    .iter()
-    .map(|(name, ns)| (name.clone(), Baseline { zo_hot_avg_ns: *ns }))
-    .collect();
+  // Merge into the existing baselines: updating one benchmark
+  // (`--update-baseline mandelbrot`) must not drop the others.
+  let mut baselines = load_baseline(path);
+
+  for (name, ns) in results {
+    baselines.insert(name.clone(), Baseline { zo_hot_avg_ns: *ns });
+  }
 
   let json = serde_json::to_string_pretty(&baselines).unwrap();
 

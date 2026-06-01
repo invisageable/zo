@@ -1,14 +1,32 @@
 {
   "ackermann": {
-    "zo_hot_avg_ms": 4
+    "zo_hot_avg_ns": 6381812
   },
   "arithmetic": {
-    "zo_hot_avg_ms": 3
+    "zo_hot_avg_ns": 6294385
+  },
+  "concurrency_pike_sieve": {
+    "zo_hot_avg_ns": 6726739
   },
   "fibonacci": {
-    "zo_hot_avg_ms": 3
+    "zo_hot_avg_ns": 4674625
   },
   "hello": {
-    "zo_hot_avg_ms": 4
+    "zo_hot_avg_ns": 6688114
+  },
+  "mandelbrot": {
+    "zo_hot_avg_ns": 6263708
+  },
+  "munchhausen": {
+    "zo_hot_avg_ns": 5004177
+  },
+  "rule_110": {
+    "zo_hot_avg_ns": 6484156
+  },
+  "stress_fun_10k": {
+    "zo_hot_avg_ns": 25830542
+  },
+  "stress_fun_500k": {
+    "zo_hot_avg_ns": 1851632145
   }
 }
