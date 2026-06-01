@@ -1,0 +1,20 @@
+-- tests-run-pass: pool runs one submitted task to completion.
+
+load core::pool;
+
+fun task_a() {
+  showln("A");
+}
+
+fun main() {
+  imu thread_pool := pool::spawn_pool(1);
+  thread_pool.run(task_a);
+  thread_pool.wait();
+  thread_pool.shutdown();
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- A
+-- DONE

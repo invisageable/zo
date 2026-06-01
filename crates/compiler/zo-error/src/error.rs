@@ -423,6 +423,11 @@ pub enum ErrorKind {
   SpawnOutsideNursery, // `spawn` without enclosing `nursery { }`
   AwaitOnNonTask,      // `await expr` where expr is not `Ty::Task(_)`
   ChannelCapacityNotLiteral, // `channel(N)` with non-literal N
+  // A capturing closure cannot become a bare function
+  // pointer — the runtime ABI carries no environment, so
+  // only a non-capturing function or closure can flow into
+  // a `Fn()` position that materializes a real address.
+  CapturingClosureAsFnPointer,
 
   // Repeat-array literal `[v...]` / `[v...n]` errors.
   // `[v...]` needs `[N]T` annotation to provide N; `[]T`

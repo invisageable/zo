@@ -1398,6 +1398,50 @@ impl<'a> Executor<'a> {
     self.find_fun(name).and_then(|f| f.owning_pack)
   }
 
+  /// Materialize `callee`'s code address as a SIR value via
+  /// `Insn::FnAddr`. This is how a non-capturing `Fn()`
+  /// operand becomes a real runtime pointer (`s64`), so it
+  /// flows unchanged through bindings and across the C-ABI
+  /// FFI boundary (e.g. into `zo_pool_spawn`). A call site
+  /// that can statically devirtualize (`g()`) ignores this
+  /// value, so the emitted `FnAddr` is dead there and DCE
+  /// reclaims it.
+  fn emit_fn_addr(&mut self, callee: Symbol) -> ValueId {
+    let dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let callee_pack = self.callee_pack_of(callee);
+
+    self.sir.emit(Insn::FnAddr {
+      dst,
+      callee,
+      callee_pack,
+    })
+  }
+
+  /// True when `value` is a closure that captured at least
+  /// one variable. A capturing closure owns an environment,
+  /// so it cannot become a bare function pointer when a
+  /// `Fn()` operand flows into a real-pointer position (an
+  /// FFI argument or a non-monomorphizable call).
+  fn is_capturing_closure(&self, value: ValueId) -> bool {
+    let idx = value.0 as usize;
+
+    if idx >= self.values.kinds.len()
+      || !matches!(self.values.kinds[idx], Value::Closure)
+    {
+      return false;
+    }
+
+    let ci = self.values.indices[idx] as usize;
+
+    self
+      .values
+      .closures
+      .get(ci)
+      .is_some_and(|cv| !cv.captures.is_empty())
+  }
+
   /// Pack-qualified lookup. Resolves `<pack>::<name>` to
   /// the `FunDef` declared in `pack`, bypassing the
   /// bare-name index. Two modules can both expose a
@@ -4761,9 +4805,16 @@ impl<'a> Executor<'a> {
                 captures: Vec::new(),
               });
 
+              // Materialize the function's real address. A
+              // bare fn name captures nothing, so it can flow
+              // as a code pointer into an FFI / binding. A
+              // devirtualizable `g()` ignores this and DCE
+              // reclaims it; only a real-pointer use reads it.
+              let fn_addr = self.emit_fn_addr(sym);
+
               self.value_stack.push(closure_val);
               self.ty_stack.push(fun_ty);
-              self.sir_values.push(ValueId(u32::MAX));
+              self.sir_values.push(fn_addr);
             } else if sym_str == "channel" && self.ident_is_call_target(idx) {
               // `channel` is a compiler intrinsic, not a
               // FunDef — skip the undefined-variable report
@@ -8405,14 +8456,29 @@ impl<'a> Executor<'a> {
       })
       .collect::<Vec<_>>();
 
+    let is_capturing = !capture_infos.is_empty();
+
     let closure_val = self.values.store_closure(ClosureValue {
       fun_name: closure_name,
       captures: capture_infos,
     });
 
+    // A non-capturing closure is a plain code pointer, so
+    // materialize its address — it can then flow into an FFI
+    // / binding like any `Fn()` value. A capturing closure
+    // has an environment a bare pointer cannot carry; keep
+    // the sentinel so a devirtualizable / monomorphizable
+    // site still works, and let the real-pointer use sites
+    // raise `CapturingClosureAsFnPointer` instead.
+    let closure_sir = if is_capturing {
+      ValueId(u32::MAX)
+    } else {
+      self.emit_fn_addr(closure_name)
+    };
+
     self.value_stack.push(closure_val);
     self.ty_stack.push(closure_ty);
-    self.sir_values.push(ValueId(u32::MAX));
+    self.sir_values.push(closure_sir);
 
     // Skip past the closure tokens in the main loop,
     // but not the trailing Semicolon — it belongs to the
@@ -15245,6 +15311,35 @@ impl<'a> Executor<'a> {
     arg_sirs.reverse();
     arg_types.reverse();
     args.reverse();
+
+    // A capturing closure can't become a bare function
+    // pointer. A non-generic method never monomorphizes a
+    // closure argument into a direct call, so a `Fn()`-typed
+    // param treats the argument as a real address — reject a
+    // capturing closure with a clear diagnostic rather than
+    // forwarding the silent sentinel. (`self` is params[0],
+    // so explicit arg `i` maps to `func.params[i + 1]`.)
+    if func.type_params.is_empty() {
+      for (i, arg) in args.iter().enumerate() {
+        let Some((_, param_ty)) = func.params.get(i + 1) else {
+          continue;
+        };
+
+        if matches!(self.ty_checker.kind_of(*param_ty), Ty::Fun(_))
+          && self.is_capturing_closure(*arg)
+        {
+          let arg_node = lparen_idx + 1 + i * 2;
+          let span = self
+            .tree
+            .spans
+            .get(arg_node)
+            .copied()
+            .unwrap_or(self.tree.spans[lparen_idx]);
+
+          self.report(ErrorKind::CapturingClosureAsFnPointer, span);
+        }
+      }
+    }
 
     // Pop receiver (self) — it's before the explicit
     // args on the stack.

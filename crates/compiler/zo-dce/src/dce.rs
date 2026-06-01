@@ -690,6 +690,11 @@ fn collect_calls_in_range(
       // DCE must treat the callee as reachable or the
       // emitted binary would be missing its code.
       Insn::TaskSpawn { callee, .. } => calls.push(*callee),
+      // `FnAddr` takes a function's address as a runtime
+      // value (e.g. a `Fn()` passed to an FFI). The callee
+      // has no direct `Call`, so DCE must mark it reachable
+      // here or its code would be stripped from the binary.
+      Insn::FnAddr { callee, .. } => calls.push(*callee),
       _ => {}
     }
   }

@@ -463,6 +463,9 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::ChannelCapacityNotLiteral => {
       "`channel(N)` capacity must be an integer literal"
     }
+    ErrorKind::CapturingClosureAsFnPointer => {
+      "a capturing closure cannot be used as a function pointer"
+    }
 
     // Repeat-array literal errors.
     ErrorKind::RepeatRequiresKnownLength => {
@@ -609,6 +612,7 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::SpawnOutsideNursery => "no enclosing `nursery` for this spawn",
     ErrorKind::AwaitOnNonTask => "this is not a `Task<T>`",
     ErrorKind::ChannelCapacityNotLiteral => "expected an integer literal here",
+    ErrorKind::CapturingClosureAsFnPointer => "this closure captures a variable",
 
     // FFI / `#link` errors.
     ErrorKind::LinkResolutionFailed => "library not found at this path",
@@ -742,6 +746,9 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
     ),
     ErrorKind::ChannelCapacityNotLiteral => Some(
       "Write the buffer size as a literal, e.g. `channel(4)`. Variable references are post-MVP",
+    ),
+    ErrorKind::CapturingClosureAsFnPointer => Some(
+      "Pass a top-level function or a closure that captures nothing — a bare function pointer carries no captured environment",
     ),
 
     ErrorKind::MissingMainFunction => Some(

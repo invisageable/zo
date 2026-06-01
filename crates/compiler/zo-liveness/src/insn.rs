@@ -35,6 +35,7 @@ pub fn insn_def(insn: &Insn) -> Option<ValueId> {
     // Concurrency value-producing insns.
     | Insn::ChannelCreate { dst, .. }
     | Insn::ChannelRecv { dst, .. }
+    | Insn::FnAddr { dst, .. }
     | Insn::TaskSpawn { dst, .. }
     | Insn::TaskAwait { dst, .. }
     | Insn::SelectRecv { dst, .. }

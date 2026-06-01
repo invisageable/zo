@@ -403,6 +403,7 @@ impl Insn {
       | Insn::Cast { dst, .. }
       | Insn::ChannelCreate { dst, .. }
       | Insn::ChannelRecv { dst, .. }
+      | Insn::FnAddr { dst, .. }
       | Insn::TaskSpawn { dst, .. }
       | Insn::TaskAwait { dst, .. }
       | Insn::TaskCancelled { dst, .. }
@@ -544,6 +545,10 @@ impl Insn {
       Insn::ChannelClose { channel } => {
         f(channel);
       }
+      // `callee` is a `Symbol`, not a `ValueId` — only the
+      // produced address `dst` participates in the value
+      // namespace.
+      Insn::FnAddr { dst, .. } => f(dst),
       Insn::TaskSpawn { dst, args, .. } => {
         f(dst);
         args.iter_mut().for_each(&mut *f);
@@ -713,6 +718,9 @@ impl Insn {
       | Insn::TestBegin { .. }
       | Insn::TestRun { .. }
       | Insn::TestSummary
+      // `FnAddr`'s result is always a code pointer (`s64`),
+      // so it carries no substitutable `TyId`.
+      | Insn::FnAddr { .. }
       | Insn::Nop => {}
       Insn::CoerceToDyn { concrete_ty, .. } => f(concrete_ty),
       Insn::DynDispatch { ty_id, .. } => f(ty_id),
@@ -1153,6 +1161,27 @@ pub enum Insn {
   /// (cheap, cooperative), `Thread` spawns a dedicated
   /// OS thread (expensive, preemptive, real multi-core
   /// parallelism).
+  /// Materialize a top-level function's code address into
+  /// `dst`. The value is a code pointer — a 64-bit integer
+  /// (`s64`) — so it flows through the C-ABI FFI as an
+  /// ordinary scalar (e.g. into `zo_pool_spawn`'s `callee`
+  /// argument). This is how a non-capturing `Fn()` value
+  /// becomes a real runtime pointer; without it a `Fn()`
+  /// operand lowers to the `u32::MAX` sentinel and silently
+  /// mis-lowers across an FFI boundary.
+  ///
+  /// Codegen reuses the same user-function-address fixup as
+  /// `TaskSpawn`: an ADR placeholder patched to the callee's
+  /// `__TEXT` offset once every function is laid out.
+  FnAddr {
+    dst: ValueId,
+    callee: Symbol,
+    /// Pack the callee belongs to. Codegen pairs it with
+    /// `callee` to form the `(name, owning_pack)` fixup key
+    /// so cross-module same-bare-name targets stay
+    /// disambiguated. Mirrors `TaskSpawn.callee_pack`.
+    callee_pack: Option<Symbol>,
+  },
   TaskSpawn {
     dst: ValueId,
     callee: Symbol,

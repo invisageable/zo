@@ -217,6 +217,9 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
     ErrorKind::PrivatePackInLoad => ("private-pack-in-load", 708),
     ErrorKind::PrivateItemInLoad => ("private-item-in-load", 709),
     ErrorKind::ModuleNotReachable => ("module-not-reachable", 710),
+    ErrorKind::CapturingClosureAsFnPointer => {
+      ("capturing-closure-as-fn-pointer", 711)
+    }
 
     // --- Entry point & misc (E0800 .. E0899) ---
     ErrorKind::MissingMainFunction => ("missing-main-function", 800),

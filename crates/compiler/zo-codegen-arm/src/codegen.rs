@@ -4528,6 +4528,25 @@ impl<'a> ARM64Gen<'a> {
 
         self.emit_extern_call("_zo_chan_close");
       }
+      Insn::FnAddr {
+        dst,
+        callee,
+        callee_pack,
+      } => {
+        // Materialize the callee's code address into `dst`'s
+        // register via an ADR placeholder, then record the
+        // same user-function-address fixup `TaskSpawn` uses.
+        // The fixup reads `rd` back from the emitted ADR, so
+        // any destination register is preserved when patched.
+        if let Some(dst_reg) = self.alloc_reg(*dst) {
+          let adr_pos = self.emitter.current_offset();
+
+          self.emitter.emit_adr(dst_reg, 0);
+          self
+            .function_addr_fixups
+            .push((adr_pos, (*callee, *callee_pack)));
+        }
+      }
       Insn::TaskSpawn {
         dst,
         kind,

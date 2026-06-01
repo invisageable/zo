@@ -524,6 +524,9 @@ fn check_insn(insn: &Insn, idx: usize, ctx: &mut ValidatorCtx<'_>) {
       check_placeholder(&mut ctx.report, idx, *ty_id, "Drop.ty_id");
     }
     Insn::TestBegin { .. } | Insn::TestRun { .. } | Insn::TestSummary => {}
+    // `FnAddr` carries no `TyId` (its result is always a
+    // code pointer), so there is nothing to placeholder-check.
+    Insn::FnAddr { .. } => {}
   }
 }
 
