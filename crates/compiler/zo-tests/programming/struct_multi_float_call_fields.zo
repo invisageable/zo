@@ -1,0 +1,41 @@
+-- tests-run-pass: struct multi float call fields.
+-- @cmd — zo run struct_multi_float_call_fields.zo
+
+struct S {
+  a: float,
+  b: float,
+}
+
+fun f() -> float { 1.0 }
+fun g() -> float { 2.0 }
+
+struct P {
+  a: int,
+  b: int,
+}
+
+fun fi() -> int { 10 }
+fun gi() -> int { 20 }
+
+fun main() {
+  imu s: S = S { a = f(), b = g() };
+
+  check@eq(s.a, 1.0);
+  check@eq(s.b, 2.0);
+
+  imu t: P = P { a = fi(), b = gi() };
+
+  check@eq(t.a, 10);
+  check@eq(t.b, 20);
+
+  showln(s.a as int);
+  showln(s.b as int);
+  showln(t.a);
+  showln(t.b);
+}
+
+-- EXPECTED OUTPUT:
+-- 1
+-- 2
+-- 10
+-- 20

@@ -1,0 +1,141 @@
+-- tests-run-pass: `Vec<S>` of struct elements. The vec
+-- stores each element as flat leaf bytes — a flat struct
+-- copies inline, a nested struct is serialized on push and
+-- re-materialized into the live pointer-based layout on
+-- get/pop/remove. Exercises both shapes plus set, remove,
+-- and grow.
+-- @cmd — zo run vec_struct.zo
+
+struct V2 {
+  x: int,
+  y: int,
+}
+
+struct Body {
+  pos: V2,
+  vel: V2,
+  id: int,
+}
+
+fun main() {
+  -- Flat struct (scalar fields only).
+  mut pts: Vec<V2> = Vec::new();
+
+  pts.push(V2 { x = 1, y = 2 });
+  pts.push(V2 { x = 3, y = 4 });
+
+  check@eq(pts.len(), 2);
+
+  match pts.get(0) {
+    Option::Some(p) => {
+      check@eq(p.x, 1);
+      check@eq(p.y, 2);
+    }
+    Option::None => check(false),
+  }
+
+  match pts.get(1) {
+    Option::Some(p) => {
+      check@eq(p.x, 3);
+      check@eq(p.y, 4);
+    }
+    Option::None => check(false),
+  }
+
+  -- set overwrites in place.
+  check(pts.set(0, V2 { x = 10, y = 20 }));
+
+  match pts.get(0) {
+    Option::Some(p) => {
+      check@eq(p.x, 10);
+      check@eq(p.y, 20);
+    }
+    Option::None => check(false),
+  }
+
+  -- pop returns the last element.
+  match pts.pop() {
+    Option::Some(p) => {
+      check@eq(p.x, 3);
+      check@eq(p.y, 4);
+    }
+    Option::None => check(false),
+  }
+
+  check@eq(pts.len(), 1);
+
+  pts.free();
+
+  -- Nested struct (Body holds two V2 plus a scalar). The
+  -- nested V2 fields live behind pointers in the live
+  -- layout; the round trip proves flatten + re-materialize.
+  mut bodies: Vec<Body> = Vec::new();
+
+  bodies.push(Body {
+    pos = V2 { x = 100, y = 200 },
+    vel = V2 { x = 0 - 1, y = 1 },
+    id = 7,
+  });
+
+  bodies.push(Body {
+    pos = V2 { x = 300, y = 400 },
+    vel = V2 { x = 2, y = 0 - 2 },
+    id = 8,
+  });
+
+  check@eq(bodies.len(), 2);
+
+  match bodies.get(0) {
+    Option::Some(b) => {
+      check@eq(b.pos.x, 100);
+      check@eq(b.pos.y, 200);
+      check@eq(b.vel.x, 0 - 1);
+      check@eq(b.vel.y, 1);
+      check@eq(b.id, 7);
+    }
+    Option::None => check(false),
+  }
+
+  -- remove shifts the tail down by one.
+  match bodies.remove(0) {
+    Option::Some(b) => check@eq(b.id, 7),
+    Option::None => check(false),
+  }
+
+  check@eq(bodies.len(), 1);
+
+  match bodies.get(0) {
+    Option::Some(b) => {
+      check@eq(b.pos.x, 300);
+      check@eq(b.pos.y, 400);
+      check@eq(b.id, 8);
+    }
+    Option::None => check(false),
+  }
+
+  -- grow past the initial capacity with nested elements.
+  for i := 0..16 {
+    bodies.push(Body {
+      pos = V2 { x = i, y = i * 2 },
+      vel = V2 { x = i * 3, y = i * 4 },
+      id = i,
+    });
+  }
+
+  match bodies.get(10) {
+    Option::Some(b) => {
+      check@eq(b.pos.x, 9);
+      check@eq(b.vel.y, 36);
+      check@eq(b.id, 9);
+    }
+    Option::None => check(false),
+  }
+
+  bodies.free();
+
+  showln("DONE");
+  flush();
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

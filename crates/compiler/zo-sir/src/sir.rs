@@ -231,6 +231,14 @@ pub struct Sir {
   /// instruction. The executor sets it per node — a register
   /// write, no memory read — and spans resolve in bulk later.
   pub node_cursor: u32,
+  /// Struct element type of a `Vec` access, keyed by the
+  /// `Call`'s `ValueId`. Codegen-replaced builtins return a
+  /// generic `Option<$T>` the type table never monomorphizes,
+  /// so the element type can't be recovered from the `Call`;
+  /// the executor records it here for regalloc and codegen.
+  /// `ValueId` keys stay valid: module merge offsets only
+  /// library ids, and these calls are in main.
+  pub vec_elem_tys: std::collections::HashMap<u32, TyId>,
 }
 
 impl Sir {
@@ -243,6 +251,7 @@ impl Sir {
       next_value_id: 0,
       next_label_id: 0,
       node_cursor: 0,
+      vec_elem_tys: std::collections::HashMap::new(),
     }
   }
 

@@ -1,0 +1,42 @@
+-- tests-run-pass: logical call rhs.
+-- @cmd — zo run logical_call_rhs.zo
+
+fun positive() -> int { 5 }
+fun noisy() -> int {
+  showln(999);
+  1
+}
+
+fun main() {
+  mut xs: Vec<int> = Vec::new();
+  xs.push(10);
+  xs.push(20);
+
+  imu alive: bool = true;
+
+  imu a: bool = alive && xs.len() > 0;     -- method call rhs
+  imu b: bool = alive && positive() > 0;   -- bare call rhs
+  imu c: bool = alive || positive() > 100; -- || skips rhs
+  imu d: bool = false && noisy() > 0;      -- && skips noisy()
+
+  when a ? showln(1) : showln(0);          -- 1
+  when b ? showln(1) : showln(0);          -- 1
+  when c ? showln(1) : showln(0);          -- 1
+  when d ? showln(1) : showln(0);          -- 0
+
+  -- the asteroids gate shape: method call in the condition.
+  if alive && xs.len() > 0 {
+    showln(xs.len());                       -- 2
+  }
+
+  xs.free();
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 1
+-- 1
+-- 1
+-- 0
+-- 2
+-- DONE

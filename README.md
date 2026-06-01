@@ -85,11 +85,11 @@ SUCCESFULLY BUiLD AN EXECUTABLE AND DiSPLAY A CLEAR OUTPUT ABOUT THE COMPiLATiON
   chan1: 10
   ```
 
-BUiLD TiME iS LiNEAR, THE MORE LiNES YOU HAVE, THE MORE SPEED YOU GET. FOR EXAMPLE, zo COMPiLES 500K LiNES (iNCLUDiNG BLANK LiNES AND COMMENTS) iN LESS THAN A SECONDS (iT TAKES 749.563 ms). YOU CAN VERiFY THiS CLAiM WiTH:
+<!-- BUiLD TiME iS LiNEAR, THE MORE LiNES YOU HAVE, THE MORE SPEED YOU GET. FOR EXAMPLE, zo COMPiLES 500K LiNES (iNCLUDiNG BLANK LiNES AND COMMENTS) iN LESS THAN A SECONDS (iT TAKES 749.563 ms). YOU CAN VERiFY THiS CLAiM WiTH:
 
   - @RUN — `zo build crates/compiler/zo-benches/benches/stress_fun_500k/stress_fun_500k.zo`
 
-> *This sample is not a real-world program example. It exist to highlight the speed of the compiler. Our goal is to be able to compile 5M LoC/s. Let see where it will goes.*
+> *This sample is not a real-world program example. It exist to highlight the speed of the compiler. Our goal is to be able to compile 5M LoC/s. Let see where it will goes.* -->
 
 **-provider**
 
@@ -118,7 +118,7 @@ BUiLD TiME iS LiNEAR, THE MORE LiNES YOU HAVE, THE MORE SPEED YOU GET. FOR EXAMP
   }
   ```
 
-WE'RE GLAD TO SUPPORT [`raylib`](https://www.raylib.com) FROM [Ray](https://github.com/raysan5).
+zo SUPPORTS [`raylib`](https://www.raylib.com).
 
 ## why zo?
 

@@ -104,6 +104,22 @@ pub ffi get_fps() -> int;
 %% link_name = "IsKeyPressed".
 pub ffi is_key_pressed(key: int) -> bool;
 
+-! Check if a key is being held down this frame.
+-!
+-! @param key — The key to test.
+-!
+-! @note — Stays `true` every frame the key is held (unlike
+-! `is_key_pressed`, which fires once on the press) — what
+-! continuous movement wants.
+%% link_name = "IsKeyDown".
+pub ffi is_key_down(key: int) -> bool;
+
+-! Check if a key is not being held this frame.
+-!
+-! @param key — The key to test.
+%% link_name = "IsKeyUp".
+pub ffi is_key_up(key: int) -> bool;
+
 
 -* Input-related functions: mouse. *-
 

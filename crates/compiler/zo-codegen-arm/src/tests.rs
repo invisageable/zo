@@ -216,6 +216,67 @@ fn test_closure_float_param_spill() {
 }
 
 #[test]
+fn test_float_negation_uses_fneg() {
+  // `-x` on a float must emit `FNEG` (FP file). The bug emitted
+  // a GP `SUB Xd, XZR, Xr`, which negates an unrelated X
+  // register and leaves the FP value unchanged.
+  let code = compile_to_code(
+    r#"fun negate(x: float) -> float { -x }
+fun main() {}"#,
+  );
+
+  // FNEG Dd, Dn — top 22 bits fixed at 0x1E614000, Rn/Rd low.
+  let has_fneg = code.chunks_exact(4).any(|chunk| {
+    let insn = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+    (insn & 0xFFFF_FC00) == 0x1E61_4000
+  });
+
+  assert!(has_fneg, "float negation must emit FNEG");
+}
+
+#[test]
+fn test_float_field_store_uses_fp_store() {
+  // A float field lives in the FP register file, so a write
+  // must emit `STR Dt`. The bug used a GP `STR Xt` over an
+  // uninitialized X register, storing garbage. The two programs
+  // differ only by the field write, so any added FP store is
+  // attributable to it — the buggy GP store would add none.
+  fn fp_store_count(code: &[u8]) -> usize {
+    code
+      .chunks_exact(4)
+      .filter(|chunk| {
+        let insn = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+        // STR (FP, unsigned offset): top 10 bits = 1111110100.
+        (insn >> 22) == 0b1111110100
+      })
+      .count()
+  }
+
+  let without_write = fp_store_count(&compile_to_code(
+    r#"struct Body { value: float }
+fun main() {
+  mut body: Body = Body { value = 0.0 };
+}"#,
+  ));
+
+  let with_write = fp_store_count(&compile_to_code(
+    r#"struct Body { value: float }
+fun main() {
+  mut body: Body = Body { value = 0.0 };
+  body.value = 3.0;
+}"#,
+  ));
+
+  assert!(
+    with_write > without_write,
+    "float field write must add an FP STR (with={with_write}, \
+     without={without_write})"
+  );
+}
+
+#[test]
 fn test_closure_multi_param_generates_code() {
   let code = compile_to_code(
     r#"fun main() -> int {
@@ -1084,4 +1145,88 @@ fun main() {
       i, next,
     );
   }
+}
+
+/// Run the full pipeline with the `(tys, ty_table)` view
+/// wired so the generic AAPCS FFI path (`abi::classify` +
+/// `emit_ffi_call`) fires. Mirrors the driver's
+/// `with_type_view` wiring; `compile_to_code` skips it, so
+/// `pub ffi` calls there never reach the AAPCS marshaler.
+fn compile_to_code_with_type_view(source: &str) -> Vec<u8> {
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
+
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _, _, _, _, _, _) = executor.execute();
+
+  let mut codegen = ARM64Gen::new(&interner)
+    .with_type_view(ty_checker.tys(), &ty_checker.ty_table);
+  let artifact = codegen.generate(&sir);
+
+  artifact.code
+}
+
+/// Regression: a struct-field float passed as a scalar FP
+/// FFI argument must reach the FP arg register and be
+/// narrowed to f32. The generic AAPCS `AbiArg::Fp` arm
+/// once assumed the value was already register-resident and
+/// fell back to a no-op `(dst, dst)` move when `alloc_fp_reg`
+/// missed it, leaving `d0` holding garbage. The `fcvt s0, d0`
+/// narrow (encoding `0x1E624000`) is emitted only when an
+/// `f32` arg has been placed into `d0`, so its presence is
+/// the proof the field value landed in the arg register.
+#[test]
+fn test_struct_field_float_reaches_fp_arg_register() {
+  let code = compile_to_code_with_type_view(
+    r#"pub ffi sink(r: f32);
+
+struct Particle {
+  size: f32,
+}
+
+fun main() {
+  imu p: Particle = Particle { size: 4.5 };
+  sink(p.size);
+}"#,
+  );
+
+  // FCVT Sd, Dn (d→s narrow): 0001_1110_0110_0010_0100_00...
+  // With d0 source + s0 dest the full word is 0x1E624000.
+  let has_narrow_into_s0 = code.chunks_exact(4).any(|chunk| {
+    let insn = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+    insn == 0x1E62_4000
+  });
+
+  assert!(
+    has_narrow_into_s0,
+    "expected `fcvt s0, d0` (0x1E624000) — the struct-field \
+     float must reach the FP arg register before the f32 narrow"
+  );
+
+  // The value must also be loaded from memory (the struct
+  // base) into an FP register: LDR Dt (unsigned offset) =
+  // 0xFD40_0000, top 10 bits 1111110101.
+  let has_fp_ldr = code.chunks_exact(4).any(|chunk| {
+    let insn = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+    (insn >> 22) == 0b1111110101
+  });
+
+  assert!(
+    has_fp_ldr,
+    "expected an FP LDR loading the struct field from memory"
+  );
 }

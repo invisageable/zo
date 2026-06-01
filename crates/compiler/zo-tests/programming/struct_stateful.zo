@@ -7,8 +7,8 @@ apply Counter {
     Self { x = 0 }
   }
 
-  fun hello(self) -> int {
-    return 12345;
+  fun decr(mut self) {
+    self.x -= 1;
   }
 
   fun incr(mut self) {
@@ -23,7 +23,6 @@ apply Counter {
 fun main() {
   mut counter: Counter = Counter::new();
 
-  check@eq(counter.hello(), 12345);
   check@eq(counter.x(), 0);
 
   showln(counter.x);
@@ -35,4 +34,18 @@ fun main() {
 
   check@eq(counter.x, 2);
   check@eq(counter.x(), 2);
+
+  counter.decr();
+
+  check@eq(counter.x(), 1);
+
+  showln(counter.x());
+
+  showln("DONE");
 }
+
+-- EXPECTED OUTPUT:
+-- 0
+-- 2
+-- 1
+-- DONE

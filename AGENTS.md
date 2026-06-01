@@ -130,6 +130,7 @@ All build commands go through `just` (the justfile is the single source of truth
   - **File operations**: Exclude read/write in `tmp/` folder
   - **Issues**: Always write an integration/unit test in the specific crate
   - **Bug fixes**: Never mark fixed without testing the solution
+  - **Principles**: DRY (Don't Repeat Yourself), KiSS (Keep it SiMPLE STUPiD)
   - **Warnings**: Never ignore — they often indicate bugs or incomplete code
   - **Root causes**: Fix the cause, not silence the symptom. no shortcuts
   - **Ownership**: If a unit/integration test don't have an equivalent or do not exist. Implemet it
@@ -157,7 +158,7 @@ All build commands go through `just` (the justfile is the single source of truth
   - DO NOT violate our principles such as DRY and KiSS
   - DO NOT ADD `#[allow(...)]` to suppress clippy warnings — FiX the underlying issue
 
-## Comments and Documentation.
+## Comments and Documentation
 
 DO NOT write narration-style or explanatory comments that summarize the code. A comment must explain the "why" an implementation has been made that way. WE DON'T CARE about descriptive comments.
 

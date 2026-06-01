@@ -1,11 +1,12 @@
 use crate::{
   ALLOCATABLE_FP, ALLOCATABLE_GP, EmitTiming, FunctionInfo, RegAlloc,
-  RegisterClass, SpillKind, SpillOp,
+  RegisterClass, SpillKind, SpillOp, flat_struct_slots_of,
 };
 
 use zo_interner::{Interner, Symbol};
 use zo_liveness::{LivenessInfo, liveness};
 use zo_sir::{Insn, LoadSource};
+use zo_ty::{Ty, TyId, TyTable, struct_leaf_words};
 use zo_value::FunctionKind;
 use zo_value::ValueId;
 
@@ -232,6 +233,12 @@ pub struct AllocCtx<'a> {
   /// by the `Call` arm to budget caller frame slots
   /// without re-scanning the whole SIR per call.
   pub struct_return_fns: &'a HashMap<Symbol, u32>,
+  /// Struct element type of a `Vec` access, keyed by the
+  /// `Call`'s `ValueId` (`Sir::vec_elem_tys`). The `Vec`
+  /// budget arm reads it to size the struct scratch.
+  pub vec_elem_tys: &'a std::collections::HashMap<u32, TyId>,
+  /// Type tables, for sizing struct element scratch.
+  pub type_view: Option<(&'a [Ty], &'a TyTable)>,
 }
 
 /// Run the forward allocation pass for a single function.
@@ -248,6 +255,8 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
     num_values,
     interner,
     struct_return_fns,
+    vec_elem_tys,
+    type_view,
   } = *ctx;
   let n = end - start;
 
@@ -398,11 +407,12 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
 
       has_calls = true;
 
-      // Collect values to save (both GP and FP). `gp_save`
-      // gets sorted in place before the reload loop so
-      // non-X0 originals claim their reg before X0-originals
-      // run `alloc_free` (which would otherwise pop the
-      // same reg). Spill loop is order-independent.
+      // Collect values to save (both GP and FP). Both
+      // `gp_save` and `fp_save` get sorted in place before
+      // their reload loops so non-result-reg originals claim
+      // their reg before result-reg originals (X0 / D0) run
+      // `alloc_free` (which would otherwise pop the same
+      // reg). Spill loop is order-independent.
       let mut gp_save = state
         .gp
         .val_to_reg
@@ -411,7 +421,7 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
         .map(|(vid, reg)| (*vid, *reg))
         .collect::<Vec<_>>();
 
-      let fp_save = state
+      let mut fp_save = state
         .fp
         .val_to_reg
         .iter()
@@ -463,8 +473,16 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
       // Reload saved values into the SAME register they
       // occupied before the call. Reloading into the
       // original register keeps the next instruction's
-      // snapshot consistent — UNLESS the original is X0
-      // (the Call result register).
+      // snapshot consistent — UNLESS the original is the
+      // call-result register (X0 / D0), now holding THIS
+      // call's result. Reloading into it would clobber that
+      // result. A struct literal with two float-returning
+      // call initializers (`S { a = f(), b = g() }`) is the
+      // trigger: `f()`'s result spills out of D0, then the
+      // D0-original reload must land in a fresh FP register
+      // so `g()`'s result survives in D0 for its own field
+      // store. The GP path already does this for X0; the FP
+      // path must match or both fields read the same value.
       if gi + 1 < end {
         gp_save.sort_by_key(|(_, reg)| u8::from(*reg == 0));
 
@@ -498,24 +516,38 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
             false,
           );
         }
+
+        fp_save.sort_by_key(|(_, reg)| u8::from(*reg == 0));
+
         for &(vid, orig_reg) in &fp_save {
           let slot = state.spill_slots[&vid];
 
-          state.fp.free.retain(|&r| r != orig_reg);
+          let reload_reg = if orig_reg == 0 {
+            state.fp.alloc_free().expect("out of FP regs for reload")
+          } else {
+            state.fp.free.retain(|&r| r != orig_reg);
+            orig_reg
+          };
 
           result.spill_ops.push(SpillOp {
             insn_idx: gi + 1,
             timing: EmitTiming::Before,
             kind: SpillKind::Load {
-              reg: orig_reg,
+              reg: reload_reg,
               slot,
               class: RegisterClass::FP,
               vid,
             },
           });
 
-          state.assign(ValueId(vid), orig_reg, true);
-          insert_assignment(result, start as u32, ValueId(vid), orig_reg, true);
+          state.assign(ValueId(vid), reload_reg, true);
+          insert_assignment(
+            result,
+            start as u32,
+            ValueId(vid),
+            reload_reg,
+            true,
+          );
         }
       }
 
@@ -644,10 +676,37 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
       // `write_file` / `append_file`: 5 slots for
       // Result. Other Call variants check for
       // struct-returning callees in the catch-all.
-      Insn::Call { name, .. } => {
+      Insn::Call { name, dst, .. } => {
         let fn_name = interner.get(*name);
 
+        // A struct element needs more scratch than the scalar
+        // budget below. These are upper bounds —
+        // `flat_struct_slots_of` covers the live layout plus
+        // the flatten save slots — so they never under-reserve
+        // against codegen's `next_struct_slot` bumps in
+        // `emit_vec_*`, which would corrupt the frame.
+        let struct_elem_dims = vec_elem_tys.get(&dst.0).and_then(|elem| {
+          let (tys, tt) = type_view?;
+
+          Some((
+            struct_leaf_words(*elem, tys, tt),
+            flat_struct_slots_of(*elem, tys, tt).unwrap_or(1),
+          ))
+        });
+
         match fn_name {
+          "Vec::push" | "Vec::set" if struct_elem_dims.is_some() => {
+            let (leaf, live) = struct_elem_dims.unwrap();
+
+            struct_slots += leaf + live;
+          }
+          "Vec::get" | "Vec::pop" | "Vec::remove"
+            if struct_elem_dims.is_some() =>
+          {
+            let (leaf, live) = struct_elem_dims.unwrap();
+
+            struct_slots += leaf + 2 + live;
+          }
           "read_file" | "readln" | "read" => {
             struct_slots += crate::IO_RESULT_FRAME_SLOTS;
           }

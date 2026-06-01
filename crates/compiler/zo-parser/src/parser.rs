@@ -704,28 +704,26 @@ impl<'a> Parser<'a> {
       // which gets emitted before `(` along with any
       // dot-chain that precedes it.
       //
-      // Exception: if `&&` or `||` is in the op_stack,
-      // fall back to the old full-flush behavior.
-      // Short-circuit finalization relies on the logical
-      // op being EMITTED before the RHS subexpression
-      // (the executor sees `||` and sets up a branch
-      // BEFORE the call's SIR is emitted). Preserving
-      // true postorder here would leave the `||` to run
-      // after the RHS call has already executed, which
-      // defeats lazy evaluation.
-      let has_logical = self
-        .operator_stack
+      // `&&`/`||` pending: the short-circuit branch must be
+      // emitted before the RHS, so flush through the logical
+      // op now — but keep the trailing callee chain for the
+      // call below. A full flush would bind the callee as the
+      // op's right operand and then call the resulting bool.
+      if let Some(split) = self
+        .expr_buffer
         .iter()
-        .any(|(t, _, _)| matches!(t, Token::AmpAmp | Token::PipePipe));
-
-      if has_logical {
-        self.flush_expr();
+        .rposition(|(t, _, _)| matches!(t, Token::AmpAmp | Token::PipePipe))
+      {
         self
-          .saved_unary_spans
-          .push(std::mem::take(&mut self.unary_spans));
-        self.emit_node(Token::LParen);
+          .operator_stack
+          .retain(|(t, _, _)| !matches!(t, Token::AmpAmp | Token::PipePipe));
 
-        return;
+        let tail = self.expr_buffer.split_off(split + 1);
+        let head = std::mem::replace(&mut self.expr_buffer, tail);
+
+        for (token, span, value) in head {
+          self.emit_node_internal(token, span, value);
+        }
       }
 
       while let Some(&(op_tok, op_prec, _)) = self.operator_stack.last() {

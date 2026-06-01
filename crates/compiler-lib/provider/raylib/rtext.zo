@@ -14,3 +14,11 @@ load core::c::*;
 -! @param color — RGBA-packed color per `clear_background`.
 %% link_name = "DrawText".
 pub ffi draw_text(text: CStr, x: int, y: int, font_size: int, color: int);
+
+-! Draw the current frames-per-second at the given position
+-! (default font, lime-green, "N FPS").
+-!
+-! @param x — Horizontal pixel offset.
+-! @param y — Vertical pixel offset.
+%% link_name = "DrawFPS".
+pub ffi draw_fps(x: int, y: int);

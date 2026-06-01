@@ -1,0 +1,40 @@
+-- tests-run-pass: assignment through a nested struct field and
+-- compound assignment on float fields. Two bugs hid here: a
+-- nested LHS (`a.b.c = …`) never reached codegen (the receiver
+-- walk stopped at the inner field), and a float `FieldStore`
+-- used a GP register, storing garbage instead of the FP value.
+-- @cmd — zo run nested_field_assign.zo
+
+struct Position { x: float, y: float }
+struct Body { position: Position, speed: float, alive: bool }
+
+fun main() {
+  mut body: Body = Body {
+    position = Position { x = 100.0, y = 200.0 },
+    speed = 5.0,
+    alive = true,
+  };
+
+  body.position.x -= 10.0;   -- nested float, compound (-)
+  body.position.x += 3.0;    -- nested float, compound (+)
+  body.position.y = 42.0;    -- nested float, simple
+  body.speed -= 2.0;         -- depth-1 float, compound
+  body.alive = false;        -- depth-1 bool, simple
+
+  check@eq(body.position.x as int, 93);
+  check@eq(body.position.y as int, 42);
+  check@eq(body.speed as int, 3);
+
+  showln(body.position.x as int);
+  showln(body.position.y as int);
+  showln(body.speed as int);
+  when body.alive ? showln("ALIVE") : showln("DEAD");
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- 93
+-- 42
+-- 3
+-- DEAD
+-- DONE

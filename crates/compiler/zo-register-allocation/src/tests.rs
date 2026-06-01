@@ -101,6 +101,7 @@ fn call_snapshot_contains_args() {
   result.value_ids = value_ids.clone();
 
   let struct_return_fns = HashMap::default();
+  let vec_elem_tys = std::collections::HashMap::new();
 
   let ctx = AllocCtx {
     insns: &insns,
@@ -110,6 +111,8 @@ fn call_snapshot_contains_args() {
     num_values: 2,
     interner: &interner,
     struct_return_fns: &struct_return_fns,
+    vec_elem_tys: &vec_elem_tys,
+    type_view: None,
   };
 
   allocate_function(&ctx, &mut result);
@@ -182,6 +185,7 @@ fn post_call_snapshot_contains_reloaded_values() {
   result.value_ids = value_ids.clone();
 
   let struct_return_fns = HashMap::default();
+  let vec_elem_tys = std::collections::HashMap::new();
 
   let ctx = AllocCtx {
     insns: &insns,
@@ -191,6 +195,8 @@ fn post_call_snapshot_contains_reloaded_values() {
     num_values: 4,
     interner: &interner,
     struct_return_fns: &struct_return_fns,
+    vec_elem_tys: &vec_elem_tys,
+    type_view: None,
   };
 
   allocate_function(&ctx, &mut result);
@@ -237,6 +243,7 @@ fn result_visible_in_own_snapshot() {
   result.value_ids = value_ids.clone();
 
   let struct_return_fns = HashMap::default();
+  let vec_elem_tys = std::collections::HashMap::new();
 
   let ctx = AllocCtx {
     insns: &insns,
@@ -246,6 +253,8 @@ fn result_visible_in_own_snapshot() {
     num_values: 1,
     interner: &interner,
     struct_return_fns: &struct_return_fns,
+    vec_elem_tys: &vec_elem_tys,
+    type_view: None,
   };
 
   allocate_function(&ctx, &mut result);

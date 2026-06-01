@@ -77,6 +77,7 @@ fn bench_eliminate(c: &mut Criterion) {
         next_value_id: 100,
         next_label_id: 0,
         node_cursor: 0,
+        vec_elem_tys: std::collections::HashMap::new(),
       };
 
       Dce::new(&mut sir, vec![main], &interner).eliminate();
@@ -117,6 +118,7 @@ fn bench_eliminate(c: &mut Criterion) {
         next_value_id: 200,
         next_label_id: 0,
         node_cursor: 0,
+        vec_elem_tys: std::collections::HashMap::new(),
       };
 
       Dce::new(&mut sir, vec![main], &interner).eliminate();
@@ -155,6 +157,7 @@ fn bench_eliminate(c: &mut Criterion) {
         next_value_id: 2000,
         next_label_id: 0,
         node_cursor: 0,
+        vec_elem_tys: std::collections::HashMap::new(),
       };
 
       Dce::new(&mut sir, vec![main], &interner).eliminate();
@@ -206,6 +209,7 @@ fn bench_scaling(c: &mut Criterion) {
           next_value_id: (n * 2) as u32,
           next_label_id: 0,
           node_cursor: 0,
+          vec_elem_tys: std::collections::HashMap::new(),
         };
 
         Dce::new(&mut sir, vec![main], &interner).eliminate();

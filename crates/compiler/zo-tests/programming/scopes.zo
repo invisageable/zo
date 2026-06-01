@@ -1,0 +1,47 @@
+-- tests-build-pass: val compile-time constants.
+-- @cmd — zo build val_basic.zo
+
+fun foo() {
+	check(true);
+}
+
+struct Foo {
+  x: int,
+}
+
+apply Foo {
+  fun new(x: int) -> Self {
+    Self { x = x }
+  }
+
+  fun foo() {}
+
+  fun bar(self) {
+    foo();
+		self.foo();
+  }
+
+  fun outer(self) -* -> Fn() *- {
+
+		-- fun inner1() {}
+
+		-- fun inner2() {
+		-- 	inner1();
+		-- }
+
+		-- return inner2;
+	}
+}
+
+fun main() {
+  imu foo: Foo = Foo::new(10);
+  foo.bar();
+
+  imu bar := foo.outer();
+  -- bar();
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

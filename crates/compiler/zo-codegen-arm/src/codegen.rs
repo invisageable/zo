@@ -11,11 +11,12 @@ use zo_emitter_arm::{
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_module_resolver::{AbstractDef, AbstractImpl};
 use zo_register_allocation::{
-  EmitTiming, EnumPayloadFields, IO_RESULT_FRAME_SLOTS, IO_SHARED_BUF_SLOTS,
-  RegAlloc, RegisterClass, SpillKind, flat_struct_slots_of, resolve_ty,
+  AllocInput, EmitTiming, EnumPayloadFields, IO_RESULT_FRAME_SLOTS,
+  IO_SHARED_BUF_SLOTS, RegAlloc, RegisterClass, SpillKind,
+  flat_struct_slots_of, resolve_ty,
 };
 use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
-use zo_ty::{Ty, TyId, TyTable};
+use zo_ty::{Ty, TyId, TyTable, struct_leaf_words};
 use zo_value::{FunctionKind, ValueId};
 use zo_writer_macho::{CODE_OFFSET, DebugFrameEntry, MachO, TEXT_SECTION_BASE};
 
@@ -526,6 +527,10 @@ pub struct ARM64Gen<'a> {
   /// instruction. Replaces the fragile find_producing_insn
   /// backward search.
   value_types: HashMap<u32, TyId>,
+  /// Struct element type of a `Vec` access, keyed by the
+  /// call's `ValueId`. Cloned from `Sir::vec_elem_tys`; see
+  /// it for why the side channel exists.
+  vec_elem_tys: HashMap<u32, TyId>,
   /// Per-array metadata keyed by the array's `TyId.0`.
   /// Populated by the pre-pass in `generate` from
   /// `Insn::ArrayTyDef`. Drives `emit_array_write` (uses
@@ -821,6 +826,7 @@ impl<'a> ARM64Gen<'a> {
       enum_metas: HashMap::default(),
       next_enum_sym: ENUM_SYNTHETIC_SYM_BASE,
       value_types: HashMap::default(),
+      vec_elem_tys: HashMap::default(),
       array_metas: HashMap::default(),
       map_metas: HashMap::default(),
       vec_metas: HashMap::default(),
@@ -983,7 +989,8 @@ impl<'a> ARM64Gen<'a> {
         Insn::ConstInt { dst, .. }
         | Insn::ConstFloat { dst, .. }
         | Insn::ConstBool { dst, .. }
-        | Insn::Load { dst, .. } => {
+        | Insn::Load { dst, .. }
+        | Insn::TupleIndex { dst, .. } => {
           self.value_def_insert(*dst, widx);
         }
         _ => {}
@@ -1389,12 +1396,13 @@ impl<'a> ARM64Gen<'a> {
     // needs more slots than the parent's flat field
     // count).
     let type_view = self.type_view.map(|v| (v.tys, v.ty_table));
-    self.reg_alloc = Some(RegAlloc::allocate(
-      &sir.instructions,
-      sir.next_value_id,
-      self.interner,
+    self.reg_alloc = Some(RegAlloc::allocate(AllocInput {
+      insns: &sir.instructions,
+      next_value_id: sir.next_value_id,
+      interner: self.interner,
       type_view,
-    ));
+      vec_elem_tys: &sir.vec_elem_tys,
+    }));
 
     let insns = &sir.instructions;
 
@@ -1438,6 +1446,11 @@ impl<'a> ARM64Gen<'a> {
       self.enum_payload_struct_fields =
         reg_alloc.enum_payload_struct_fields.clone();
     }
+
+    // `collect` rather than `clone`: the SIR map uses the std
+    // hasher, codegen's alias is `FxHashMap`.
+    self.vec_elem_tys =
+      sir.vec_elem_tys.iter().map(|(k, v)| (*k, *v)).collect();
 
     // Pre-pass: harvest per-pack `#link` paths. Must run
     // BEFORE the fused walk below because that walk
@@ -2774,13 +2787,35 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
-      Insn::UnOp { dst, op, rhs, .. } => {
-        let d = self.alloc_reg(*dst).unwrap_or(X0);
-        let r = self.alloc_reg(*rhs).unwrap_or(X0);
+      Insn::UnOp {
+        dst,
+        op,
+        rhs,
+        ty_id,
+      } => {
+        let is_flt =
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
 
         match op {
-          UnOp::Neg => self.emitter.emit_sub(d, XZR, r),
+          // Floats live in the FP file — a GP `SUB` would
+          // negate an unrelated X register and leave the value
+          // unchanged. Use `FNEG`.
+          UnOp::Neg if is_flt => {
+            let fp_d = self.alloc_fp_reg(*dst).unwrap_or(D0);
+            let fp_r = self.alloc_fp_reg(*rhs).unwrap_or(D0);
+
+            self.emitter.emit_fneg(fp_d, fp_r);
+          }
+          UnOp::Neg => {
+            let d = self.alloc_reg(*dst).unwrap_or(X0);
+            let r = self.alloc_reg(*rhs).unwrap_or(X0);
+
+            self.emitter.emit_sub(d, XZR, r);
+          }
           UnOp::Not => {
+            let d = self.alloc_reg(*dst).unwrap_or(X0);
+            let r = self.alloc_reg(*rhs).unwrap_or(X0);
+
             // !b => b ^ 1 (boolean not).
             self.emitter.emit_mov_imm(X16, 1);
             self.emitter.emit_eor(d, r, X16);
@@ -2882,12 +2917,39 @@ impl<'a> ARM64Gen<'a> {
           // Vec apply-method dispatch. Same convention as
           // HashMap: `len`, `is_empty`, `free` are pure-zo
           // bodies that call the raw FFIs below.
+          // TODO: it must be implement in core.
           "Vec::new" => self.emit_vec_new(args, idx),
-          "Vec::push" => self.emit_vec_push(args, idx),
-          "Vec::pop" => self.emit_vec_pop(args, idx),
-          "Vec::get" => self.emit_vec_get(args, idx),
-          "Vec::set" => self.emit_vec_set(args, idx),
-          "Vec::remove" => self.emit_vec_remove(args, idx),
+          "Vec::push" => {
+            let elem_ty = args
+              .get(1)
+              .and_then(|v| self.type_of(*v))
+              .unwrap_or(TyId(0));
+
+            self.emit_vec_push(args, idx, elem_ty);
+          }
+          "Vec::pop" => {
+            let elem_ty = self.vec_read_elem_ty(*call_dst, *call_ret_ty);
+
+            self.emit_vec_pop(args, idx, elem_ty);
+          }
+          "Vec::get" => {
+            let elem_ty = self.vec_read_elem_ty(*call_dst, *call_ret_ty);
+
+            self.emit_vec_get(args, idx, elem_ty);
+          }
+          "Vec::set" => {
+            let elem_ty = args
+              .get(2)
+              .and_then(|v| self.type_of(*v))
+              .unwrap_or(TyId(0));
+
+            self.emit_vec_set(args, idx, elem_ty);
+          }
+          "Vec::remove" => {
+            let elem_ty = self.vec_read_elem_ty(*call_dst, *call_ret_ty);
+
+            self.emit_vec_remove(args, idx, elem_ty);
+          }
 
           // HashSet apply-method dispatch. Reuses the
           // `_zo_map_*` runtime allocator with `val_sz=0`.
@@ -3110,7 +3172,7 @@ impl<'a> ARM64Gen<'a> {
               let c_sym: &'static str =
                 c_sym_for(self.interner, *name, link_name).leak();
 
-              self.emit_ffi_call(c_sym, &abi, args, idx);
+              self.emit_ffi_call(c_sym, &abi, args, idx, all_insns);
               return;
             }
 
@@ -4278,15 +4340,30 @@ impl<'a> ARM64Gen<'a> {
         }
       }
 
-      // Struct field write: STR value to base + index * 8.
+      // Struct field write: store value to base + index * 8.
+      // Float fields live in the FP file — a GP `STR` would
+      // spill an uninitialized X register, so pick the store
+      // by field type, mirroring the `TupleIndex` read.
       Insn::FieldStore {
-        base, index, value, ..
+        base,
+        index,
+        value,
+        ty_id,
       } => {
         let base_reg = self.alloc_reg(*base).unwrap_or(X0);
-        let val_reg = self.alloc_reg(*value).unwrap_or(X1);
         let offset = (*index as i16) * (STACK_SLOT_SIZE as i16);
+        let is_flt =
+          ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
 
-        self.emitter.emit_str(val_reg, base_reg, offset);
+        if is_flt {
+          let fp_src = self.alloc_fp_reg(*value).unwrap_or(D0);
+
+          self.emitter.emit_str_fp(fp_src, base_reg, offset as u16);
+        } else {
+          let val_reg = self.alloc_reg(*value).unwrap_or(X1);
+
+          self.emitter.emit_str(val_reg, base_reg, offset);
+        }
       }
 
       Insn::Cast {
@@ -6183,6 +6260,7 @@ impl<'a> ARM64Gen<'a> {
     abi: &crate::abi::AbiCall,
     args: &[ValueId],
     idx: usize,
+    all_insns: &[Insn],
   ) {
     use crate::abi::{AbiArg, AbiRet};
 
@@ -6198,6 +6276,12 @@ impl<'a> ARM64Gen<'a> {
     // registers and the field count so the post-move pass
     // emits the right `ldr` sequence in reverse field order.
     let mut composite_loads: Vec<Vec<Register>> = Vec::new();
+    // Scalar FP args whose source value isn't in an FP
+    // register: materialized from memory AFTER the
+    // register-resident FP moves (Step 3b) so a still-live
+    // FP-move source can't be clobbered by a materialize
+    // that writes the same physical register first.
+    let mut fp_materializes: Vec<(FpRegister, ValueId)> = Vec::new();
 
     for (i, abi_arg) in abi.args.iter().enumerate() {
       let arg_value = args[i];
@@ -6209,8 +6293,17 @@ impl<'a> ARM64Gen<'a> {
         }
 
         AbiArg::Fp { reg: dst_reg, .. } => {
-          let src = self.alloc_fp_reg(arg_value).unwrap_or(*dst_reg);
-          fp_moves.push((*dst_reg, src));
+          // When the value is already in an FP register, queue
+          // a clobber-safe move. Otherwise defer a load from
+          // its stable home (constant pool, struct base, spill
+          // / param slot) to run AFTER the register-resident
+          // moves — the old no-op `(dst, dst)` fallback left
+          // the arg register holding garbage.
+          if let Some(src) = self.alloc_fp_reg(arg_value) {
+            fp_moves.push((*dst_reg, src));
+          } else {
+            fp_materializes.push((*dst_reg, arg_value));
+          }
         }
 
         AbiArg::Hfa { regs, .. } => {
@@ -6296,6 +6389,13 @@ impl<'a> ARM64Gen<'a> {
     // Step 3b: clobber-safe FP moves all at once.
     if !fp_moves.is_empty() {
       self.emit_safe_fp_arg_moves(&fp_moves);
+    }
+
+    // Step 3c: memory-sourced FP args. Runs after the
+    // register moves so a still-live FP-move source can't be
+    // overwritten by a load into the same physical register.
+    for (dst_fp, value) in std::mem::take(&mut fp_materializes) {
+      self.materialize_fp_value_into(dst_fp, value, all_insns);
     }
 
     // Step 4: per-arg post-marshaling narrow.
@@ -7000,53 +7100,301 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
-  /// `v.push(value)` — spill the value to a scratch slot,
-  /// load `v.ptr`, call `_zo_vec_push`. The runtime
-  /// copies `elem_sz` bytes from the scratch slot.
-  fn emit_vec_push(&mut self, args: &[ValueId], _idx: usize) {
-    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
-    let v = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+  /// Number of top-level fields of a struct type — the slot
+  /// width of its live outer layout. `0` when `ty` isn't a
+  /// struct. Allocation-free; prefer over
+  /// `struct_field_tys(..).len()` when only the count is
+  /// needed.
+  fn struct_field_count(&self, ty: TyId) -> u32 {
+    self
+      .type_view
+      .and_then(|view| {
+        let Ty::Struct(sid) = resolve_ty(view.tys, ty) else {
+          return None;
+        };
+        let st = view.ty_table.struct_ty(sid)?;
 
-    let scratch_base = self.struct_base + self.next_struct_slot;
-    let v_off = scratch_base;
-
-    self.next_struct_slot += STACK_SLOT_SIZE;
-
-    self.emit_str_sp(v, v_off);
-
-    self.emitter.emit_ldr(X0, recv, 0);
-    self.emit_add_sp_offset(X1, v_off);
-    self.emit_extern_call("_zo_vec_push");
+        Some(view.ty_table.struct_fields(st).len() as u32)
+      })
+      .unwrap_or(0)
   }
 
-  /// `v.pop()` — allocate a value-out scratch slot, call
-  /// `_zo_vec_pop`, then build the `Option<T>` aggregate
-  /// the executor expects on the stack.
-  fn emit_vec_pop(&mut self, args: &[ValueId], idx: usize) {
-    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+  /// Top-level field types of a struct type, in
+  /// declaration order. Empty when `ty` isn't a struct or
+  /// the type view is unavailable — callers treat an empty
+  /// list as "not a struct element" and stay on the scalar
+  /// path.
+  fn struct_field_tys(&self, ty: TyId) -> Vec<TyId> {
+    self
+      .type_view
+      .and_then(|view| {
+        let Ty::Struct(sid) = resolve_ty(view.tys, ty) else {
+          return None;
+        };
+        let st = view.ty_table.struct_ty(sid)?;
 
-    let scratch_base = self.struct_base + self.next_struct_slot;
-    let v_out_off = scratch_base;
-    let opt_base = scratch_base + STACK_SLOT_SIZE;
+        Some(
+          view
+            .ty_table
+            .struct_fields(st)
+            .iter()
+            .map(|f| f.ty_id)
+            .collect(),
+        )
+      })
+      .unwrap_or_default()
+  }
 
-    self.next_struct_slot += 3 * STACK_SLOT_SIZE;
+  /// Serialized leaf-word count of a vec element type — the
+  /// number of 8-byte words the runtime stores per slot.
+  /// Mirrors the executor's `Vec::new` `elem_sz`
+  /// computation (both route through `struct_leaf_words`).
+  fn vec_elem_leaf_words(&self, ty: TyId) -> u32 {
+    self
+      .type_view
+      .map(|view| struct_leaf_words(ty, view.tys, view.ty_table))
+      .unwrap_or(1)
+      .max(1)
+  }
 
-    self.emit_str_sp(XZR, v_out_off);
+  /// Concrete element type of a vec read, from the executor's
+  /// `vec_elem_tys` record. The generic `Option<$T>` return
+  /// carries none, so struct elements need the side channel;
+  /// scalars fall back to the `Option` payload.
+  fn vec_read_elem_ty(&self, call_dst: ValueId, option_ty: TyId) -> TyId {
+    self
+      .vec_elem_tys
+      .get(&call_dst.0)
+      .copied()
+      .unwrap_or_else(|| self.vec_elem_of_option(option_ty))
+  }
 
-    self.emitter.emit_ldr(X0, recv, 0);
-    self.emit_add_sp_offset(X1, v_out_off);
-    self.emit_extern_call("_zo_vec_pop");
+  /// Payload type of the `Some` variant of an `Option<T>`;
+  /// `TyId(0)` (scalar path) when unresolvable.
+  fn vec_elem_of_option(&self, option_ty: TyId) -> TyId {
+    self
+      .type_view
+      .and_then(|view| {
+        let Ty::Enum(eid) = resolve_ty(view.tys, option_ty) else {
+          return None;
+        };
+        let e = view.ty_table.enum_ty(eid)?;
 
+        view
+          .ty_table
+          .enum_variants(e)
+          .iter()
+          .find_map(|v| view.ty_table.variant_fields(v).first().copied())
+      })
+      .unwrap_or(TyId(0))
+  }
+
+  /// Serialize the live struct at `[X17]` into a flat leaf
+  /// buffer at `SP + dst_off`; returns the end offset. `X16`
+  /// is transfer scratch.
+  ///
+  /// A nested walk reloads `X17`, so each recursing level
+  /// first saves its base to a stack slot — keeps the walk
+  /// correct at any nesting depth.
+  fn emit_vec_flatten_struct(&mut self, ty: TyId, dst_off: u32) -> u32 {
+    let field_tys = self.struct_field_tys(ty);
+    let mut cursor = dst_off;
+    let mut save_slot: Option<u32> = None;
+
+    for (i, field_ty) in field_tys.iter().enumerate() {
+      let off_i = (i as u32 * STACK_SLOT_SIZE) as i16;
+
+      if self.is_struct_ty(*field_ty) {
+        if save_slot.is_none() {
+          save_slot = Some(self.struct_base + self.next_struct_slot);
+          self.next_struct_slot += STACK_SLOT_SIZE;
+        }
+
+        let slot = save_slot.unwrap();
+
+        self.emit_str_sp(X17, slot);
+        self.emitter.emit_ldr(X17, X17, off_i);
+        cursor = self.emit_vec_flatten_struct(*field_ty, cursor);
+        self.emit_ldr_sp(X17, slot);
+      } else {
+        self.emitter.emit_ldr(X16, X17, off_i);
+        self.emit_str_sp(X16, cursor);
+        cursor += STACK_SLOT_SIZE;
+      }
+    }
+
+    cursor
+  }
+
+  /// Rebuild the live pointer layout of `ty` at
+  /// `SP + out_base` from the flat buffer at `SP + flat_off`
+  /// (leaf order matches `emit_vec_flatten_struct`).
+  /// `inner_cursor` is the next free slot for nested blocks;
+  /// returns it advanced. The flat source is contiguous and
+  /// statically shaped, so every address is an SP offset —
+  /// no base register or pointer-following. `X16` scratch.
+  fn emit_vec_rematerialize_struct(
+    &mut self,
+    ty: TyId,
+    flat_off: u32,
+    out_base: u32,
+    mut inner_cursor: u32,
+  ) -> u32 {
+    let field_tys = self.struct_field_tys(ty);
+    let mut flat_cursor = flat_off;
+
+    for (i, field_ty) in field_tys.iter().enumerate() {
+      let out_slot = out_base + i as u32 * STACK_SLOT_SIZE;
+
+      if self.is_struct_ty(*field_ty) {
+        let inner_block = inner_cursor;
+        let inner_outer = self.struct_field_count(*field_ty);
+
+        inner_cursor += inner_outer * STACK_SLOT_SIZE;
+        inner_cursor = self.emit_vec_rematerialize_struct(
+          *field_ty,
+          flat_cursor,
+          inner_block,
+          inner_cursor,
+        );
+        flat_cursor += self.vec_elem_leaf_words(*field_ty) * STACK_SLOT_SIZE;
+
+        self.emit_add_sp_offset(X16, inner_block);
+        self.emit_str_sp(X16, out_slot);
+      } else {
+        self.emit_ldr_sp(X16, flat_cursor);
+        self.emit_str_sp(X16, out_slot);
+        flat_cursor += STACK_SLOT_SIZE;
+      }
+    }
+
+    inner_cursor
+  }
+
+  /// Build the `Option<T>` aggregate at `SP + opt_base` after
+  /// a vec read: success bool in `X0`, value bytes at
+  /// `SP + val_off`. A struct payload is re-materialized at
+  /// `SP + live_base` and stored as a pointer — the by-pointer
+  /// convention `EnumConstruct` uses for struct payloads; a
+  /// scalar payload is stored inline.
+  fn emit_vec_option_tail(
+    &mut self,
+    elem_ty: TyId,
+    val_off: u32,
+    opt_base: u32,
+    live_base: u32,
+    idx: usize,
+  ) {
     self.emitter.emit_mov_imm(X16, 1);
     self.emitter.emit_eor(X16, X16, X0);
     self.emit_str_sp(X16, opt_base);
 
-    self.emit_ldr_sp(X16, v_out_off);
-    self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
+    if self.is_struct_ty(elem_ty) {
+      let outer = self.struct_field_count(elem_ty);
+      let inner_cursor = live_base + outer * STACK_SLOT_SIZE;
+
+      self.emit_vec_rematerialize_struct(
+        elem_ty,
+        val_off,
+        live_base,
+        inner_cursor,
+      );
+      self.emit_add_sp_offset(X16, live_base);
+      self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
+    } else {
+      self.emit_ldr_sp(X16, val_off);
+      self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
+    }
 
     if let Some(dst) = self.reg_for_insn(idx) {
       self.emit_add_sp_offset(dst, opt_base);
     }
+  }
+
+  /// Reserve the scratch a vec read needs: the flat value
+  /// buffer (`elem` leaf words), the 2-word `Option`
+  /// aggregate, and — for a struct element — the live
+  /// layout the payload pointer targets. Zeroes the flat
+  /// buffer so a miss leaves a deterministic payload.
+  /// Returns `(val_off, opt_base, live_base)`.
+  fn reserve_vec_read_scratch(&mut self, elem_ty: TyId) -> (u32, u32, u32) {
+    let is_struct = self.is_struct_ty(elem_ty);
+    let val_words = if is_struct {
+      self.vec_elem_leaf_words(elem_ty)
+    } else {
+      1
+    };
+
+    let val_off = self.struct_base + self.next_struct_slot;
+    self.next_struct_slot += val_words * STACK_SLOT_SIZE;
+
+    let opt_base = self.struct_base + self.next_struct_slot;
+    self.next_struct_slot += 2 * STACK_SLOT_SIZE;
+
+    let live_base = self.struct_base + self.next_struct_slot;
+
+    if is_struct {
+      let live_words = self
+        .type_view
+        .and_then(|view| flat_struct_slots_of(elem_ty, view.tys, view.ty_table))
+        .unwrap_or(val_words);
+
+      self.next_struct_slot += live_words * STACK_SLOT_SIZE;
+    }
+
+    for j in 0..val_words {
+      self.emit_str_sp(XZR, val_off + j * STACK_SLOT_SIZE);
+    }
+
+    (val_off, opt_base, live_base)
+  }
+
+  /// `v.push(value)` — pass the element bytes to
+  /// `_zo_vec_push`. A struct is flattened so the runtime
+  /// stores no stack pointers; a scalar spills one word.
+  fn emit_vec_push(&mut self, args: &[ValueId], _idx: usize, elem_ty: TyId) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+    let v = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
+
+    let val_off = if self.is_struct_ty(elem_ty) {
+      let words = self.vec_elem_leaf_words(elem_ty);
+      let flat_base = self.struct_base + self.next_struct_slot;
+
+      self.next_struct_slot += words * STACK_SLOT_SIZE;
+
+      if v != X17 {
+        self.emitter.emit_mov_reg(X17, v);
+      }
+
+      self.emit_vec_flatten_struct(elem_ty, flat_base);
+
+      flat_base
+    } else {
+      let v_off = self.struct_base + self.next_struct_slot;
+
+      self.next_struct_slot += STACK_SLOT_SIZE;
+      self.emit_str_sp(v, v_off);
+
+      v_off
+    };
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, val_off);
+    self.emit_extern_call("_zo_vec_push");
+  }
+
+  /// `v.pop()` — call `_zo_vec_pop` into a flat scratch,
+  /// then build the `Option<T>` aggregate.
+  fn emit_vec_pop(&mut self, args: &[ValueId], idx: usize, elem_ty: TyId) {
+    let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
+
+    let (val_off, opt_base, live_base) = self.reserve_vec_read_scratch(elem_ty);
+
+    self.emitter.emit_ldr(X0, recv, 0);
+    self.emit_add_sp_offset(X1, val_off);
+    self.emit_extern_call("_zo_vec_pop");
+
+    self.emit_vec_option_tail(elem_ty, val_off, opt_base, live_base, idx);
   }
 
   /// Lower a `Vec<T>` apply-method that follows the
@@ -7061,64 +7409,67 @@ impl<'a> ARM64Gen<'a> {
     args: &[ValueId],
     idx: usize,
     runtime_call: &str,
+    elem_ty: TyId,
   ) {
     let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
     let i = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
 
-    let scratch_base = self.struct_base + self.next_struct_slot;
-    let v_out_off = scratch_base;
-    let opt_base = scratch_base + STACK_SLOT_SIZE;
+    let (val_off, opt_base, live_base) = self.reserve_vec_read_scratch(elem_ty);
 
-    self.next_struct_slot += 3 * STACK_SLOT_SIZE;
-
-    self.emit_str_sp(XZR, v_out_off);
     self.emitter.emit_ldr(X0, recv, 0);
 
     if i != X1 {
       self.emitter.emit_mov_reg(X1, i);
     }
 
-    self.emit_add_sp_offset(X2, v_out_off);
+    self.emit_add_sp_offset(X2, val_off);
     self.emit_extern_call(runtime_call);
 
-    self.emitter.emit_mov_imm(X16, 1);
-    self.emitter.emit_eor(X16, X16, X0);
-    self.emit_str_sp(X16, opt_base);
-
-    self.emit_ldr_sp(X16, v_out_off);
-    self.emit_str_sp(X16, opt_base + STACK_SLOT_SIZE);
-
-    if let Some(dst) = self.reg_for_insn(idx) {
-      self.emit_add_sp_offset(dst, opt_base);
-    }
+    self.emit_vec_option_tail(elem_ty, val_off, opt_base, live_base, idx);
   }
 
   /// `v.get(idx)` — read-only lookup, returns `Option<T>`.
-  fn emit_vec_get(&mut self, args: &[ValueId], idx: usize) {
-    self.emit_vec_option_idx_call(args, idx, "_zo_vec_get");
+  fn emit_vec_get(&mut self, args: &[ValueId], idx: usize, elem_ty: TyId) {
+    self.emit_vec_option_idx_call(args, idx, "_zo_vec_get", elem_ty);
   }
 
   /// `v.remove(idx)` — same shape as `get` plus the
   /// runtime shifts the tail down by one and decrements
   /// `len`.
-  fn emit_vec_remove(&mut self, args: &[ValueId], idx: usize) {
-    self.emit_vec_option_idx_call(args, idx, "_zo_vec_remove");
+  fn emit_vec_remove(&mut self, args: &[ValueId], idx: usize, elem_ty: TyId) {
+    self.emit_vec_option_idx_call(args, idx, "_zo_vec_remove", elem_ty);
   }
 
-  /// `v.set(idx, value)` — spill `value`, call
-  /// `_zo_vec_set` with `(ptr, idx, &v_in)`. Returns the
+  /// `v.set(idx, value)` — hand the element bytes to
+  /// `_zo_vec_set` as `(ptr, idx, &val)`. Scalars spill one
+  /// word; structs flatten like `push`. Returns the
   /// runtime's `bool` (true on hit, false on OOB).
-  fn emit_vec_set(&mut self, args: &[ValueId], idx: usize) {
+  fn emit_vec_set(&mut self, args: &[ValueId], idx: usize, elem_ty: TyId) {
     let recv = args.first().and_then(|v| self.alloc_reg(*v)).unwrap_or(X0);
     let i = args.get(1).and_then(|v| self.alloc_reg(*v)).unwrap_or(X1);
     let v = args.get(2).and_then(|v| self.alloc_reg(*v)).unwrap_or(X2);
 
-    let scratch_base = self.struct_base + self.next_struct_slot;
-    let v_off = scratch_base;
+    let val_off = if self.is_struct_ty(elem_ty) {
+      let words = self.vec_elem_leaf_words(elem_ty);
+      let flat_base = self.struct_base + self.next_struct_slot;
 
-    self.next_struct_slot += STACK_SLOT_SIZE;
+      self.next_struct_slot += words * STACK_SLOT_SIZE;
 
-    self.emit_str_sp(v, v_off);
+      if v != X17 {
+        self.emitter.emit_mov_reg(X17, v);
+      }
+
+      self.emit_vec_flatten_struct(elem_ty, flat_base);
+
+      flat_base
+    } else {
+      let v_off = self.struct_base + self.next_struct_slot;
+
+      self.next_struct_slot += STACK_SLOT_SIZE;
+      self.emit_str_sp(v, v_off);
+
+      v_off
+    };
 
     self.emitter.emit_ldr(X0, recv, 0);
 
@@ -7126,7 +7477,7 @@ impl<'a> ARM64Gen<'a> {
       self.emitter.emit_mov_reg(X1, i);
     }
 
-    self.emit_add_sp_offset(X2, v_off);
+    self.emit_add_sp_offset(X2, val_off);
     self.emit_extern_call("_zo_vec_set");
 
     if let Some(dst) = self.reg_for_insn(idx)
@@ -7422,6 +7773,95 @@ impl<'a> ARM64Gen<'a> {
         LoadSource::Param(pidx) => {
           if let Some(&offset) = self.param_slots.get(pidx) {
             self.emit_ldr_sp(X16, offset);
+
+            return true;
+          }
+
+          false
+        }
+      },
+      _ => false,
+    }
+  }
+
+  /// Materialize a scalar FP argument value into `dst_fp`
+  /// by re-emitting its producing instruction's load /
+  /// constant. The FP analog of `materialize_value_into_x16`.
+  ///
+  /// Returns `true` when `dst_fp` holds the value. Returns
+  /// `false` for computed values (BinOp on floats, Call,
+  /// etc.) — the caller falls back to the register
+  /// allocator's reg.
+  ///
+  /// Why: the generic AAPCS `AbiArg::Fp` arm assumed the
+  /// argument was already resident in an FP register and
+  /// fell back to a no-op `(dst, dst)` move when
+  /// `alloc_fp_reg` missed it (a liveness / visit_uses gap,
+  /// or a value the allocator parked in memory). The dst FP
+  /// arg register then held garbage. A struct-field float
+  /// passed straight to an FP-arg FFI (`draw_circle(...,
+  /// roid.size, ...)`) hit exactly this. Re-emitting the
+  /// producer at the call site loads the right bits into the
+  /// arg register from a stable source (constant pool, struct
+  /// base, or spill / param slot) before the f32 narrow.
+  ///
+  /// X16 is the AAPCS intra-procedure scratch — outside the
+  /// allocator pool — so the const path's `MOVK X16` never
+  /// clobbers a live value during call-site marshaling.
+  fn materialize_fp_value_into(
+    &mut self,
+    dst_fp: FpRegister,
+    value: ValueId,
+    all_insns: &[Insn],
+  ) -> bool {
+    let Some(InsnIdx(def_pos)) = self.value_def_idx.get(value) else {
+      return false;
+    };
+
+    match &all_insns[def_pos as usize] {
+      Insn::ConstFloat { value, .. } => {
+        self.emit_mov_imm_64(X16, value.to_bits());
+        self.emitter.emit_fmov_gp_to_fp(dst_fp, X16);
+
+        true
+      }
+      // Struct / tuple float field — load from base + slot.
+      Insn::TupleIndex {
+        tuple,
+        index,
+        ty_id,
+        ..
+      } if ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX => {
+        let Some(base) = self.alloc_reg(*tuple) else {
+          return false;
+        };
+        let offset = (*index * STACK_SLOT_SIZE) as u16;
+
+        self.emitter.emit_ldr_fp(dst_fp, base, offset);
+
+        true
+      }
+      Insn::Load { src, .. } => match src {
+        LoadSource::Local(sym) => {
+          let slot = sym.as_u32();
+
+          if let Some(&offset) = self.mutable_slots.get(&slot) {
+            self.emit_ldr_fp_sp(dst_fp, offset);
+
+            return true;
+          }
+
+          if let Some(&(offset, _)) = self.param_sym_slots.get(&slot) {
+            self.emit_ldr_fp_sp(dst_fp, offset);
+
+            return true;
+          }
+
+          false
+        }
+        LoadSource::Param(pidx) => {
+          if let Some(&offset) = self.param_slots.get(pidx) {
+            self.emit_ldr_fp_sp(dst_fp, offset);
 
             return true;
           }
