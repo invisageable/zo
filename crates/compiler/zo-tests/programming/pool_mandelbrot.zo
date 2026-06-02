@@ -1,0 +1,109 @@
+-- tests-run-pass: parallel Mandelbrot on the multi-core pool.
+--
+-- The image splits into BANDS disjoint horizontal bands. Each band is
+-- a pool task that writes only its own rows of a shared byte buffer —
+-- physically isolated regions, so the writes are race-free with no
+-- atomic. `wait()` joins every worker, then main checksums the buffer
+-- and compares it to a sequential reference computed the same way.
+--
+-- Equal checksums (and a non-zero sum) prove the pool dispatched real
+-- CPU work across workers and completed it correctly — the real-
+-- program parallelism the pool exists for. This is the headless core
+-- of the windowed raylib mandelbrot.
+-- @cmd — zo run pool_mandelbrot.zo
+
+load core::pool;
+load core::mem;
+
+val WIDTH: int = 200;
+val HEIGHT: int = 200;
+val MAX_ITER: int = 100;
+val BANDS: int = 4;
+
+-- Escape count for pixel (x, y), in 0..MAX_ITER.
+fun escape(x: int, y: int) -> int {
+  imu cr := (x as float) / (WIDTH as float) * 3.0 - 2.0;
+  imu ci := (y as float) / (HEIGHT as float) * 2.24 - 1.12;
+
+  mut zr: float = 0.0;
+  mut zi: float = 0.0;
+  mut iter: int = 0;
+
+  while zr * zr + zi * zi <= 4.0 && iter < MAX_ITER {
+    imu temp := zr * zr - zi * zi + cr;
+
+    zi = 2.0 * zr * zi + ci;
+    zr = temp;
+    iter += 1;
+  }
+
+  iter
+}
+
+-- Compute one horizontal band into the shared buffer. `band` selects
+-- the disjoint row range this task owns.
+fun compute_band(buffer: s64, band: s64) {
+  imu rows := HEIGHT / BANDS;
+  imu y_start := (band as int) * rows;
+  imu y_end := y_start + rows;
+
+  for y := y_start..y_end {
+    for x := 0..WIDTH {
+      imu iter := escape(x, y);
+
+      mem::write_u8(buffer + ((y * WIDTH + x) as s64), iter % 256);
+    }
+  }
+}
+
+fun checksum(buffer: s64) -> int {
+  mut sum: int = 0;
+
+  for i := 0..(WIDTH * HEIGHT) {
+    sum += mem::read_u8(buffer + (i as s64));
+  }
+
+  sum
+}
+
+fun main() {
+  imu size := WIDTH * HEIGHT;
+
+  -- Sequential reference.
+  imu seq_buf: s64 = mem::alloc(size);
+  mem::set(seq_buf, 0, size);
+
+  for band := 0..BANDS {
+    compute_band(seq_buf, band as s64);
+  }
+
+  imu seq_sum := checksum(seq_buf);
+
+  -- Parallel: one pool task per band, four workers.
+  imu par_buf: s64 = mem::alloc(size);
+  mem::set(par_buf, 0, size);
+
+  imu thread_pool := pool::spawn_pool(4);
+
+  for band := 0..BANDS {
+    thread_pool.run2(compute_band, par_buf, band as s64);
+  }
+
+  thread_pool.wait();
+
+  imu par_sum := checksum(par_buf);
+
+  thread_pool.shutdown();
+
+  if seq_sum == par_sum && par_sum > 0 {
+    showln("CHECKSUM-MATCH");
+  } else {
+    showln("CHECKSUM-MISMATCH");
+  }
+
+  mem::free(seq_buf);
+  mem::free(par_buf);
+}
+
+-- EXPECTED OUTPUT:
+-- CHECKSUM-MATCH

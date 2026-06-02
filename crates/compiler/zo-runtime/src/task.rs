@@ -159,6 +159,41 @@ impl ZoTask {
     Self::new_green(user_entry)
   }
 
+  /// Standalone 1-arg green task — same as
+  /// [`new_green_standalone`](Self::new_green_standalone)
+  /// but the shim replays `arg0` into the callee. Used by
+  /// the pool to dispatch a task that carries one argument
+  /// (e.g. a shared buffer handle) without touching the
+  /// thread-local run queue.
+  pub fn new_green_standalone_1(
+    user_entry: extern "C-unwind" fn(u64),
+    arg0: u64,
+  ) -> Box<Self> {
+    Self::new_green_1(user_entry, arg0)
+  }
+
+  /// Standalone 2-arg green task. See
+  /// [`new_green_standalone_1`](Self::new_green_standalone_1).
+  pub fn new_green_standalone_2(
+    user_entry: extern "C-unwind" fn(u64, u64),
+    arg0: u64,
+    arg1: u64,
+  ) -> Box<Self> {
+    Self::new_green_2(user_entry, arg0, arg1)
+  }
+
+  /// Standalone 3-arg green task — the green-task argument
+  /// ceiling. See
+  /// [`new_green_standalone_1`](Self::new_green_standalone_1).
+  pub fn new_green_standalone_3(
+    user_entry: extern "C-unwind" fn(u64, u64, u64),
+    arg0: u64,
+    arg1: u64,
+    arg2: u64,
+  ) -> Box<Self> {
+    Self::new_green_3(user_entry, arg0, arg1, arg2)
+  }
+
   /// Allocate a new green task. The task is `Ready`
   /// and its Context bootstraps into [`task_shim`] on
   /// the first `ctx_switch` into it.
