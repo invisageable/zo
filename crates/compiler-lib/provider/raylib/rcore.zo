@@ -1,6 +1,8 @@
--! raylib bindings. Hand-written today; spec-driven
--! generation via `zo-binder` lands when the surface
--! settles.
+-! raylib bindings — routed through the `zo-provider-raylib`
+-! shim (`libzo_provider_raylib`), which links the system
+-! `libraylib` internally. One pack, one dylib: this `#link`
+-! covers every raylib module (`rshape`, `rtext`, `rtexture`)
+-! that has none of its own.
 -!
 -! See: <https://www.raylib.com/cheatsheet/cheatsheet.html>
 
@@ -8,10 +10,8 @@ load core::c::*;
 load provider::raylib::structs::*;
 
 #link {
-  macos: { system: "/opt/homebrew/lib/libraylib.dylib",
-           vendor: "libraylib.dylib" },
-  linux: { system: "/usr/lib/x86_64-linux-gnu/libraylib.so",
-           vendor: "libraylib.so" },
+  macos: "@executable_path/libzo_provider_raylib.dylib",
+  linux: "@executable_path/libzo_provider_raylib.so",
 }
 
 -* Window-related functions. *-
@@ -21,17 +21,17 @@ load provider::raylib::structs::*;
 -! @param width — The window width.
 -! @param height — The window height.
 -! @param title — The window title (pass as `CStr::new("…")`).
-%% link_name = "InitWindow".
+%% link_name = "zo_raylib_init_window".
 pub ffi init_window(width: int, height: int, title: CStr);
 
 -! Close window and unload OpenGL context.
-%% link_name = "CloseWindow".
+%% link_name = "zo_raylib_close_window".
 pub ffi close_window();
 
 -! Check if application should close.
 -!
 -! @note — `KEY_ESCAPE` pressed or windows close icon clicked.
-%% link_name = "WindowShouldClose".
+%% link_name = "zo_raylib_window_should_close".
 pub ffi window_should_close() -> bool;
 
 
@@ -40,22 +40,22 @@ pub ffi window_should_close() -> bool;
 -! Set background color (framebuffer clear color).
 -!
 -! @param color — The background color.
--! 
+-!
 -! ## examples.
--! 
+-!
 -! ```
 -! 0xFF000000 -- black opaque.
 -! 0xFFFFFFFF -- white opaque.
 -! ```
-%% link_name = "ClearBackground".
+%% link_name = "zo_raylib_clear_background".
 pub ffi clear_background(color: int);
 
 -! Setup canvas (framebuffer) to start drawing.
-%% link_name = "BeginDrawing".
+%% link_name = "zo_raylib_begin_drawing".
 pub ffi begin_drawing();
 
 -! End canvas drawing and swap buffers (double buffering).
-%% link_name = "EndDrawing".
+%% link_name = "zo_raylib_end_drawing".
 pub ffi end_drawing();
 
 
@@ -64,16 +64,16 @@ pub ffi end_drawing();
 -! Set target FPS (maximum).
 -!
 -! @param fps — ...
-%% link_name = "SetTargetFPS".
+%% link_name = "zo_raylib_set_target_fps".
 pub ffi set_target_fps(fps: int);
 
 -! Get time in seconds for last frame drawn (delta time).
--! 
--! @note — raylib returns `f32`; widened to zo's `float` (f64) at the FFI 
+-!
+-! @note — raylib returns `f32`; widened to zo's `float` (f64) at the FFI
 -! boundary so downstream math stays in double.
 -!
--! @todo — do we really need to convert `f32` to `f64`.
-%% link_name = "GetFrameTime".
+-! @todo — do we really need to convert `f32` to `f64`.
+%% link_name = "zo_raylib_get_frame_time".
 pub ffi __raylib_get_frame_time_raw() -> f32;
 
 -! Get time in seconds for last frame drawn (delta time).
@@ -88,7 +88,7 @@ pub fun get_frame_time() -> float {
 
 -! Returns 0 until raylib's frame timer has enough samples
 -! (a few frames after the loop starts).
-%% link_name = "GetFPS".
+%% link_name = "zo_raylib_get_fps".
 pub ffi get_fps() -> int;
 
 
@@ -97,11 +97,11 @@ pub ffi get_fps() -> int;
 -! Check if a key has been pressed once.
 -!
 -! @param key — The key pressed.
--! @returns — 
--! 
+-! @returns —
+-!
 -! @note — Key codes match raylib's `KEY_*` constants.
 -! @todo — create an enum `Key` with Escape, Space, * variants.
-%% link_name = "IsKeyPressed".
+%% link_name = "zo_raylib_is_key_pressed".
 pub ffi is_key_pressed(key: int) -> bool;
 
 -! Check if a key is being held down this frame.
@@ -111,13 +111,13 @@ pub ffi is_key_pressed(key: int) -> bool;
 -! @note — Stays `true` every frame the key is held (unlike
 -! `is_key_pressed`, which fires once on the press) — what
 -! continuous movement wants.
-%% link_name = "IsKeyDown".
+%% link_name = "zo_raylib_is_key_down".
 pub ffi is_key_down(key: int) -> bool;
 
 -! Check if a key is not being held this frame.
 -!
 -! @param key — The key to test.
-%% link_name = "IsKeyUp".
+%% link_name = "zo_raylib_is_key_up".
 pub ffi is_key_up(key: int) -> bool;
 
 
@@ -127,5 +127,5 @@ pub ffi is_key_up(key: int) -> bool;
 -!
 -! @note — HFA return — raylib writes the `Vector2` fields into
 -! `s0`/`s1`; zo widens each to f64 into a local struct.
-%% link_name = "GetMousePosition".
+%% link_name = "zo_raylib_get_mouse_position".
 pub ffi get_mouse_position() -> Vector2;

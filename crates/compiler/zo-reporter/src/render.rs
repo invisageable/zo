@@ -612,7 +612,9 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::SpawnOutsideNursery => "no enclosing `nursery` for this spawn",
     ErrorKind::AwaitOnNonTask => "this is not a `Task<T>`",
     ErrorKind::ChannelCapacityNotLiteral => "expected an integer literal here",
-    ErrorKind::CapturingClosureAsFnPointer => "this closure captures a variable",
+    ErrorKind::CapturingClosureAsFnPointer => {
+      "this closure captures a variable"
+    }
 
     // FFI / `#link` errors.
     ErrorKind::LinkResolutionFailed => "library not found at this path",

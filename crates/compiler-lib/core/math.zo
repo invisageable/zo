@@ -64,15 +64,9 @@ pub fun lerp<$T>(a: $T, b: $T, t: $T) -> $T {
 
 -* integer math. *-
 
---
--- `gcd`, `lcm`, `pow_i` are deliberately `int`-only (signed
--- s32). Sized-int variants (s8/s16/s64, u8/u16/u32/u64) must
--- cast to `int` at the call site. A generic
--- `gcd<$T: Integer>` shape is blocked on an Integer-ish
--- abstract + `apply` blocks on every width providing `abs`
--- — not ready. Float widths are excluded on purpose: `gcd`
--- and `lcm` are whole-number algebra and don't lift to the
--- reals. Use `pow(x, y)` (FPU intrinsic) for float powers.
+-- `int`-only: a generic `gcd<$T>` needs an `Integer` abstract
+-- + per-width `apply` blocks that don't exist yet. Other
+-- widths cast to `int` at the call site.
 
 -! Greatest common divisor of `a` and `b` via the
 -! Euclidean algorithm. Returns `|a|` when `b == 0`.
@@ -171,6 +165,11 @@ pub ffi cos(x: float) -> float;
 
 -! Returns the tangent of x (radians).
 pub ffi tan(x: float) -> float;
+
+-! Returns the arc tangent of `y / x` (radians), using the
+-! signs of both to place the result in the correct quadrant
+-! (`-pi..pi`).
+pub ffi atan2(y: float, x: float) -> float;
 
 -- TODO: asin<$T>($T) -> $T;
 -- TODO: acos<$T>($T) -> $T;

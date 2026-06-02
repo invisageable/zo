@@ -14,7 +14,7 @@ load provider::raylib::structs::*;
 -!
 -! @note — radius is narrowed from `f64` → `f32` at the FFI boundary (raylib's
 -! API takes f32).
-%% link_name = "DrawCircle".
+%% link_name = "zo_raylib_draw_circle".
 pub ffi draw_circle(x: int, y: int, radius: f32, color: int);
 
 -! Draw a color-filled circle (Vector version).
@@ -25,7 +25,7 @@ pub ffi draw_circle(x: int, y: int, radius: f32, color: int);
 -!
 -! @note — `Vector2` passes by value via AAPCS HFA — fields land
 -! in `s0`/`s1`, then `radius` in `s2`, `color` in `w0`.
-%% link_name = "DrawCircleV".
+%% link_name = "zo_raylib_draw_circle_v".
 pub ffi draw_circle_v(center: Vector2, radius: f32, color: int);
 
 -! Draw a color-filled rectangle.
@@ -35,7 +35,7 @@ pub ffi draw_circle_v(center: Vector2, radius: f32, color: int);
 -! @param width — Rectangle width.
 -! @param height — Rectangle height.
 -! @param color — RGBA packed color.
-%% link_name = "DrawRectangle".
+%% link_name = "zo_raylib_draw_rectangle".
 pub ffi draw_rectangle(x: int, y: int, width: int, height: int, color: int);
 
 -! Draw rectangle outline.
@@ -45,7 +45,7 @@ pub ffi draw_rectangle(x: int, y: int, width: int, height: int, color: int);
 -! @param width — Rectangle width.
 -! @param height — Rectangle height.
 -! @param color — RGBA packed color.
-%% link_name = "DrawRectangleLines".
+%% link_name = "zo_raylib_draw_rectangle_lines".
 pub ffi draw_rectangle_lines(x: int, y: int, width: int, height: int, color: int);
 
 -! Draw a single pixel.
@@ -53,5 +53,5 @@ pub ffi draw_rectangle_lines(x: int, y: int, width: int, height: int, color: int
 -! @param x — The x-coordinate.
 -! @param y — The y-coordinate.
 -! @param color — RGBA packed color.
-%% link_name = "DrawPixel".
+%% link_name = "zo_raylib_draw_pixel".
 pub ffi draw_pixel(x: int, y: int, color: int);

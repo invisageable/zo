@@ -96,6 +96,7 @@ zo-runtime-native = { path = "crates/compiler/zo-runtime-native", version = "0.4
 zo-runtime-render = { path = "crates/compiler/zo-runtime-render", version = "0.4.0" }
 zo-runtime-web = { path = "crates/compiler/zo-runtime-web", version = "0.4.0" }
 zo-provider-json = { path = "crates/compiler/zo-provider-json", version = "0.4.0" }
+zo-provider-raylib = { path = "crates/compiler/zo-provider-raylib", version = "0.4.0" }
 zo-provider-sqlite = { path = "crates/compiler/zo-provider-sqlite", version = "0.4.0" }
 zo-sir = { path = "crates/compiler/zo-sir", version = "0.4.0" }
 zo-session = { path = "crates/compiler/zo-session", version = "0.4.0" }

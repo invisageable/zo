@@ -29,6 +29,7 @@ zo-session = { workspace = true }
 zo-runtime = { workspace = true } # tmp.
 zo-misato = { workspace = true } # tmp.
 zo-provider-json = { workspace = true } # tmp.
+zo-provider-raylib = { workspace = true } # tmp.
 zo-provider-sqlite = { workspace = true } # tmp.
 zo-span = { workspace = true }
 zo-token = { workspace = true }

@@ -1,34 +1,15 @@
--- Multi-core counterpart to `mandelbrot.zo`. That one dispatches its
--- bands as cooperative `nursery { spawn ... }` green tasks on a single
--- thread and draws each pixel inline; this one computes the bands on
--- the real work-stealing thread pool across N OS threads, writing a
--- shared buffer, then blits it from `main`.
-
 load core::c::*;
-load provider::raylib;
-load core::pool;
 load core::mem;
+load core::pool;
+load provider::raylib;
 
 val SCREEN_WIDTH: int = 800;
 val SCREEN_HEIGHT: int = 600;
 val MAX_ITER: int = 100;
 
--- More bands than workers so work-stealing can rebalance the
--- heavy interior rows (which run to MAX_ITER) against the cheap
--- fast-escaping edges.
 val BANDS: int = 16;
 val WORKERS: int = 8;
 
-val COLOR_BLACK: int = 0xFF000000;
-
--- Compute one horizontal band's escape counts into the shared CPU
--- buffer — one byte per pixel. `band` selects the disjoint row range
--- this task owns, so concurrent bands never touch the same byte and
--- need no atomic.
---
--- No raylib calls live here: a pool task runs on its own OS thread,
--- and raylib's GL context is bound to the thread that created the
--- window. Drawing happens later, single-threaded, on `main`.
 fun compute_band(buffer: s64, band: s64) {
   imu width_f := SCREEN_WIDTH as float;
   imu height_f := SCREEN_HEIGHT as float;
@@ -38,10 +19,11 @@ fun compute_band(buffer: s64, band: s64) {
 
   for y := y_start..y_end {
     for x := 0..SCREEN_WIDTH {
-      -- Map the pixel (x, y) onto the complex plane: the real axis
-      -- spans [-2.0, 1.0], the imaginary axis [-1.12, 1.12].
-      imu cr := (x as float) / width_f * 3.0 - 2.0;
-      imu ci := (y as float) / height_f * 2.24 - 1.12;
+      -- Map the pixel (x, y) onto the complex plane: the real
+      -- axis spans [-2.0, 1.0], the imaginary axis
+      -- [-1.12, 1.12].
+      imu cr := x as float / width_f * 3.0 - 2.0;
+      imu ci := y as float / height_f * 2.24 - 1.12;
 
       mut zr: float = 0.0;
       mut zi: float = 0.0;
@@ -55,28 +37,30 @@ fun compute_band(buffer: s64, band: s64) {
         iter += 1;
       }
 
-      mem::write_u8(buffer + ((y * SCREEN_WIDTH + x) as s64), iter);
+      -- Color by escape speed (a blue-to-green gradient); a
+      -- point still inside the set stays black.
+      mut r: int = 0;
+      mut g: int = 0;
+      mut b: int = 0;
+
+      if iter < MAX_ITER {
+        r = (iter * 2) % 256;
+        g = (iter * 5) % 256;
+        b = (iter * 9) % 256;
+      }
+
+      imu off := ((y * SCREEN_WIDTH + x) * 4) as s64;
+
+      mem::write_u8(buffer + off, r);
+      mem::write_u8(buffer + off + 1, g);
+      mem::write_u8(buffer + off + 2, b);
+      mem::write_u8(buffer + off + 3, 255);
     }
   }
 }
 
 fun main() {
-  raylib::init_window(
-    SCREEN_WIDTH,
-    SCREEN_HEIGHT,
-    CStr::new("zo — parallel mandelbrot (thread pool)"),
-  );
-
-  raylib::set_target_fps(60);
-
-  -- One escape-count byte per pixel.
-  imu buffer: s64 = mem::alloc(SCREEN_WIDTH * SCREEN_HEIGHT);
-
-  -- Compute the whole image once, truly in parallel: each band is a
-  -- task on the multi-core work-stealing pool, writing its disjoint
-  -- rows of the shared buffer. `wait()` joins every worker before the
-  -- buffer is read. The fractal is static, so there's no need to
-  -- recompute it per frame.
+  imu buffer: s64 = mem::alloc(SCREEN_WIDTH * SCREEN_HEIGHT * 4);
   imu thread_pool := pool::spawn_pool(WORKERS);
 
   for band := 0..BANDS {
@@ -86,36 +70,26 @@ fun main() {
   thread_pool.wait();
   thread_pool.shutdown();
 
+  raylib::init_window(
+    SCREEN_WIDTH,
+    SCREEN_HEIGHT,
+    CStr::new("zo — parallel mandelbrot (thread pool)"),
+  );
+
+  raylib::set_target_fps(60);
+
+  imu texture := raylib::load_texture(buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
+
   loop {
     if raylib::window_should_close() { break }
 
     raylib::begin_drawing();
-      -- Blit the precomputed buffer. Color the pixel by escape speed —
-      -- a blue-to-green gradient — or black for points still inside
-      -- the set. `draw_pixel` is the only bound raylib raster
-      -- primitive today; an `UpdateTexture` + `DrawTexture` pair
-      -- (texture FFIs not yet bound) would replace this per-pixel loop
-      -- for an animated 60 FPS zoom.
-      for y := 0..SCREEN_HEIGHT {
-        for x := 0..SCREEN_WIDTH {
-          imu iter := mem::read_u8(buffer + ((y * SCREEN_WIDTH + x) as s64));
-          mut color: int = COLOR_BLACK;
-
-          if iter < MAX_ITER {
-            imu r := (iter * 2) % 256;
-            imu g := (iter * 5) % 256;
-            imu b := (iter * 9) % 256;
-
-            color = 0xFF000000 | (r << 16) | (g << 8) | b;
-          }
-
-          raylib::draw_pixel(x, y, color);
-        }
-      }
+      raylib::draw_texture(texture, 0, 0);
       raylib::draw_fps(10, 10);
     raylib::end_drawing();
   }
 
+  raylib::unload_texture(texture);
   mem::free(buffer);
   raylib::close_window();
 }

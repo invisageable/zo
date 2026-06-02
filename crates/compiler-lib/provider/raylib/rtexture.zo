@@ -1,0 +1,33 @@
+-! Texture upload + draw, via the `zo-provider-raylib` shim.
+-! The handle is an `s64` GPU-texture pointer.
+
+-! Upload a `w * h` RGBA buffer (4 bytes/pixel, R,G,B,A) to
+-! the GPU. Returns an opaque texture handle; `0` on failure.
+-!
+-! @param pixels — Pointer to the pixel buffer.
+-! @param w — Image width in pixels.
+-! @param h — Image height in pixels.
+%% link_name = "zo_raylib_load_texture".
+pub ffi load_texture(pixels: s64, w: int, h: int) -> s64;
+
+-! Re-upload fresh pixels into an existing texture (same
+-! dimensions). Lets an animated frame reuse one GPU texture.
+-!
+-! @param handle — A handle from `load_texture`.
+-! @param pixels — Pointer to the new pixel buffer.
+%% link_name = "zo_raylib_update_texture".
+pub ffi update_texture(handle: s64, pixels: s64);
+
+-! Draw the texture with its top-left at (x, y), unmodulated.
+-!
+-! @param handle — A handle from `load_texture`.
+-! @param x — Top-left x.
+-! @param y — Top-left y.
+%% link_name = "zo_raylib_draw_texture".
+pub ffi draw_texture(handle: s64, x: int, y: int);
+
+-! Free the GPU texture and its handle.
+-!
+-! @param handle — A handle from `load_texture`.
+%% link_name = "zo_raylib_unload_texture".
+pub ffi unload_texture(handle: s64);
