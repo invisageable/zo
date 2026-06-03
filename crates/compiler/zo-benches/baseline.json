@@ -28,5 +28,8 @@
   },
   "stress_fun_500k": {
     "zo_hot_avg_ns": 1851632145
+  },
+  "threadring": {
+    "zo_hot_avg_ns": 10929333
   }
 }

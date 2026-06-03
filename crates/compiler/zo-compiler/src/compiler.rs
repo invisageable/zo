@@ -1089,6 +1089,7 @@ impl Compiler {
         implicit_pack: implicit_sym,
         in_scope_packs,
         is_entry: true,
+        test_mode: self.test_mode,
         file_id: 0,
       })
       .analyze();

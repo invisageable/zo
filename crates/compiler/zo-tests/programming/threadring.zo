@@ -1,0 +1,67 @@
+-- tests-run-pass: threadring (benchmarksgame).
+-- 503 tasks wired into a ring; a single integer token hops
+-- node-to-node, decremented each hop. The node that receives
+-- 0 prints its 1-based label and exits the process.
+--
+-- The ring is a real cycle: node 503 is handed node 1's entry
+-- sender, so it forwards back into node 1. `process::exit` on
+-- the winner kills the looping siblings — the canonical
+-- termination, mirroring the reference `os.Exit`.
+-- @cmd — zo run threadring.zo
+
+load core::process;
+
+-! Number of tasks in the ring. The benchmark fixes 503 — a
+-! prime, so the winning label depends on N mod 503.
+val NODES: int = 503;
+
+fun ring(rx: Rx<int>, tx: Tx<int>, label: int) {
+  loop {
+    imu token: int = rx.recv();
+
+    if token == 0 {
+      showln(label);
+      flush();
+
+      process::exit(0);
+    }
+
+    tx.send(token - 1);
+  }
+}
+
+fun main() {
+  imu argv: []str = args();
+
+  imu passes: int = if argv.len > 0 {
+    match argv[0].parse_int() {
+      Option::Some(value) => value,
+      Option::None => 1000,
+    }
+  } else {
+    1000
+  };
+
+  imu (entry_tx, entry_rx) := channel();
+
+  nursery {
+    mut prev_rx: Rx<int> = entry_rx;
+    mut label: int = 1;
+
+    while label < NODES {
+      imu (next_tx, next_rx) := channel();
+
+      spawn ring(prev_rx, next_tx, label);
+
+      prev_rx = next_rx;
+      label = label + 1;
+    }
+
+    spawn ring(prev_rx, entry_tx, NODES);
+
+    entry_tx.send(passes);
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- 498

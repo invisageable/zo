@@ -119,6 +119,30 @@ pub const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
 /// the stack.
 const AAPCS_ARG_REGS: [Register; 8] = [X0, X1, X2, X3, X4, X5, X6, X7];
 
+/// The variable-size areas of a function's stack frame, in
+/// the fixed order the prologue lays them out. The prologue
+/// and epilogue both feed this to `aligned_frame_size` so the
+/// two `sub sp` / `add sp` amounts can never drift apart.
+struct FrameAreas {
+  /// Register-spill slots (`FunctionInfo::spill_size`).
+  spill_size: u32,
+  /// `mut` variable slots (`FunctionInfo::mutable_size`).
+  mut_size: u32,
+  /// One word per parameter for the home-slot stores.
+  param_reserve: u32,
+  /// Blanket caller-save + overflow-arg staging — dynamic
+  /// per `compute_caller_save_reserve`.
+  caller_save: u32,
+  /// Struct / enum / array literal scratch.
+  struct_size: u32,
+  /// Channel-op scratch (`FunctionInfo::chan_scratch_size`).
+  chan_scratch_size: u32,
+  /// `SelectWait` scratch (`FunctionInfo::select_scratch_size`).
+  select_scratch_size: u32,
+  /// `StringFormat` pointer-array scratch.
+  string_format_scratch_size: u32,
+}
+
 /// One enum variant's layout snapshot for the
 /// post-call deep-copy. `discriminant` selects the
 /// variant at runtime; `field_tys` mirrors the
@@ -447,6 +471,14 @@ pub struct ARM64Gen<'a> {
   param_sym_slots: HashMap<u32, (u32, bool)>,
   /// Base offset for caller-save spill area.
   caller_save_base: u32,
+  /// Bytes reserved in the current frame for blanket
+  /// caller-save spills and overflow-arg staging. Computed
+  /// once per function in `enter_function`. Zero for leaf-ish
+  /// functions whose only calls are pure zo→zo user calls
+  /// (those rely on the register allocator's precise per-call
+  /// spill, so the flat X1..X15 blanket is pure waste). See
+  /// `compute_caller_save_reserve`.
+  caller_save_reserve: u32,
   /// Next mutable variable slot.
   next_mut_slot: u32,
   /// Base offset for struct allocations in the frame.
@@ -807,6 +839,7 @@ impl<'a> ARM64Gen<'a> {
       param_slots: HashMap::default(),
       param_sym_slots: HashMap::default(),
       caller_save_base: 0,
+      caller_save_reserve: 0,
       next_mut_slot: 0,
       struct_base: 0,
       chan_scratch_base: 0,
@@ -957,6 +990,154 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
+  /// Whether an `Insn::Call` to `name` lowers to a pure
+  /// zo→zo user-function `BL` — the only call path that
+  /// relies entirely on the register allocator's precise
+  /// per-call spill and therefore needs NO blanket caller-
+  /// save reserve.
+  ///
+  /// @note — mirrors the `Insn::Call` dispatch: every builtin
+  /// / runtime / libm / FFI arm wraps its `BL` in
+  /// `emit_extern_call` (or the libm inline blanket), so those
+  /// keep the reserve. `flush` / `exit` and the hardware-math
+  /// intrinsics emit no `BL` at all, but classifying them as
+  /// "needs reserve = false" is safe (and they never co-exist
+  /// with a reason to grow the frame). The conservative
+  /// default for an unrecognized name is `false` only when it
+  /// is also absent from `ffi_sigs`; an FFI signature forces
+  /// the reserve.
+  fn call_is_pure_zo(&self, name: Symbol) -> bool {
+    if self.ffi_sigs.contains_key(&name) {
+      return false;
+    }
+
+    match self.interner.get(name) {
+      // No-`BL` intrinsics — no caller-save needed.
+      "flush" | "exit" | "sqrt" | "floor" | "ceil" | "trunc" | "round"
+      | "is_nan" | "is_finite" => true,
+      // Everything that wraps a runtime `BL` in
+      // `emit_extern_call` keeps the blanket reserve.
+      "show" | "showln" | "eshow" | "eshowln" | "check" | "exists"
+      | "read_file" | "write_file" | "append_file" | "readln" | "read"
+      | "args" | "remove_file" | "read_dir" | "pow" | "sin" | "cos" | "tan"
+      | "log" | "log2" | "log10" | "exp" | "zo_str_replace"
+      | "arr_int::sort" | "zo_map_len_raw" | "zo_map_free_raw"
+      | "zo_vec_len_raw" | "zo_vec_free_raw" | "zo_set_len_raw"
+      | "zo_set_free_raw" => false,
+      // `Type::method` runtime dispatch (HashMap / Vec /
+      // HashSet) and any other `::`-mangled builtin lowers
+      // through a marshaling `emit_extern_call`.
+      other => !other.contains("::"),
+    }
+  }
+
+  /// Whether a non-`Call` SIR instruction lowers to a runtime
+  /// `BL` that the register allocator does NOT model with
+  /// precise per-call spills — so its blanket `emit_extern_call`
+  /// caller-save is load-bearing and forces the reserve.
+  fn insn_needs_blanket_caller_save(insn: &Insn) -> bool {
+    matches!(
+      insn,
+      Insn::ArrayLiteral { .. }
+        | Insn::ArrayPush { .. }
+        | Insn::ChannelCreate { .. }
+        | Insn::ChannelSend { .. }
+        | Insn::ChannelRecv { .. }
+        | Insn::ChannelClose { .. }
+        | Insn::TaskSpawn { .. }
+        | Insn::TaskAwait { .. }
+        | Insn::TaskCancelled { .. }
+        | Insn::TaskCancel { .. }
+        | Insn::NurseryEnd { .. }
+        | Insn::SelectWait { .. }
+        | Insn::SelectRecv { .. }
+        | Insn::StrSlice { .. }
+        | Insn::ToStr { .. }
+        | Insn::StringFormat { .. }
+        | Insn::CoerceToDyn { .. }
+        | Insn::DynDispatch { .. }
+        | Insn::TestBegin { .. }
+        | Insn::TestRun { .. }
+        | Insn::TestSummary
+    ) || matches!(
+      insn,
+      Insn::BinOp { ty_id, op, .. }
+        if ty_id.0 == STR_TYPE_ID
+          && matches!(
+            op,
+            zo_sir::BinOp::Eq | zo_sir::BinOp::Neq | zo_sir::BinOp::Concat
+          )
+    )
+  }
+
+  /// Total stack frame size in bytes, 16-byte aligned. The
+  /// single source of truth shared by the prologue's `sub sp`
+  /// and the epilogue's `add sp`.
+  fn aligned_frame_size(areas: FrameAreas) -> u32 {
+    (areas.spill_size
+      + areas.mut_size
+      + areas.param_reserve
+      + areas.caller_save
+      + areas.struct_size
+      + areas.chan_scratch_size
+      + areas.select_scratch_size
+      + ARRAY_PUSH_SCRATCH_SIZE
+      + areas.string_format_scratch_size
+      + FRAME_ALIGN_MASK)
+      & !FRAME_ALIGN_MASK
+  }
+
+  /// Bytes the current function must reserve for blanket
+  /// caller-save spills and overflow-arg staging, replacing
+  /// the flat `CALLER_SAVE_RESERVE` that every call-having
+  /// function paid regardless of need.
+  ///
+  /// @note — A function needs the full `CALLER_SAVE_RESERVE`
+  /// only when it still emits a blanket spill: any runtime-
+  /// lowered non-`Call` instruction, or any builtin / libm /
+  /// FFI `Call`. Pure zo→zo user calls are covered by the
+  /// allocator's precise spills, so they need zero blanket —
+  /// only enough staging for their own >8-arg overflow.
+  fn compute_caller_save_reserve(&self, body: &[Insn]) -> u32 {
+    let mut needs_blanket = false;
+    let mut max_overflow_args: u32 = 0;
+
+    for insn in body {
+      if Self::insn_needs_blanket_caller_save(insn) {
+        needs_blanket = true;
+      }
+
+      if let Insn::Call { name, args, .. } = insn {
+        if !self.call_is_pure_zo(*name) {
+          needs_blanket = true;
+        }
+
+        let overflow = args.len().saturating_sub(MAX_REG_ARGS) as u32;
+
+        if overflow > max_overflow_args {
+          max_overflow_args = overflow;
+        }
+      }
+    }
+
+    // Overflow args stage past the X1..X15 blanket region at
+    // `caller_save_base + (CALLER_SAVE_COUNT + 1) * 8`, so the
+    // staging reserve always includes that prefix. The offset
+    // formula at the call site is unchanged — only the SIZE
+    // reserved here adapts.
+    let staging = if max_overflow_args > 0 {
+      (CALLER_SAVE_COUNT as u32 + 1 + max_overflow_args) * STACK_SLOT_SIZE
+    } else {
+      0
+    };
+
+    if needs_blanket {
+      CALLER_SAVE_RESERVE.max(staging)
+    } else {
+      staging
+    }
+  }
+
   fn enter_function(&mut self, name: Symbol, idx: usize, all_insns: &[Insn]) {
     self.current_function = Some(name);
     self.current_fn_start = Some(idx);
@@ -981,6 +1162,9 @@ impl<'a> ARM64Gen<'a> {
       .position(|ins| matches!(ins, Insn::FunDef { .. }))
       .map(|p| idx + 1 + p)
       .unwrap_or(all_insns.len());
+
+    self.caller_save_reserve =
+      self.compute_caller_save_reserve(&all_insns[idx..fn_end]);
 
     for (offset, ins) in all_insns[idx..fn_end].iter().enumerate() {
       let widx = InsnIdx((idx + offset) as u32);
@@ -2284,18 +2468,17 @@ impl<'a> ARM64Gen<'a> {
           }
 
           let param_reserve = params.len() as u32 * STACK_SLOT_SIZE;
-          let caller_save = if has_calls { CALLER_SAVE_RESERVE } else { 0 };
-          let frame = (spill_size
-            + mut_size
-            + param_reserve
-            + caller_save
-            + struct_size
-            + chan_scratch_size
-            + select_scratch_size
-            + ARRAY_PUSH_SCRATCH_SIZE
-            + string_format_scratch_size
-            + FRAME_ALIGN_MASK)
-            & !FRAME_ALIGN_MASK;
+          let caller_save = self.caller_save_reserve;
+          let frame = Self::aligned_frame_size(FrameAreas {
+            spill_size,
+            mut_size,
+            param_reserve,
+            caller_save,
+            struct_size,
+            chan_scratch_size,
+            select_scratch_size,
+            string_format_scratch_size,
+          });
 
           if frame > 0 {
             if frame <= 4095 {
@@ -3275,17 +3458,14 @@ impl<'a> ARM64Gen<'a> {
               self.emitter.emit_mov_reg(*dst, actual_src);
             }
 
-            // Save caller-saved temp regs (X9-X17) before BL.
-            // These may hold live values that the callee
-            // will clobber (ARM64: X0-X17 are caller-saved).
-            let base = self.caller_save_base;
-
-            for i in 0..CALLER_SAVE_COUNT {
-              let reg = Register::new(CALLER_SAVE_START + i as u8);
-              let off = base + i as u32 * STACK_SLOT_SIZE;
-
-              self.emit_str_sp(reg, off);
-            }
+            // No blanket caller-save here. The register
+            // allocator already spilled every value live
+            // across this `Insn::Call` into its own slot via
+            // `spill_ops` (emitted by `emit_spills(Before)`)
+            // and reloads them after, so the flat X1..X15
+            // store/reload that used to bracket the `BL` only
+            // ever saved dead registers — pure frame bloat
+            // that overflowed the stack on deep zo→zo chains.
 
             // Adjust SP and copy overflow args from staging
             // slots to the stack arg region.
@@ -3327,17 +3507,10 @@ impl<'a> ARM64Gen<'a> {
               self.call_fixups.push((fixup_pos, key));
             }
 
-            // Restore SP before caller-save reload so
-            // SP-relative offsets match the spill sites.
+            // Restore SP so SP-relative offsets after the call
+            // match the frame the rest of the body expects.
             if stack_arg_bytes > 0 {
               self.emitter.emit_add_imm(SP, SP, stack_arg_bytes as u16);
-            }
-
-            for i in 0..CALLER_SAVE_COUNT {
-              let reg = Register::new(CALLER_SAVE_START + i as u8);
-              let off = base + i as u32 * STACK_SLOT_SIZE;
-
-              self.emit_ldr_sp(reg, off);
             }
 
             // If callee returns a struct, x0 holds a
@@ -3591,18 +3764,17 @@ impl<'a> ARM64Gen<'a> {
             .map(|s| self.promoted_has_calls(s as u32, has_calls))
             .unwrap_or(has_calls);
           let param_reserve = self.param_slots.len() as u32 * STACK_SLOT_SIZE;
-          let caller_save = if has_calls { CALLER_SAVE_RESERVE } else { 0 };
-          let frame = (spill_size
-            + mut_size
-            + param_reserve
-            + caller_save
-            + struct_size
-            + chan_scratch_size
-            + select_scratch_size
-            + ARRAY_PUSH_SCRATCH_SIZE
-            + string_format_scratch_size
-            + FRAME_ALIGN_MASK)
-            & !FRAME_ALIGN_MASK;
+          let caller_save = self.caller_save_reserve;
+          let frame = Self::aligned_frame_size(FrameAreas {
+            spill_size,
+            mut_size,
+            param_reserve,
+            caller_save,
+            struct_size,
+            chan_scratch_size,
+            select_scratch_size,
+            string_format_scratch_size,
+          });
 
           if frame > 0 {
             if frame <= 4095 {

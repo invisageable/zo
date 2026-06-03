@@ -494,22 +494,20 @@ fn benchmark_c(
     let _ = fs::remove_file(output);
 
     let start = Instant::now();
-
     let result = Command::new("clang")
       .arg("--target=arm64-apple-darwin")
       .arg(source)
       .arg("-o")
       .arg(output)
       .output();
-
     let elapsed = start.elapsed().as_nanos() as u64;
 
     match result {
-      Ok(_) => {
+      Ok(output) if output.status.success() => {
         times.push(elapsed);
         println!("Run {i}: {}", fmt_dur(elapsed));
       }
-      Err(_) => println!("Run {i}: FAILED"),
+      _ => println!("Run {i}: FAILED"),
     }
   }
 
@@ -547,22 +545,20 @@ fn benchmark_go(
     let _ = fs::remove_file(output);
 
     let start = Instant::now();
-
     let result = Command::new("go")
       .arg("build")
       .arg("-o")
       .arg(output)
       .arg(source)
       .output();
-
     let elapsed = start.elapsed().as_nanos() as u64;
 
     match result {
-      Ok(_) => {
+      Ok(output) if output.status.success() => {
         times.push(elapsed);
         println!("Run {i}: {}", fmt_dur(elapsed));
       }
-      Err(_) => println!("Run {i}: FAILED"),
+      _ => println!("Run {i}: FAILED"),
     }
   }
 
@@ -600,25 +596,20 @@ fn benchmark_odin(
     let _ = fs::remove_file(output);
 
     let start = Instant::now();
-
-    // `-file` makes Odin treat <source> as a standalone
-    // file instead of looking for a package; matches
-    // how clang/rustc handle a single source.
     let result = Command::new("odin")
       .arg("build")
       .arg(source)
       .arg("-file")
       .arg(format!("-out:{}", output.display()))
       .output();
-
     let elapsed = start.elapsed().as_nanos() as u64;
 
     match result {
-      Ok(_) => {
+      Ok(output) if output.status.success() => {
         times.push(elapsed);
         println!("Run {i}: {}", fmt_dur(elapsed));
       }
-      Err(_) => println!("Run {i}: FAILED"),
+      _ => println!("Run {i}: FAILED"),
     }
   }
 
@@ -656,22 +647,20 @@ fn benchmark_rust(
     let _ = fs::remove_file(output);
 
     let start = Instant::now();
-
     let result = Command::new("rustc")
       .arg("--target=aarch64-apple-darwin")
       .arg(source)
       .arg("-o")
       .arg(output)
       .output();
-
     let elapsed = start.elapsed().as_nanos() as u64;
 
     match result {
-      Ok(_) => {
+      Ok(output) if output.status.success() => {
         times.push(elapsed);
         println!("Run {i}: {}", fmt_dur(elapsed));
       }
-      Err(_) => println!("Run {i}: FAILED"),
+      _ => println!("Run {i}: FAILED"),
     }
   }
 
@@ -728,11 +717,11 @@ fn benchmark_zo(
     let elapsed = start.elapsed().as_nanos() as u64;
 
     match result {
-      Ok(_) => {
+      Ok(output) if output.status.success() => {
         times.push(elapsed);
         println!("Run {i}: {}", fmt_dur(elapsed));
       }
-      Err(_) => println!("Run {i}: FAILED"),
+      _ => println!("Run {i}: FAILED"),
     }
   }
 
@@ -791,10 +780,10 @@ fn cleanup_dylibs(bench_dir: &PathBuf) {
     };
 
     for f in files.flatten() {
-      let p = f.path();
+      let path = f.path();
 
-      if p.extension().is_some_and(|e| e == "dylib") {
-        let _ = fs::remove_file(&p);
+      if path.extension().is_some_and(|e| e == "dylib") {
+        let _ = fs::remove_file(&path);
       }
     }
   }
@@ -810,10 +799,10 @@ fn load_baseline(path: &PathBuf) -> BTreeMap<String, Baseline> {
     return BTreeMap::new();
   };
 
-  // A file that exists but won't parse is NOT normal: silently
-  // returning empty disables every regression check with no
-  // trace (how a stale `zo_hot_avg_ms` baseline went unnoticed
-  // after the ns migration). Warn loudly and point at the fix.
+  // A file that exists but won't parse is NOT normal: silently returning empty
+  // disables every regression check with no trace (how a stale `zo_hot_avg_ms`
+  // baseline went unnoticed after the ns migration). Warn loudly and point at
+  // the fix.
   match serde_json::from_str(&content) {
     Ok(baselines) => baselines,
     Err(error) => {
@@ -839,6 +828,5 @@ fn save_baseline(path: &PathBuf, results: &BTreeMap<String, u64>) {
   }
 
   let json = serde_json::to_string_pretty(&baselines).unwrap();
-
   let _ = fs::write(path, json + "\n");
 }

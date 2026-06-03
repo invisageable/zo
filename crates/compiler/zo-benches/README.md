@@ -1,6 +1,6 @@
 # crates — compiler — benches.
 
-> *A series of benches to compare compile-time between c, rust, odin and zo.*
+> *A series of benches to compare compile-time between c, go, rust, odin and zo.*
 
 ## about.
 
@@ -33,17 +33,19 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :------- | :------- | :------ | :------ | :------ | :------ | :---------- | :--------------- |
 | **zo**   | 7.59ms   | 6.43ms  | 6.04ms  | 5.89ms  | 5.62ms  | **6.32ms**  | **1.0x**         |
 | clang    | 66.67ms  | 41.95ms | 38.26ms | 40.30ms | 36.71ms | **44.78ms** | **7.1x slower**  |
+| go       | 265.33ms | 63.85ms | 66.68ms | 65.32ms | 65.51ms | **105.34ms** | **16.7x slower** |
 | rustc    | 78.54ms  | 67.90ms | 66.90ms | 62.96ms | 63.91ms | **68.04ms** | **10.8x slower** |
 | odin     | 82.21ms  | 69.02ms | 69.69ms | 68.28ms | 67.13ms | **71.27ms** | **11.3x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
-| Compiler | Size     |
-| :------- | :------- |
-| **zo**   | 32.2 KB  |
-| clang    | 32.7 KB  |
-| odin     | 71.7 KB  |
-| rustc    | 453.3 KB |
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.2 KB   |
+| clang    | 32.7 KB   |
+| odin     | 71.7 KB   |
+| rustc    | 453.3 KB  |
+| go       | 1708.3 KB |
 
 #### arithmetic.
 
@@ -53,17 +55,19 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
 | **zo**   | 8.06ms   | 7.16ms   | 6.17ms   | 6.21ms   | 5.82ms   | **6.68ms**   | **1.0x**         |
 | clang    | 56.41ms  | 47.04ms  | 45.73ms  | 42.27ms  | 40.70ms  | **46.43ms**  | **7.0x slower**  |
+| go       | 147.84ms | 88.28ms  | 86.15ms  | 88.62ms  | 87.28ms  | **99.63ms**  | **14.9x slower** |
 | rustc    | 70.99ms  | 62.33ms  | 60.93ms  | 61.11ms  | 61.72ms  | **63.42ms**  | **9.5x slower**  |
 | odin     | 162.77ms | 174.88ms | 154.65ms | 147.32ms | 149.02ms | **157.73ms** | **23.6x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
-| Compiler | Size     |
-| :------- | :------- |
-| **zo**   | 32.2 KB  |
-| clang    | 32.7 KB  |
-| odin     | 319.7 KB |
-| rustc    | 456.3 KB |
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.2 KB   |
+| clang    | 32.7 KB   |
+| odin     | 319.7 KB  |
+| rustc    | 456.3 KB  |
+| go       | 2434.0 KB |
 
 #### fibonacci.
 
@@ -73,17 +77,19 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
 | **zo**   | 6.99ms   | 5.79ms   | 5.55ms   | 5.07ms   | 5.06ms   | **5.69ms**   | **1.0x**         |
 | clang    | 56.80ms  | 45.23ms  | 43.49ms  | 40.42ms  | 38.95ms  | **44.98ms**  | **7.9x slower**  |
+| go       | 92.56ms  | 85.45ms  | 89.30ms  | 87.17ms  | 88.96ms  | **88.69ms**  | **15.6x slower** |
 | rustc    | 78.61ms  | 68.84ms  | 66.22ms  | 62.21ms  | 62.53ms  | **67.68ms**  | **11.9x slower** |
 | odin     | 171.06ms | 168.63ms | 159.61ms | 146.89ms | 150.68ms | **159.37ms** | **28.0x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
-| Compiler | Size     |
-| :------- | :------- |
-| **zo**   | 32.2 KB  |
-| clang    | 32.7 KB  |
-| odin     | 319.7 KB |
-| rustc    | 457.5 KB |
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.2 KB   |
+| clang    | 32.7 KB   |
+| odin     | 319.7 KB  |
+| rustc    | 457.5 KB  |
+| go       | 2434.1 KB |
 
 #### hello.
 
@@ -93,17 +99,19 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
 | **zo**   | 6.39ms   | 5.75ms   | 5.66ms   | 4.90ms   | 5.11ms   | **5.56ms**   | **1.0x**         |
 | clang    | 53.08ms  | 41.28ms  | 42.00ms  | 42.99ms  | 42.01ms  | **44.27ms**  | **8.0x slower**  |
+| go       | 88.89ms  | 84.18ms  | 88.98ms  | 87.95ms  | 109.92ms | **91.98ms**  | **16.5x slower** |
 | rustc    | 75.72ms  | 62.08ms  | 61.88ms  | 76.28ms  | 59.24ms  | **67.04ms**  | **12.1x slower** |
 | odin     | 153.82ms | 151.34ms | 159.92ms | 166.96ms | 152.00ms | **156.81ms** | **28.2x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
-| Compiler | Size     |
-| :------- | :------- |
-| **zo**   | 32.2 KB  |
-| clang    | 32.6 KB  |
-| odin     | 319.6 KB |
-| rustc    | 455.5 KB |
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.2 KB   |
+| clang    | 32.6 KB   |
+| odin     | 319.6 KB  |
+| rustc    | 455.5 KB  |
+| go       | 2434.0 KB |
 
 #### mandelbrot.
 
@@ -113,17 +121,19 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
 | **zo**   | 20.00ms  | 5.82ms   | 5.88ms   | 6.38ms   | 7.09ms   | **9.03ms**   | **1.0x**         |
 | clang    | 129.80ms | 42.39ms  | 39.71ms  | 41.26ms  | 40.32ms  | **58.70ms**  | **6.5x slower**  |
+| go       | 86.74ms  | 87.03ms  | 83.72ms  | 86.09ms  | 86.07ms  | **85.93ms**  | **9.5x slower**  |
 | rustc    | 69.46ms  | 71.83ms  | 69.06ms  | 69.55ms  | 72.20ms  | **70.42ms**  | **7.8x slower**  |
 | odin     | 311.04ms | 151.96ms | 153.38ms | 152.06ms | 150.62ms | **183.81ms** | **20.4x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
-| Compiler | Size     |
-| :------- | :------- |
-| **zo**   | 32.6 KB  |
-| clang    | 32.6 KB  |
-| odin     | 185.6 KB |
-| rustc    | 455.3 KB |
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.6 KB   |
+| clang    | 32.6 KB   |
+| odin     | 185.6 KB  |
+| rustc    | 455.3 KB  |
+| go       | 2434.2 KB |
 
 #### munchhausen numbers.
 
@@ -133,17 +143,19 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
 | **zo**   | 20.22ms  | 4.78ms   | 4.31ms   | 4.52ms   | 4.93ms   | **7.75ms**   | **1.0x**         |
 | clang    | 56.26ms  | 44.06ms  | 42.37ms  | 39.05ms  | 41.75ms  | **44.70ms**  | **5.8x slower**  |
+| go       | 91.92ms  | 87.01ms  | 88.67ms  | 86.80ms  | 87.27ms  | **88.33ms**  | **11.4x slower** |
 | rustc    | 87.94ms  | 70.30ms  | 68.92ms  | 66.66ms  | 65.60ms  | **71.88ms**  | **9.3x slower**  |
 | odin     | 280.14ms | 155.56ms | 151.32ms | 147.46ms | 156.76ms | **178.25ms** | **23.0x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
-| Compiler | Size     |
-| :------- | :------- |
-| **zo**   | 32.3 KB  |
-| clang    | 32.9 KB  |
-| odin     | 319.8 KB |
-| rustc    | 458.3 KB |
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.3 KB   |
+| clang    | 32.9 KB   |
+| odin     | 319.8 KB  |
+| rustc    | 458.3 KB  |
+| go       | 2434.0 KB |
 
 #### rule 110 cellular automaton.
 
@@ -153,17 +165,19 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
 | **zo**   | 6.66ms   | 6.53ms   | 6.30ms   | 6.49ms   | 5.86ms   | **6.37ms**   | **1.0x**         |
 | clang    | 52.13ms  | 39.25ms  | 39.92ms  | 38.67ms  | 41.29ms  | **42.25ms**  | **6.6x slower**  |
+| go       | 87.96ms  | 83.56ms  | 86.61ms  | 86.02ms  | 86.53ms  | **86.14ms**  | **13.5x slower** |
 | rustc    | 183.90ms | 71.22ms  | 70.09ms  | 70.25ms  | 68.95ms  | **92.88ms**  | **14.6x slower** |
 | odin     | 279.17ms | 155.46ms | 153.92ms | 155.31ms | 157.59ms | **180.29ms** | **28.3x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
-| Compiler | Size     |
-| :------- | :------- |
-| **zo**   | 32.3 KB  |
-| clang    | 32.8 KB  |
-| odin     | 319.8 KB |
-| rustc    | 459.0 KB |
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.3 KB   |
+| clang    | 32.8 KB   |
+| odin     | 319.8 KB  |
+| rustc    | 459.0 KB  |
+| go       | 2434.0 KB |
 
 #### stress_fun_10k.
 
@@ -175,41 +189,94 @@ Workload: 10,000 lines of code.
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :-------------- |
 | **zo**   | 60.17ms  | 51.43ms  | 51.38ms  | 51.73ms  | 51.62ms  | **53.27ms**  | **1.0x**        |
 | clang    | 105.23ms | 96.81ms  | 94.96ms  | 97.49ms  | 96.87ms  | **98.27ms**  | **1.8x slower** |
+| go       | 94.92ms  | 91.63ms  | 93.44ms  | 90.60ms  | 93.56ms  | **92.83ms**  | **1.7x slower** |
 | odin     | 199.62ms | 186.51ms | 182.72ms | 191.62ms | 184.23ms | **188.94ms** | **3.5x slower** |
 | rustc    | 219.27ms | 206.80ms | 204.89ms | 214.84ms | 232.21ms | **215.60ms** | **4.0x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
+| Compiler  | Size      |
+| :-------- | :-------- |
+| **clang** | 165.3 KB  |
+| zo        | 272.7 KB  |
+| odin      | 426.3 KB  |
+| rustc     | 661.3 KB  |
+| go        | 2721.5 KB |
+
+#### stress_fun_500k.
+
+Workload: 500,000 lines of code. go times are from-scratch (its build cache relinks unchanged sources). rustc crashes — SIGBUS in its monomorphization collector recursing the 50,000-deep call chain.
+
+@RUN: `just zo_bench stress_fun_500k`
+
+| Compiler | Run 1 | Run 2 | Run 3 | Run 4 | Run 5 | Average   | Speed vs zo     |
+| :------- | :---- | :---- | :---- | :---- | :---- | :-------- | :-------------- |
+| **zo**   | 1.81s | 1.79s | 1.79s | 1.78s | 1.81s | **1.80s** | **1.0x**        |
+| clang    | 3.34s | 3.02s | 3.02s | 2.99s | 2.94s | **3.06s** | **1.7x slower** |
+| go       | 3.69s | 3.45s | 3.34s | 3.31s | 3.40s | **3.44s** | **1.9x slower** |
+| rustc    | —     | —     | —     | —     | —     | **crash** | **SIGBUS**      |
+| odin     | 3.89s | 3.66s | 3.69s | 3.66s | 3.66s | **3.71s** | **2.1x slower** |
+
+**-AWTY—are-we-tiny-yet?**
+
 | Compiler | Size     |
 | :------- | :------- |
-| clang    | 165.3 KB |
-| **zo**   | 272.7 KB |
-| odin     | 426.3 KB |
-| rustc    | 661.3 KB |
+| odin     | 5.98 MB  |
+| clang    | 7.34 MB  |
+| **zo**   | 12.52 MB |
+| go       | 16.97 MB |
+| rustc    | —        |
+
+#### threadring.
+
+503 TASKS iN A RiNG; A TOKEN HOPS NODE-TO-NODE `N` TiMES. CONCURRENCY PORT — zo GREEN TASKS vs c/odin `pthread` mutex-batons vs rust `mpsc` THREADS.
+
+@RUN: `just zo_bench threadring`
+
+| Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      | Speed vs zo      |
+| :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
+| **zo**   | 25.01ms  | 12.09ms  | 11.53ms  | 10.46ms  | 9.08ms   | **13.63ms**  | **1.0x**         |
+| clang    | 270.34ms | 76.76ms  | 81.65ms  | 66.49ms  | 61.47ms  | **111.34ms** | **8.2x slower**  |
+| go       | 376.35ms | 131.52ms | 125.96ms | 143.16ms | 129.17ms | **181.23ms** | **13.3x slower** |
+| rustc    | 272.33ms | 164.42ms | 147.28ms | 170.54ms | 167.56ms | **184.42ms** | **13.5x slower** |
+| odin     | 422.94ms | 216.09ms | 219.56ms | 228.20ms | 230.74ms | **263.50ms** | **19.3x slower** |
+
+**-AWTY—are-we-tiny-yet?**
+
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.9 KB   |
+| clang    | 33.2 KB   |
+| odin     | 357.8 KB  |
+| rustc    | 653.2 KB  |
+| go       | 2435.0 KB |
 
 ### benchmark — runtime.
 
 WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **EXECUTE** AN EXECUTABLE FiLE.
 
-| Benchmark         | clang       | rustc       | odin        | zo          |
-| :---------------- | :---------- | :---------- | :---------- | :---------- |
-| `ackermann`       | **28.60ms** | 29.15ms     | 32.21ms     | 29.91ms     |
-| `arithmetic`      | 30.27ms     | 30.05ms     | 29.14ms     | **28.22ms** |
-| `fibonacci`       | 28.41ms     | 29.81ms     | 28.62ms     | **28.22ms** |
-| `hello`           | 28.71ms     | 29.40ms     | 28.94ms     | **28.19ms** |
-| `munchhausen`     | **5.86s**   | 14.65s      | 15.02s      | 7.38s**     |
-| `rule_110`        | 46.92ms     | 34.78ms     | 34.02ms     | **28.29ms** |
-| `stress_fun_10k`  | 28.66ms     | 29.23ms     | 29.70ms     | **28.47ms** |
+| Benchmark         | clang       | go          | rustc       | odin        | zo          |
+| :---------------- | :---------- | :---------- | :---------- | :---------- | :---------- |
+| `ackermann`       | **28.60ms** | 31.95ms     | 29.15ms     | 32.21ms     | 29.91ms     |
+| `arithmetic`      | 30.27ms     | 33.66ms     | 30.05ms     | 29.14ms     | **28.22ms** |
+| `fibonacci`       | 28.41ms     | 32.95ms     | 29.81ms     | 28.62ms     | **28.22ms** |
+| `hello`           | 28.71ms     | 31.31ms     | 29.40ms     | 28.94ms     | **28.19ms** |
+| `munchhausen`     | 5.86s       | **2.12s**   | 14.65s      | 15.02s      | 7.38s       |
+| `rule_110`        | 46.92ms     | 32.68ms     | 34.78ms     | 34.02ms     | **28.29ms** |
+| `stress_fun_10k`  | 28.66ms     | 33.27ms     | 29.23ms     | 29.70ms     | **28.47ms** |
+| `stress_fun_500k` | **40.19ms** | 63.19ms     | —           | 47.05ms     | 85.88ms     |
 
 ### benchmark — summary.
 
-| Benchmark        | `zo` vs `c`     | `zo` vs `rust`   | `zo` vs `odin`   |
-| :--------------- | :-------------- | :--------------- | :--------------- |
-| `ackermann`      | __7.1x__ faster | __10.8x__ faster | __11.3x__ faster |
-| `arithmetic`     | __7.0x__ faster | __9.5x__ faster  | __23.6x__ faster |
-| `fibonacci`      | __7.9x__ faster | __11.9x__ faster | __28.0x__ faster |
-| `hello`          | __8.0x__ faster | __12.1x__ faster | __28.2x__ faster |
-| `mandelbrot`     | __6.5x__ faster | __7.8x__ faster  | __20.4x__ faster |
-| `munchhausen`    | __5.8x__ faster | __9.3x__ faster  | __23.0x__ faster |
-| `rule_110`       | __6.6x__ faster | __14.6x__ faster | __28.3x__ faster |
-| `stress_fun_10k` | __1.8x__ faster | __4.0x__ faster  | __3.5x__ faster  |
+| Benchmark        | `zo` vs `c`     | `zo` vs `go`     | `zo` vs `rust`   | `zo` vs `odin`   |
+| :--------------- | :-------------- | :--------------- | :--------------- | :--------------- |
+| `ackermann`      | __7.1x__ faster | __16.7x__ faster | __10.8x__ faster | __11.3x__ faster |
+| `arithmetic`     | __7.0x__ faster | __14.9x__ faster | __9.5x__ faster  | __23.6x__ faster |
+| `fibonacci`      | __7.9x__ faster | __15.6x__ faster | __11.9x__ faster | __28.0x__ faster |
+| `hello`          | __8.0x__ faster | __16.5x__ faster | __12.1x__ faster | __28.2x__ faster |
+| `mandelbrot`     | __6.5x__ faster | __9.5x__ faster  | __7.8x__ faster  | __20.4x__ faster |
+| `munchhausen`    | __5.8x__ faster | __11.4x__ faster | __9.3x__ faster  | __23.0x__ faster |
+| `rule_110`       | __6.6x__ faster | __13.5x__ faster | __14.6x__ faster | __28.3x__ faster |
+| `stress_fun_10k` | __1.8x__ faster | __1.7x__ faster  | __4.0x__ faster  | __3.5x__ faster  |
+| `stress_fun_500k`| __1.7x__ faster | __1.9x__ faster  | crash            | __2.1x__ faster  |
+| `threadring`     | __8.2x__ faster | __13.3x__ faster | __13.5x__ faster | __19.3x__ faster |

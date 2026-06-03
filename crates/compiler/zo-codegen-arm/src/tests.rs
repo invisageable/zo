@@ -1230,3 +1230,78 @@ fun main() {
     "expected an FP LDR loading the struct field from memory"
   );
 }
+
+/// Decode every `sub sp, sp, #imm` (no shift) in `code` and
+/// return the immediates. The blanket-caller-save regression
+/// shows up as a frame ≥ `CALLER_SAVE_RESERVE` (144) on a
+/// function that only makes pure zo→zo calls.
+fn sub_sp_immediates(code: &[u8]) -> Vec<u32> {
+  // SUB (immediate, 64-bit): 0xD1000000 base. `sub sp, sp`
+  // pins Rn = Rd = 31, so the low/high register fields are
+  // fixed and only the 12-bit immediate varies.
+  const SUB_SP_SP: u32 = 0xD100_03FF;
+  const SUB_SP_SP_MASK: u32 = 0xFFC0_03FF;
+
+  code
+    .chunks_exact(4)
+    .filter_map(|chunk| {
+      let insn = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+      ((insn & SUB_SP_SP_MASK) == SUB_SP_SP).then_some((insn >> 10) & 0xFFF)
+    })
+    .collect()
+}
+
+#[test]
+fn test_pure_zo_call_has_no_blanket_caller_save() {
+  // `b` makes a single pure zo→zo call and keeps one value
+  // (the param) live across it. The register allocator spills
+  // that precisely; no flat X1..X15 blanket is needed, so the
+  // frame must stay far below the old 144-byte reserve.
+  let code = compile_to_code(
+    r#"fun a(x: int) -> int { return x + 1; }
+fun b(x: int) -> int {
+  imu y: int = a(x);
+  imu z: int = y * 2 - 1;
+  if z > 0 { return z; } else { return -z; }
+}
+fun main() { imu r: int = b(1); }"#,
+  );
+
+  let frames = sub_sp_immediates(&code);
+
+  assert!(
+    !frames.is_empty(),
+    "expected at least one `sub sp, sp, #imm` prologue"
+  );
+
+  // Every chain-shaped function frame must be small. 144 is
+  // the old flat `CALLER_SAVE_RESERVE`; a frame at or above
+  // it means the blanket spill came back. `main` calls only
+  // `b` (pure zo→zo) so it is bound by the same rule here.
+  let max_frame = frames.iter().copied().max().unwrap();
+
+  assert!(
+    max_frame < 144,
+    "pure zo→zo functions must not pay the 144-byte blanket \
+     caller-save reserve; largest `sub sp` was {max_frame}"
+  );
+}
+
+#[test]
+fn test_builtin_call_keeps_caller_save_reserve() {
+  // `showln` lowers to a runtime `BL` wrapped in the blanket
+  // `emit_caller_save_spill`, so a function that calls it MUST
+  // still reserve the full caller-save area — otherwise the
+  // spill stores land outside the frame.
+  let code = compile_to_code(r#"fun main() { showln(42); }"#);
+
+  let frames = sub_sp_immediates(&code);
+  let has_reserve = frames.iter().any(|&f| f >= 144);
+
+  assert!(
+    has_reserve,
+    "a function calling a runtime builtin (`showln`) must keep \
+     the >=144-byte caller-save reserve; frames: {frames:?}"
+  );
+}
