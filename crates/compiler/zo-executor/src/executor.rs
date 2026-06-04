@@ -294,6 +294,13 @@ pub struct Executor<'a> {
     Option<(ValueId, u32, TyId, ValueId, BinOp, Symbol, Span)>,
   /// Array context stack — one entry per open `[ ... ]`.
   array_ctx: Vec<ArrayCtx>,
+  /// Root variable of the most recently closed index
+  /// expression (`arr` for `arr[i]`, `self` for `self.f[i]`).
+  /// The `Eq` store handler reads it O(1) to check the root's
+  /// mutability — the array operand is a field read or a
+  /// parameter, neither of which survives as a `Load(Local)`
+  /// to recover the name from after the fact.
+  last_index_root: Option<Symbol>,
   /// Pending array element assignment (deferred to Semicolon).
   /// (array_sir, index_sir, array_name, span)
   pending_array_assign: Option<(ValueId, ValueId, Symbol, Span)>,
@@ -868,6 +875,7 @@ impl<'a> Executor<'a> {
       pending_compound_receiver: None,
       pending_compound_field: None,
       array_ctx: Vec::new(),
+      last_index_root: None,
       pending_array_assign: None,
       pending_field_assign: None,
       tuple_ctx: Vec::new(),
@@ -4873,11 +4881,23 @@ impl<'a> Executor<'a> {
               | Token::RParen
           );
 
+        // Resolve the array's root binding once, here, where
+        // its shape is in front of us. `arr[` → the ident;
+        // `self.f[` → walk the receiver chain; `m[i][` → the
+        // inner index already resolved the same root, inherit
+        // it O(1). Carried on the ctx so the store handler
+        // never re-scans SIR for provenance.
         let array_name = if is_indexing && idx > 0 {
-          self.node_value(idx - 1).and_then(|v| match v {
-            NodeValue::Symbol(s) => Some(s),
+          match self.tree.nodes[idx - 1].token {
+            Token::Ident => self.node_value(idx - 1).and_then(|v| match v {
+              NodeValue::Symbol(s) => Some(s),
+              _ => None,
+            }),
+            Token::SelfLower => Some(Symbol::SELF_LOWER),
+            Token::Dot => self.field_assign_root(idx - 1),
+            Token::RBracket => self.last_index_root,
             _ => None,
-          })
+          }
         } else {
           None
         };
@@ -4911,12 +4931,16 @@ impl<'a> Executor<'a> {
           let ArrayCtx {
             is_indexing,
             depth,
-            array_name: _array_name,
+            array_name,
             ellipsis_at,
           } = ctx;
           let int_ty = self.ty_checker.int_type();
 
           if is_indexing {
+            // Publish the resolved root for a following `=`
+            // store (and for an enclosing chained index).
+            self.last_index_root = array_name;
+
             // Slice (`s[lo..hi]` / `s[lo..=hi]`). Detect by
             // looking at the node immediately before the
             // closing bracket — the parser emits postorder,
@@ -5882,23 +5906,10 @@ impl<'a> Executor<'a> {
             let array_sir = *array;
             let index_sir = *index;
 
-            // Find the array name from the Load instruction.
-            let array_name =
-              self.sir.instructions.iter().rev().find_map(|insn| {
-                if let Insn::Load {
-                  dst,
-                  src: LoadSource::Local(sym),
-                  ..
-                } = insn
-                  && *dst == array_sir
-                {
-                  Some(*sym)
-                } else {
-                  None
-                }
-              });
-
-            if let Some(name) = array_name {
+            // Root resolved when the index closed (handles
+            // `self.f[i]` and parameter arrays, which the array
+            // operand's SIR no longer names).
+            if let Some(name) = self.last_index_root {
               // Pop the ArrayIndex result from stacks.
               self.value_stack.pop();
               self.ty_stack.pop();
