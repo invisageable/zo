@@ -1,0 +1,26 @@
+-- runtime kernel: latency-bound arithmetic. A data-dependent
+-- LCG step (mul + add) the optimizer can't reduce to a closed
+-- form — the serial multiply latency dominates, so it shows
+-- the floor where memory traffic is hidden by the dependency.
+-- @cmd — zo run prng.zo
+
+fun prng(iters: int) -> int {
+  mut x: int = 1;
+  mut i: int = 0;
+
+  while i < iters {
+    x = x * 1103515245 + 12345;
+    i = i + 1;
+  }
+
+  return x;
+}
+
+fun main() {
+  imu r: int = prng(200000000);
+
+  showln(r);
+}
+
+-- EXPECTED OUTPUT:
+-- 6261787075167120897

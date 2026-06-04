@@ -9,6 +9,8 @@ crates/compiler/zo-tests/build-fail/templating/wip
 /target
 /tmp
 
+crates/compiler/zo-benches/**/bin/
+
 # Compiled demo binaries + their staged dylibs — every
 # `zo build` run drops these next to the source. Source
 # files (`*.zo`) stay tracked.

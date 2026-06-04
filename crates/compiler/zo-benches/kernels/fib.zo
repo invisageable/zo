@@ -1,0 +1,21 @@
+-- runtime kernel: call + frame overhead. Naive recursive
+-- Fibonacci — ~63M calls — measures the cost of the
+-- prologue/epilogue and argument passing per call.
+-- @cmd — zo run fib.zo
+
+fun fib(n: int) -> int {
+  if n < 2 {
+    return n;
+  }
+
+  return fib(n - 1) + fib(n - 2);
+}
+
+fun main() {
+  imu r: int = fib(38);
+
+  showln(r);
+}
+
+-- EXPECTED OUTPUT:
+-- 39088169

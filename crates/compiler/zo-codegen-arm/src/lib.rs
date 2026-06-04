@@ -1,5 +1,6 @@
 pub mod abi;
 mod codegen;
+mod promotion;
 
 #[cfg(test)]
 mod tests;

@@ -1,5 +1,7 @@
 pub(crate) mod template;
 
+use crate::promotion::Promotion;
+
 use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, MachoLinkObject};
 use zo_emitter_arm::{
@@ -141,6 +143,12 @@ struct FrameAreas {
   select_scratch_size: u32,
   /// `StringFormat` pointer-array scratch.
   string_format_scratch_size: u32,
+  /// Save area for promoted callee-saved registers (x19..x28
+  /// claimed by register promotion). One 8-byte slot per
+  /// register, padded to keep the frame 16-aligned. Lives at
+  /// the top of the frame so no other area's base offset
+  /// shifts when promotion is active.
+  promo_save_size: u32,
 }
 
 /// One enum variant's layout snapshot for the
@@ -447,6 +455,31 @@ pub struct ARM64Gen<'a> {
   current_emit_idx: usize,
   /// Mutable variable stack slots: name → offset from SP.
   mutable_slots: HashMap<u32, u32>,
+  /// Register-promotion plan for the current function:
+  /// scalar locals lifted from stack slots into dedicated
+  /// callee-saved registers (x19..x28). Rebuilt per FunDef
+  /// in `enter_function`. Consulted at every `Insn::Store`
+  /// and `Insn::Load { LoadSource::Local }` so a promoted
+  /// local's read/write is a register move instead of stack
+  /// memory traffic. See `promotion.rs`.
+  promotion: Promotion,
+  /// SSA values whose register IS a promotion register: a
+  /// `Load { LoadSource::Local(promoted) }` binds its `dst`
+  /// here instead of emitting a memory load, so downstream
+  /// `BinOp` / `Call` operands read the callee-saved register
+  /// directly. Cleared per FunDef. Keyed by `ValueId.0`.
+  promo_value_reg: HashMap<u32, Register>,
+  /// Parameter index → promotion register, for `mut`
+  /// parameters whose symbol was promoted. The executor
+  /// lowers a parameter read as either `LoadSource::Local`
+  /// (handled via `promotion`) or `LoadSource::Param(idx)`,
+  /// and BOTH forms appear for a `mut` param that is also
+  /// reassigned (`while n > 1 { n = n / 2 }`). Without this,
+  /// the `Param(idx)` reads would still come from the stale
+  /// home slot while the `Store` writes the register — the
+  /// loop would never see the update and spin forever.
+  /// Cleared per FunDef.
+  param_promo_reg: HashMap<u32, Register>,
   /// Inline-storage `[N]T` variables: name → SP-relative
   /// offset of the array block's first byte. The block
   /// holds `[len:8][cap:8][e0:8]...[eN:8]`. `Insn::Store`
@@ -495,6 +528,12 @@ pub struct ARM64Gen<'a> {
   /// the struct's bytes.
   array_push_scratch_base: u32,
   string_format_scratch_base: u32,
+  /// Offset from SP of the promoted-register save area —
+  /// the top-of-frame region holding the caller's x19..x28
+  /// while this function uses them for promoted locals. The
+  /// prologue stores each claimed register here; every
+  /// return path restores from here before the `add sp`.
+  promo_save_base: u32,
   /// Offset from SP of the select-wait scratch area.
   /// Layout: `nchans * 8` bytes of `*mut ZoChan`
   /// pointers immediately followed by an `elem_sz`
@@ -835,6 +874,9 @@ impl<'a> ARM64Gen<'a> {
       current_fn_start: None,
       current_emit_idx: 0,
       mutable_slots: HashMap::default(),
+      promotion: Promotion::default(),
+      promo_value_reg: HashMap::default(),
+      param_promo_reg: HashMap::default(),
       array_var_blocks: HashMap::default(),
       param_slots: HashMap::default(),
       param_sym_slots: HashMap::default(),
@@ -846,6 +888,7 @@ impl<'a> ARM64Gen<'a> {
       select_scratch_base: 0,
       array_push_scratch_base: 0,
       string_format_scratch_base: 0,
+      promo_save_base: 0,
       next_struct_slot: 0,
       io_shared_buf_offset: None,
       struct_return_fns: HashMap::default(),
@@ -914,6 +957,13 @@ impl<'a> ARM64Gen<'a> {
 
   /// Look up the allocated register for a ValueId.
   fn alloc_reg(&self, vid: ValueId) -> Option<Register> {
+    // A value loaded from a promoted local lives in its
+    // callee-saved register — return it directly so consumers
+    // read the register with no intervening memory load.
+    if let Some(&reg) = self.promo_value_reg.get(&vid.0) {
+      return Some(reg);
+    }
+
     self
       .reg_alloc
       .as_ref()
@@ -1083,8 +1133,20 @@ impl<'a> ARM64Gen<'a> {
       + areas.select_scratch_size
       + ARRAY_PUSH_SCRATCH_SIZE
       + areas.string_format_scratch_size
+      + areas.promo_save_size
       + FRAME_ALIGN_MASK)
       & !FRAME_ALIGN_MASK
+  }
+
+  /// Bytes the promoted-register save area occupies in the
+  /// current frame: one 8-byte slot per claimed callee-saved
+  /// register, rounded up to 16 so the frame stays aligned.
+  /// Single source of truth for the prologue's save loop and
+  /// the epilogue's restore loop.
+  fn promo_save_size(&self) -> u32 {
+    let n = self.promotion.used_count() as u32;
+
+    (n * STACK_SLOT_SIZE + FRAME_ALIGN_MASK) & !FRAME_ALIGN_MASK
   }
 
   /// Bytes the current function must reserve for blanket
@@ -1147,6 +1209,8 @@ impl<'a> ARM64Gen<'a> {
     self.reload_overrides.clear();
     self.fp_reload_overrides.clear();
     self.mutable_slots.clear();
+    self.promo_value_reg.clear();
+    self.param_promo_reg.clear();
     self.array_var_blocks.clear();
     self.next_mut_slot = 0;
     self.next_struct_slot = 0;
@@ -1166,6 +1230,8 @@ impl<'a> ARM64Gen<'a> {
     self.caller_save_reserve =
       self.compute_caller_save_reserve(&all_insns[idx..fn_end]);
 
+    self.promotion = self.build_promotion(&all_insns[idx..fn_end]);
+
     for (offset, ins) in all_insns[idx..fn_end].iter().enumerate() {
       let widx = InsnIdx((idx + offset) as u32);
 
@@ -1180,6 +1246,142 @@ impl<'a> ARM64Gen<'a> {
         _ => {}
       }
     }
+  }
+
+  /// Build the register-promotion plan for the function body
+  /// `body`. A scalar local store/load type is promotable
+  /// when it resolves to a register-sized GP scalar (`int`,
+  /// `s8..s64`, `u8..u64`, `bool`, `char`, or a pointer).
+  /// Without a type view the classifier promotes nothing —
+  /// correctness over reach. The native build path always
+  /// supplies a type view, so promotion is active there.
+  ///
+  /// Promotion is disabled outright for any function whose
+  /// body clobbers x19..x28 (see
+  /// `body_clobbers_promotion_regs`).
+  fn build_promotion(&self, body: &[Insn]) -> Promotion {
+    let view = self.type_view;
+    let regs_safe = !self.body_clobbers_promotion_regs(body);
+
+    Promotion::analyze(
+      body,
+      |ty_id| match view {
+        Some(view) => {
+          matches!(
+            resolve_ty(view.tys, TyId(ty_id)),
+            Ty::Int { .. } | Ty::Bool | Ty::Char | Ty::Ref(_)
+          )
+        }
+        None => false,
+      },
+      regs_safe,
+    )
+  }
+
+  /// Whether `body` contains an instruction whose codegen
+  /// uses x19..x28 as ad-hoc scratch. Those registers double
+  /// as the promotion pool, so any such instruction would
+  /// stomp a promoted local — the function must promote
+  /// nothing.
+  ///
+  /// This is a WHITELIST: a function is safe only when every
+  /// instruction is one we have verified never touches
+  /// x19..x28 (scalar arithmetic, control flow, plain calls,
+  /// scalar prints). Anything else — arrays, strings, enums,
+  /// tuples, structs, channels, tasks, IO, dynamic dispatch —
+  /// disqualifies the whole function. Correct-by-
+  /// construction: an instruction we don't recognize as safe
+  /// is assumed to clobber. The hot kernels this optimization
+  /// targets (tight numeric loops) consist entirely of the
+  /// safe set, so they still promote; aggregate-heavy code
+  /// keeps its memory locals.
+  fn body_clobbers_promotion_regs(&self, body: &[Insn]) -> bool {
+    // Value id → producing type, scoped to this body. Lets a
+    // `show*` call recover whether its argument is an
+    // aggregate; the per-emit `value_types` map isn't
+    // populated yet at promotion-analysis time.
+    let mut value_ty: HashMap<u32, TyId> = HashMap::default();
+
+    body.iter().any(|insn| {
+      match insn {
+        Insn::Load { dst, ty_id, .. }
+        | Insn::Call { dst, ty_id, .. }
+        | Insn::StructConstruct { dst, ty_id, .. }
+        | Insn::EnumConstruct { dst, ty_id, .. }
+        | Insn::TupleLiteral { dst, ty_id, .. }
+        | Insn::ArrayLiteral { dst, ty_id, .. } => {
+          value_ty.insert(dst.0, *ty_id);
+        }
+        _ => {}
+      }
+
+      !self.insn_is_promotion_safe(insn, &value_ty)
+    })
+  }
+
+  /// Whether one instruction's codegen is known to leave
+  /// x19..x28 untouched. See `body_clobbers_promotion_regs`.
+  fn insn_is_promotion_safe(
+    &self,
+    insn: &Insn,
+    value_ty: &HashMap<u32, TyId>,
+  ) -> bool {
+    match insn {
+      // Scalar value production, arithmetic, control flow,
+      // and frame markers — all verified to stay clear of
+      // x19..x28.
+      Insn::FunDef { .. }
+      | Insn::ConstInt { .. }
+      | Insn::ConstBool { .. }
+      | Insn::ConstFloat { .. }
+      | Insn::ConstString { .. }
+      | Insn::Load { .. }
+      | Insn::Store { .. }
+      | Insn::BinOp { .. }
+      | Insn::UnOp { .. }
+      | Insn::Cast { .. }
+      | Insn::ToStr { .. }
+      | Insn::StringFormat { .. }
+      | Insn::Label { .. }
+      | Insn::Jump { .. }
+      | Insn::BranchIfNot { .. }
+      | Insn::Return { .. }
+      | Insn::VarDef { .. }
+      | Insn::Drop { .. } => true,
+      // A plain call is safe; a `show*` of an aggregate routes
+      // into the x19..x28 pretty-printer and is not.
+      Insn::Call { name, args, .. } => {
+        let is_print = matches!(
+          self.interner.get(*name),
+          "show" | "showln" | "eshow" | "eshowln"
+        );
+
+        !(is_print
+          && args
+            .first()
+            .and_then(|arg| value_ty.get(&arg.0).copied())
+            .is_some_and(|ty| self.is_aggregate_print_ty(ty)))
+      }
+      // Everything else (arrays, channels, tasks, dynamic
+      // dispatch, templates, IO scratch, …) may use x19..x28.
+      _ => false,
+    }
+  }
+
+  /// Whether printing a value of type `ty_id` routes through
+  /// the x19..x28 aggregate pretty-printer rather than the
+  /// scalar / string / float itoa path.
+  fn is_aggregate_print_ty(&self, ty_id: TyId) -> bool {
+    let Some(view) = self.type_view else {
+      // No type view: be conservative and treat it as an
+      // aggregate so promotion stays off when in doubt.
+      return true;
+    };
+
+    matches!(
+      resolve_ty(view.tys, ty_id),
+      Ty::Struct(_) | Ty::Enum(_) | Ty::Tuple(_) | Ty::Array(_)
+    )
   }
 
   /// Look up the allocated FP register for the value
@@ -2469,6 +2671,7 @@ impl<'a> ARM64Gen<'a> {
 
           let param_reserve = params.len() as u32 * STACK_SLOT_SIZE;
           let caller_save = self.caller_save_reserve;
+          let promo_save_size = self.promo_save_size();
           let frame = Self::aligned_frame_size(FrameAreas {
             spill_size,
             mut_size,
@@ -2478,6 +2681,7 @@ impl<'a> ARM64Gen<'a> {
             chan_scratch_size,
             select_scratch_size,
             string_format_scratch_size,
+            promo_save_size,
           });
 
           if frame > 0 {
@@ -2521,12 +2725,39 @@ impl<'a> ARM64Gen<'a> {
           self.string_format_scratch_base =
             self.array_push_scratch_base + ARRAY_PUSH_SCRATCH_SIZE;
 
+          // Promoted-register save area sits at the top of the
+          // frame, above every scratch region. Save each
+          // claimed callee-saved register so the caller's
+          // value is restored on return — the ABI requires it.
+          self.promo_save_base =
+            self.string_format_scratch_base + string_format_scratch_size;
+
+          for i in 0..self.promotion.used_count() {
+            let reg = self.promotion.used_reg_at(i);
+            let off = self.promo_save_base + i as u32 * STACK_SLOT_SIZE;
+
+            self.emit_str_sp(reg, off);
+          }
+
           let param_base = spill_size + mut_size;
 
           for (i, (sym, ty_id)) in params.iter().enumerate() {
             let off = param_base + i as u32 * STACK_SLOT_SIZE;
             let is_fp =
               ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+
+            // A promoted local that is also a parameter must
+            // receive its incoming arg value: copy the arg
+            // register into the promotion register before any
+            // body code reads it. Without this the promotion
+            // register holds the caller's saved x19.. value,
+            // not the argument. Only GP scalars are promoted,
+            // so `is_fp` params never hit this path.
+            let promo = (!is_fp).then(|| self.promotion.reg_of(*sym)).flatten();
+
+            if let Some(reg) = promo {
+              self.param_promo_reg.insert(i as u32, reg);
+            }
 
             if i < MAX_REG_ARGS {
               if is_fp {
@@ -2537,6 +2768,10 @@ impl<'a> ARM64Gen<'a> {
                 let src = Register::new(i as u8);
 
                 self.emit_str_sp(src, off);
+
+                if let Some(dst) = promo {
+                  self.emitter.emit_mov_reg(dst, src);
+                }
               }
             } else {
               // Overflow param: on the caller's stack, above
@@ -2546,6 +2781,10 @@ impl<'a> ARM64Gen<'a> {
 
               self.emit_ldr_sp(X16, caller_off);
               self.emit_str_sp(X16, off);
+
+              if let Some(dst) = promo {
+                self.emitter.emit_mov_reg(dst, X16);
+              }
             }
 
             self.param_slots.insert(i as u32, off);
@@ -2633,6 +2872,18 @@ impl<'a> ARM64Gen<'a> {
             return;
           }
 
+          // Register promotion: the local already lives in a
+          // callee-saved register. Bind this load's `dst` to
+          // that register so consumers read it directly — no
+          // memory load, no `mov`. Promoted locals are GP
+          // scalars, so none of the enum/tuple/array-block
+          // metadata paths below apply.
+          if let Some(reg) = self.promotion.reg_of(*sym) {
+            self.promo_value_reg.insert(dst.0, reg);
+
+            return;
+          }
+
           // Recover the construction-site enum payload types
           // (if any) so a later `showln(local)` can dispatch
           // on the concrete payload type. Without this, only
@@ -2688,6 +2939,16 @@ impl<'a> ARM64Gen<'a> {
           }
         }
         LoadSource::Param(idx) => {
+          // Promoted `mut` parameter: its live value is in the
+          // callee-saved register the `Store` writes, not the
+          // home slot. Bind this read to that register so the
+          // loop observes every update.
+          if let Some(&reg) = self.param_promo_reg.get(idx) {
+            self.promo_value_reg.insert(dst.0, reg);
+
+            return;
+          }
+
           // Load from parameter spill slot (saved in
           // prologue). This is safe even after registers
           // have been reused for other values.
@@ -3765,6 +4026,7 @@ impl<'a> ARM64Gen<'a> {
             .unwrap_or(has_calls);
           let param_reserve = self.param_slots.len() as u32 * STACK_SLOT_SIZE;
           let caller_save = self.caller_save_reserve;
+          let promo_save_size = self.promo_save_size();
           let frame = Self::aligned_frame_size(FrameAreas {
             spill_size,
             mut_size,
@@ -3774,7 +4036,19 @@ impl<'a> ARM64Gen<'a> {
             chan_scratch_size,
             select_scratch_size,
             string_format_scratch_size,
+            promo_save_size,
           });
+
+          // Restore the caller's callee-saved registers from
+          // the top-of-frame save area before tearing the
+          // frame down — `promo_save_base` is still valid (the
+          // SP hasn't moved since the prologue saved them).
+          for index in 0..self.promotion.used_count() {
+            let reg = self.promotion.used_reg_at(index);
+            let off = self.promo_save_base + index as u32 * STACK_SLOT_SIZE;
+
+            self.emit_ldr_sp(reg, off);
+          }
 
           if frame > 0 {
             if frame <= 4095 {
@@ -3822,6 +4096,24 @@ impl<'a> ARM64Gen<'a> {
           };
 
           self.emit_state_store(slot, value_reg, ty_id.0 == STR_TYPE_ID);
+
+          return;
+        }
+
+        // Register promotion: the local lives in a dedicated
+        // callee-saved register, so the write is a register
+        // move with no memory store and no slot minting. The
+        // value is already materialized in a GP register by
+        // its producing instruction (we only promote GP
+        // scalars). A `mov dst, dst` no-op is skipped.
+        if let Some(dst) = self.promotion.reg_of(*name) {
+          if let Some(src) = self.alloc_reg(*value) {
+            if src != dst {
+              self.emitter.emit_mov_reg(dst, src);
+            }
+          } else if self.materialize_value_into_x16(*value, all_insns) {
+            self.emitter.emit_mov_reg(dst, X16);
+          }
 
           return;
         }
@@ -7947,6 +8239,14 @@ impl<'a> ARM64Gen<'a> {
         LoadSource::Local(sym) => {
           let slot = sym.as_u32();
 
+          // Promoted local: its value lives in a callee-saved
+          // register, not on the stack. Copy it into X16.
+          if let Some(reg) = self.promotion.reg_of(*sym) {
+            self.emitter.emit_mov_reg(X16, reg);
+
+            return true;
+          }
+
           if let Some(&offset) = self.mutable_slots.get(&slot) {
             self.emit_ldr_sp(X16, offset);
 
@@ -7962,6 +8262,14 @@ impl<'a> ARM64Gen<'a> {
           false
         }
         LoadSource::Param(pidx) => {
+          // Promoted `mut` param: value lives in its
+          // callee-saved register, not the home slot.
+          if let Some(&reg) = self.param_promo_reg.get(pidx) {
+            self.emitter.emit_mov_reg(X16, reg);
+
+            return true;
+          }
+
           if let Some(&offset) = self.param_slots.get(pidx) {
             self.emit_ldr_sp(X16, offset);
 

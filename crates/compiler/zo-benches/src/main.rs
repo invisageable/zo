@@ -86,6 +86,17 @@ fn fmt_dur(ns: u64) -> String {
   }
 }
 
+/// Hot average: mean wall time excluding the cold first run —
+/// the warm steady state. Falls back to the sole sample when
+/// there is only one run; `None` when no run succeeded.
+fn hot_avg(times: &[u64]) -> Option<u64> {
+  match times.len() {
+    0 => None,
+    1 => times.first().copied(),
+    n => Some(times[1..].iter().sum::<u64>() / (n - 1) as u64),
+  }
+}
+
 fn main() {
   let cli = Cli::parse();
   let bench_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benches");
@@ -517,6 +528,10 @@ fn benchmark_c(
     println!("Average: {}", fmt_dur(avg));
   }
 
+  if let Some(hot) = hot_avg(&times) {
+    println!("Hot avg: {}", fmt_dur(hot));
+  }
+
   if with_runtime && output.exists() {
     time_runtime(output, runs, argv, with_rss);
   }
@@ -566,6 +581,10 @@ fn benchmark_go(
     let avg = (times.iter().sum::<u64>()) / times.len() as u64;
 
     println!("Average: {}", fmt_dur(avg));
+  }
+
+  if let Some(hot) = hot_avg(&times) {
+    println!("Hot avg: {}", fmt_dur(hot));
   }
 
   if with_runtime && output.exists() {
@@ -619,6 +638,10 @@ fn benchmark_odin(
     println!("Average: {}", fmt_dur(avg));
   }
 
+  if let Some(hot) = hot_avg(&times) {
+    println!("Hot avg: {}", fmt_dur(hot));
+  }
+
   if with_runtime && output.exists() {
     time_runtime(output, runs, argv, with_rss);
   }
@@ -668,6 +691,10 @@ fn benchmark_rust(
     let avg = (times.iter().sum::<u64>()) / times.len() as u64;
 
     println!("Average: {}", fmt_dur(avg));
+  }
+
+  if let Some(hot) = hot_avg(&times) {
+    println!("Hot avg: {}", fmt_dur(hot));
   }
 
   if with_runtime && output.exists() {
@@ -730,18 +757,10 @@ fn benchmark_zo(
     println!("Average: {}", fmt_dur(avg));
   }
 
-  // Hot average: exclude first run (cold cache).
-  let hot_avg = if times.len() > 1 {
-    let hot: Vec<_> = times[1..].to_vec();
-    let sum: u64 = hot.iter().sum();
+  let hot = hot_avg(&times);
 
-    Some(sum / hot.len() as u64)
-  } else {
-    times.first().copied()
-  };
-
-  if let Some(hot) = hot_avg {
-    println!("Hot avg: {}", fmt_dur(hot));
+  if let Some(h) = hot {
+    println!("Hot avg: {}", fmt_dur(h));
   }
 
   if with_runtime && output.exists() {
@@ -750,7 +769,7 @@ fn benchmark_zo(
 
   println!();
 
-  hot_avg
+  hot
 }
 
 fn count_lines(path: &PathBuf) -> std::io::Result<usize> {
