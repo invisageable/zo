@@ -11,12 +11,12 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
     - https://www.youtube.com/watch?v=TH9VCN6UkyQ&list=PLmV5I2fxaiCKfxMBrNsU1kgKJXD3PkyxO — Jonathan Blow (2014)
     - 
     - @SEE — https://github.com/Jai-Community/Jai-Community-Library/wiki
-    - @WATCH https://www.youtube.com/watch?v=wWTon5J2uhs&list=PLmV5I2fxaiCIZVTLzofsocka2LvWBFvBa
+    - @WATCH — https://www.youtube.com/watch?v=wWTon5J2uhs&list=PLmV5I2fxaiCIZVTLzofsocka2LvWBFvBa
 
   - **Modernizing Compiler Design for Carbon Toolchain**
     - https://www.youtube.com/watch?v=ZI198eFghJk — Chandler Carruth (2023)
     - 
-    - @SEE https://lobste.rs/s/uhsgar/modernizing_compiler_design_for_carbon
+    - @SEE — https://lobste.rs/s/uhsgar/modernizing_compiler_design_for_carbon
 
   - **CSS Snapshot**
     - https://www.w3.org/TR/css — W3C
@@ -51,7 +51,7 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
 - **A New Design for Pretty Printer Implementations in Rust**
   - https://blog.wybxc.cc/blog/pretty-printer-pye — by Jiayi Zhuang (2026)
   - 
-  - @SEE https://www.reddit.com/r/rust/comments/1tpygz5/comment/oocqvo8/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
+  - @SEE — https://www.reddit.com/r/rust/comments/1tpygz5/comment/oocqvo8/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
 
 ## memory management.
 
@@ -85,7 +85,7 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
   - **Efficient extensional binary tries**
     - https://xavierleroy.org/publi/extensional-binary-tries.pdf — Andrew W. Appel and Xavier Leroy (2023)
     - 
-    - @SEE https://github.com/xavierleroy/canonical-binary-tries/tree/v2
+    - @SEE — https://github.com/xavierleroy/canonical-binary-tries/tree/v2
 
 ## optimizations.
 
@@ -110,7 +110,7 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
   - **Investigating magic numbers: improving the inlining heuristic in the Glasgow Haskell Compiler**
     - https://doi.org/10.1145/3546189.3549918 — Celeste Hollenbeck, Michael F. P. O'Boyle and Michel Steuwer (2022)
     - 
-    - @WATCH https://www.youtube.com/watch?v=OqrOZKESmuo
+    - @WATCH — https://www.youtube.com/watch?v=OqrOZKESmuo
 
 ## linking.
 
@@ -148,6 +148,9 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
 
   - **Energy Efficiency across Programming Languages**
     - https://greenlab.di.uminho.pt/wp-content/uploads/2017/10/sleFinal.pdf — Rui Pereira, Marco Couto, Francisco Ribeiro, Rui Rua, Jácome Cunha, João Paulo Fernandes and João Saraiva (2017)
+    - 
+    - @READ — https://sites.google.com/view/energy-efficiency-languages/results?authuser=0
+    - @READ — https://github.com/greensoftwarelab/Energy-Languages
 
 ## repository.
 
@@ -165,12 +168,16 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
   - **[dōji](https://github.com/ravern/doji)** — Ravern Koh
   - **[imba](https://github.com/imba/imba)** — Sindre Aarsaether
 
-**runtime**
+**-runtime**
 
   - **[lunatic](https://github.com/lunatic-solutions/lunatic)** — Bernard Kolobara
   - **[jquery](https://api.jquery.com)** — OpenJS Foundation
   - **[goquery](https://github.com/PuerkitoBio/goquery) — Martin Angers
 
-**type system**
+**-type-system**
 
   - **[typical](https://github.com/ravern/typical)** — Ravern Koh
+
+**-benchmark**
+
+  - **[benchmarksgame](https://github.com/madnight/benchmarksgame)** — Fabian Beuke

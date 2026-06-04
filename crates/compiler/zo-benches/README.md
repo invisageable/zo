@@ -157,6 +157,28 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | rustc    | 458.3 KB  |
 | go       | 2434.0 KB |
 
+#### n-body simulation.
+
+@RUN: `just zo_bench n-body`
+
+| Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      | Speed vs zo      |
+| :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
+| **zo**   | 7.84ms   | 6.87ms   | 6.47ms   | 7.51ms   | 7.45ms   | **7.23ms**   | **1.0x**         |
+| clang    | 48.50ms  | 47.76ms  | 44.37ms  | 45.77ms  | 45.31ms  | **46.34ms**  | **6.4x slower**  |
+| go       | 92.07ms  | 93.46ms  | 121.81ms | 91.77ms  | 93.89ms  | **98.60ms**  | **13.6x slower** |
+| rustc    | 94.83ms  | 94.09ms  | 96.04ms  | 93.05ms  | 93.06ms  | **94.21ms**  | **13.0x slower** |
+| odin     | 181.35ms | 162.48ms | 163.04ms | 167.07ms | 165.51ms | **167.89ms** | **23.2x slower** |
+
+**-AWTY—are-we-tiny-yet?**
+
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.8 KB   |
+| clang    | 49.0 KB   |
+| odin     | 336.9 KB  |
+| rustc    | 523.0 KB  |
+| go       | 2555.7 KB |
+
 #### rule 110 cellular automaton.
 
 @RUN: `just zo_bench rule_110`
@@ -251,6 +273,22 @@ Workload: 500,000 lines of code. go times are from-scratch (its build cache reli
 | rustc    | 653.2 KB  |
 | go       | 2435.0 KB |
 
+### benchmark — comptime (summary).
+
+| Benchmark        | `zo` vs `c`     | `zo` vs `go`     | `zo` vs `rust`   | `zo` vs `odin`   |
+| :--------------- | :-------------- | :--------------- | :--------------- | :--------------- |
+| `ackermann`      | __7.1x__ faster | __16.7x__ faster | __10.8x__ faster | __11.3x__ faster |
+| `arithmetic`     | __7.0x__ faster | __14.9x__ faster | __9.5x__ faster  | __23.6x__ faster |
+| `fibonacci`      | __7.9x__ faster | __15.6x__ faster | __11.9x__ faster | __28.0x__ faster |
+| `hello`          | __8.0x__ faster | __16.5x__ faster | __12.1x__ faster | __28.2x__ faster |
+| `mandelbrot`     | __6.5x__ faster | __9.5x__ faster  | __7.8x__ faster  | __20.4x__ faster |
+| `munchhausen`    | __5.8x__ faster | __11.4x__ faster | __9.3x__ faster  | __23.0x__ faster |
+| `n-body`         | __6.4x__ faster | __13.6x__ faster | __13.0x__ faster | __23.2x__ faster |
+| `rule_110`       | __6.6x__ faster | __13.5x__ faster | __14.6x__ faster | __28.3x__ faster |
+| `stress_fun_10k` | __3.6x__ faster | __3.7x__ faster  | __7.5x__ faster  | __6.8x__ faster  |
+| `stress_fun_500k`| __1.7x__ faster | __1.9x__ faster  | crash            | __2.1x__ faster  |
+| `threadring`     | __8.2x__ faster | __13.3x__ faster | __13.5x__ faster | __19.3x__ faster |
+
 ### benchmark — runtime.
 
 WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **EXECUTE** AN EXECUTABLE FiLE.
@@ -263,6 +301,7 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **EXECUTE** AN EXECUTABLE FiLE.
 | `hello`           | 1.6ms     | 2.7ms     | 1.8ms     | **1.4ms** | 5.8ms     |
 | `mandelbrot`      | 70.5ms    | **30.7ms**| 71.9ms    | 86.3ms    | 75.3ms    |
 | `munchhausen`     | 5.79s     | **2.06s** | 14.39s    | 14.88s    | 5.98s     |
+| `n-body`          | **1.8ms** | 2.2ms     | 2.0ms     | 2.5ms     | 4.7ms     |
 | `rule_110`        | 2.8ms     | 2.8ms     | **1.9ms** | 2.1ms     | 5.0ms     |
 | `stress_fun_10k`  | 1.6ms     | 2.9ms     | **1.5ms** | 1.8ms     | 5.1ms     |
 | `stress_fun_500k` | **3.6ms** | 13.0ms    | —         | 5.5ms     | 8.2ms     |
@@ -270,17 +309,6 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **EXECUTE** AN EXECUTABLE FiLE.
 
 > *Warm steady-state (cold first run excluded — that's dyld/disk warmup, not the program). zo links a 1.34 MB runtime dylib; clang/rustc/odin are static, hence zo's ~3 ms startup floor on trivial programs.*
 
-### benchmark — summary.
+### benchmark — runtime (summary).
 
-| Benchmark        | `zo` vs `c`     | `zo` vs `go`     | `zo` vs `rust`   | `zo` vs `odin`   |
-| :--------------- | :-------------- | :--------------- | :--------------- | :--------------- |
-| `ackermann`      | __7.1x__ faster | __16.7x__ faster | __10.8x__ faster | __11.3x__ faster |
-| `arithmetic`     | __7.0x__ faster | __14.9x__ faster | __9.5x__ faster  | __23.6x__ faster |
-| `fibonacci`      | __7.9x__ faster | __15.6x__ faster | __11.9x__ faster | __28.0x__ faster |
-| `hello`          | __8.0x__ faster | __16.5x__ faster | __12.1x__ faster | __28.2x__ faster |
-| `mandelbrot`     | __6.5x__ faster | __9.5x__ faster  | __7.8x__ faster  | __20.4x__ faster |
-| `munchhausen`    | __5.8x__ faster | __11.4x__ faster | __9.3x__ faster  | __23.0x__ faster |
-| `rule_110`       | __6.6x__ faster | __13.5x__ faster | __14.6x__ faster | __28.3x__ faster |
-| `stress_fun_10k` | __3.6x__ faster | __3.7x__ faster  | __7.5x__ faster  | __6.8x__ faster  |
-| `stress_fun_500k`| __1.7x__ faster | __1.9x__ faster  | crash            | __2.1x__ faster  |
-| `threadring`     | __8.2x__ faster | __13.3x__ faster | __13.5x__ faster | __19.3x__ faster |
+TODO: table.
