@@ -88,10 +88,23 @@ snapshots_check:
 build:
   cargo build --all
 
-# zo: Rebuild runtime cdylib
+# zo: Build both runtime flavors (core + ui) for a profile
 [group('zo')]
-build_runtime:
-  cargo build -p zo-runtime-native
+build_runtime_profile profile="debug":
+  #!/usr/bin/env sh
+  set -eu
+  if [ "{{profile}}" = "release" ]; then flag="--release"; else flag=""; fi
+  out="target/{{profile}}"
+  # Full UI flavor (default features) — superset dylib.
+  cargo build -p zo-runtime $flag
+  cp "$out/libzo_runtime.dylib" "$out/libzo_runtime_ui.dylib"
+  # Lean core flavor (no UI/render/web tree).
+  cargo build -p zo-runtime $flag --no-default-features
+  cp "$out/libzo_runtime.dylib" "$out/libzo_runtime_core.dylib"
+
+# zo: Rebuild both runtime flavors (debug + release)
+[group('zo')]
+build_runtime: (build_runtime_profile "debug") (build_runtime_profile "release")
 
 # Clean build artifacts
 clean:

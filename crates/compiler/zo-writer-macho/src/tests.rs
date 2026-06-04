@@ -1229,3 +1229,32 @@ fn push_uleb128_appends_to_existing_buffer() {
 
   assert_eq!(buf, vec![0xaa, 0xbb, 0x80, 0x01]);
 }
+
+#[test]
+fn ui_exclusive_symbols_are_well_formed() {
+  // Structural guards on the discriminating set the linker
+  // uses to pick the lean vs full runtime. A typo'd prefix
+  // or a stray duplicate would silently misroute the
+  // lean/full choice, so keep the invariants pinned.
+  assert!(
+    !UI_EXCLUSIVE_RUNTIME_SYMBOLS.is_empty(),
+    "the UI-exclusive set must name at least one symbol"
+  );
+
+  for sym in UI_EXCLUSIVE_RUNTIME_SYMBOLS {
+    assert!(
+      sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX),
+      "{sym} must carry the runtime symbol prefix \
+       {ZO_RUNTIME_SYMBOL_PREFIX}"
+    );
+  }
+
+  let unique: std::collections::HashSet<&&str> =
+    UI_EXCLUSIVE_RUNTIME_SYMBOLS.iter().collect();
+
+  assert_eq!(
+    unique.len(),
+    UI_EXCLUSIVE_RUNTIME_SYMBOLS.len(),
+    "the UI-exclusive set must hold no duplicates"
+  );
+}

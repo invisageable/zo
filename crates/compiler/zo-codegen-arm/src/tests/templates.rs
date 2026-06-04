@@ -133,7 +133,7 @@ fn test_template_entry_point_export() {
   let link_obj = codegen.into_link_object(artifact);
 
   // Generate Mach-O and verify it has the entry point
-  let macho = zo_linker::link_macho(link_obj);
+  let macho = zo_linker::link_macho(link_obj).executable;
 
   assert!(!macho.is_empty(), "Should generate Mach-O binary");
 
@@ -197,5 +197,49 @@ fn test_template_with_dom_directive() {
   println!(
     "Generated {} bytes with #dom directive",
     artifact.code.len()
+  );
+
+  // `#dom` imports `_zo_run_native` — a UI-exclusive
+  // symbol — so the linker must select the full runtime,
+  // and its `LC_LOAD_DYLIB` must resolve through the one
+  // canonical runtime path (no parallel absolute-path
+  // `libzo_runtime_native` reference).
+  let link_obj = codegen.into_link_object(artifact);
+  let output = zo_linker::link_macho(link_obj);
+
+  assert_eq!(
+    output.runtime,
+    zo_linker::RuntimeKind::Full,
+    "a #dom program must select the full UI runtime"
+  );
+
+  // All six UI symbols route to the same canonical runtime
+  // path; the linker must collapse them into exactly ONE
+  // `LC_LOAD_DYLIB` (the string also occurs once inside the
+  // rebased-bind opcode stream, hence the load-command scan
+  // below rather than a raw byte count).
+  let dom_path = b"@loader_path/deps/libzo_runtime.dylib";
+  let occurrences = output
+    .executable
+    .windows(dom_path.len())
+    .filter(|window| *window == dom_path)
+    .count();
+
+  assert_eq!(
+    occurrences, 1,
+    "six UI symbols sharing the runtime path must collapse to one \
+     LC_LOAD_DYLIB, found {occurrences}"
+  );
+
+  let native = b"libzo_runtime_native.dylib";
+  let has_native = output
+    .executable
+    .windows(native.len())
+    .any(|window| window == native);
+
+  assert!(
+    !has_native,
+    "UI symbols must fold into libzo_runtime.dylib, not a \
+     separate libzo_runtime_native reference"
   );
 }

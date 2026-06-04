@@ -35,6 +35,24 @@ use std::time::{Duration, Instant};
 /// x86_64 binaries on arm64 hosts.
 const RUN_TIMEOUT: Duration = Duration::from_secs(10);
 
+// Runtime-flavor dylib names. Cargo always names its cdylib
+// `libzo_runtime.{dylib,so}` (`RUNTIME_BUILT_DYLIB`); the
+// runner copies each flavor's build aside under the lean /
+// full names the driver stages from.
+#[cfg(target_os = "macos")]
+const RUNTIME_BUILT_DYLIB: &str = "libzo_runtime.dylib";
+#[cfg(target_os = "macos")]
+const RUNTIME_CORE_DYLIB: &str = "libzo_runtime_core.dylib";
+#[cfg(target_os = "macos")]
+const RUNTIME_UI_DYLIB: &str = "libzo_runtime_ui.dylib";
+
+#[cfg(not(target_os = "macos"))]
+const RUNTIME_BUILT_DYLIB: &str = "libzo_runtime.so";
+#[cfg(not(target_os = "macos"))]
+const RUNTIME_CORE_DYLIB: &str = "libzo_runtime_core.so";
+#[cfg(not(target_os = "macos"))]
+const RUNTIME_UI_DYLIB: &str = "libzo_runtime_ui.so";
+
 /// How long a windowed program must stay alive before the
 /// runner SIGKILLs it. "Still running at this point" is the
 /// success signal — every windowed program is an infinite
@@ -92,6 +110,9 @@ fn main() {
 
   let root = find_workspace_root();
   let zo = find_zo_binary(&root);
+
+  ensure_runtime_flavors(&root, &zo);
+
   let tests_dir = root.join("crates/compiler/zo-tests");
   let howto_dir = root.join("crates/compiler/zo-how-zo");
 
@@ -1227,6 +1248,67 @@ fn find_workspace_root() -> PathBuf {
 
 /// Find the zo binary — prefer debug (freshest), fall back
 /// to release.
+/// Build both runtime flavors next to the chosen `zo`
+/// binary's profile when either is missing.
+///
+/// `cargo build --bin zo` never compiles the `zo-runtime`
+/// cdylib (it's not an rlib dep of the bin), so the lean
+/// core (`libzo_runtime_core`) and full UI
+/// (`libzo_runtime_ui`) dylibs the driver stages must be
+/// produced explicitly. The two flavors share cargo's
+/// `libzo_runtime.dylib` output name, so each cargo build
+/// overwrites it — build, copy aside, repeat.
+fn ensure_runtime_flavors(root: &Path, zo: &Path) {
+  let profile = zo
+    .parent()
+    .and_then(|dir| dir.file_name())
+    .and_then(|name| name.to_str())
+    .unwrap_or("debug")
+    .to_owned();
+
+  let profile_dir = root.join("target").join(&profile);
+  let core = profile_dir.join(RUNTIME_CORE_DYLIB);
+  let ui = profile_dir.join(RUNTIME_UI_DYLIB);
+
+  if core.exists() && ui.exists() {
+    return;
+  }
+
+  eprintln!("building runtime flavors ({profile})...");
+
+  let release = profile == "release";
+  let built = profile_dir.join(RUNTIME_BUILT_DYLIB);
+
+  // Full UI flavor (default features) — the superset dylib.
+  if build_runtime_flavor(root, release, false) {
+    let _ = fs::copy(&built, &ui);
+  }
+
+  // Lean core flavor — no UI / render / web tree.
+  if build_runtime_flavor(root, release, true) {
+    let _ = fs::copy(&built, &core);
+  }
+}
+
+/// Run one `cargo build -p zo-runtime` for a single flavor.
+/// `lean` toggles `--no-default-features`. Returns whether
+/// the build succeeded.
+fn build_runtime_flavor(root: &Path, release: bool, lean: bool) -> bool {
+  let mut cmd = Command::new("cargo");
+
+  cmd.args(["build", "-p", "zo-runtime"]).current_dir(root);
+
+  if release {
+    cmd.arg("--release");
+  }
+
+  if lean {
+    cmd.arg("--no-default-features");
+  }
+
+  cmd.status().map(|status| status.success()).unwrap_or(false)
+}
+
 fn find_zo_binary(root: &Path) -> PathBuf {
   let debug = root.join("target/debug/zo");
 

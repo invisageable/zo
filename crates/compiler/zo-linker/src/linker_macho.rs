@@ -20,13 +20,79 @@ use zo_codegen_backend::MachoLinkObject;
 use zo_emitter_arm::X16;
 use zo_writer_macho::{
   CODE_OFFSET, DATA_SEGMENT_INDEX, LIBSYSTEM_DYLIB_ORDINAL, MachO, PAGE_MASK,
-  TEXT_SECTION_BASE, VM_BASE, ZO_RUNTIME_SYMBOL_PREFIX, round_up_segment,
+  TEXT_SECTION_BASE, UI_EXCLUSIVE_RUNTIME_SYMBOLS, VM_BASE,
+  ZO_RUNTIME_SYMBOL_PREFIX, round_up_segment,
 };
 
+/// `LC_LOAD_DYLIB` path the binary records for zo's own
+/// runtime. The compiler stages the chosen runtime flavor
+/// (lean core or full UI) under this exact sibling path —
+/// see [`RuntimeKind`].
+const RUNTIME_DYLIB_LOAD_PATH: &str = "@loader_path/deps/libzo_runtime.dylib";
+
+/// Which `libzo_runtime.dylib` flavor a linked binary
+/// needs, derived from the runtime symbols it actually
+/// imports.
+///
+/// The binary's `LC_LOAD_DYLIB` is identical in every case
+/// ([`RUNTIME_DYLIB_LOAD_PATH`]); only the file the
+/// compiler copies into the sibling `deps/` differs. The
+/// full dylib is a superset of the lean core, so binding
+/// resolution is unaffected by the choice — a program that
+/// needs only lean symbols runs against either, but staging
+/// the 1.3 MB lean core avoids cold-loading the 9.9 MB GPU
+/// / webview / image / TLS tree.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RuntimeKind {
+  /// No `_zo_*` runtime symbol imported — stage nothing.
+  None,
+  /// Every imported runtime symbol is in the lean core —
+  /// stage `libzo_runtime_core.dylib`.
+  Lean,
+  /// At least one [`UI_EXCLUSIVE_RUNTIME_SYMBOLS`] import —
+  /// stage the full `libzo_runtime_ui.dylib`.
+  Full,
+}
+
+impl RuntimeKind {
+  /// Strongest flavor of two: `Full` dominates `Lean`,
+  /// which dominates `None`. One UI-exclusive import in a
+  /// program forces the full dylib for the whole binary.
+  fn max_with(self, other: RuntimeKind) -> RuntimeKind {
+    match (self, other) {
+      (RuntimeKind::Full, _) | (_, RuntimeKind::Full) => RuntimeKind::Full,
+      (RuntimeKind::Lean, _) | (_, RuntimeKind::Lean) => RuntimeKind::Lean,
+      _ => RuntimeKind::None,
+    }
+  }
+}
+
+/// Classify one imported runtime symbol: `Full` iff it is
+/// exported only by the UI runtime, else `Lean`. Caller has
+/// already established `c_sym` is a runtime symbol.
+fn classify(c_sym: &str) -> RuntimeKind {
+  if UI_EXCLUSIVE_RUNTIME_SYMBOLS.contains(&c_sym) {
+    RuntimeKind::Full
+  } else {
+    RuntimeKind::Lean
+  }
+}
+
+/// Result of assembling a mach-o executable: the bytes
+/// ready to write, plus the runtime flavor the compiler
+/// must stage next to the binary.
+pub struct LinkOutput {
+  /// Final executable bytes, signed and ready for disk.
+  pub executable: Vec<u8>,
+  /// Runtime dylib the binary's `LC_LOAD_DYLIB` resolves
+  /// against at load time.
+  pub runtime: RuntimeKind,
+}
+
 /// Assemble a mach-o executable from the codegen's
-/// `LinkObject`. Returns the executable bytes ready to be
-/// written to disk.
-pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
+/// `LinkObject`. Returns the executable bytes plus the
+/// runtime flavor to stage — see [`LinkOutput`].
+pub fn link_macho(link_obj: MachoLinkObject) -> LinkOutput {
   let mut macho = MachO::new();
   let mut code = link_obj.code;
 
@@ -66,17 +132,44 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   // here, in first-seen order. Symbols with no `#link`
   // entry fall through to `libzo_runtime.dylib` (zo's own
   // runtime symbols) or libSystem (libc / libm).
+  //
+  // A `#link` path is keyed by its FINAL load-command form
+  // (`@executable_path/<name>` rewrites to
+  // `@loader_path/deps/<name>`; absolute system paths pass
+  // through). Deduping on that form collapses a `#link`
+  // reference to `libzo_runtime.dylib` into the single
+  // runtime entry: `core/io.zo` declares such a `#link`, so
+  // a program using both buffered I/O and any `_zo_*` symbol
+  // would otherwise emit two identical `LC_LOAD_DYLIB`s.
+  let final_load_path = |path: &str| -> String {
+    if let Some(name) = path.strip_prefix("@executable_path/") {
+      format!("@loader_path/deps/{name}")
+    } else {
+      path.to_owned()
+    }
+  };
+
   let mut needs_runtime_dylib = false;
+  let mut runtime_kind = RuntimeKind::None;
   let mut link_paths: Vec<String> = Vec::new();
   let mut seen_path: HashSet<String> = HashSet::default();
 
   for c_sym in &link_obj.extern_used {
     if let Some(path) = link_obj.extern_dylib_paths.get(c_sym) {
-      if seen_path.insert(path.clone()) {
-        link_paths.push(path.clone());
+      let resolved = final_load_path(path);
+
+      // A `#link` symbol that resolves to the runtime path
+      // is a runtime symbol — fold it into the single
+      // runtime entry rather than a parallel ordinal.
+      if resolved == RUNTIME_DYLIB_LOAD_PATH {
+        needs_runtime_dylib = true;
+        runtime_kind = runtime_kind.max_with(classify(c_sym));
+      } else if seen_path.insert(resolved.clone()) {
+        link_paths.push(resolved);
       }
     } else if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
       needs_runtime_dylib = true;
+      runtime_kind = runtime_kind.max_with(classify(c_sym));
     }
   }
 
@@ -97,11 +190,21 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
     next_ordinal += 1;
   }
 
+  // The runtime path is reached two ways — a bare `_zo_*`
+  // symbol or a `#link` entry that rewrites to it — and
+  // both must bind to the one runtime ordinal, never a
+  // `path_ord` slot. Resolve `#link`-routed symbols against
+  // their final path first, falling back to the runtime
+  // ordinal when that path IS the runtime.
   let ordinal_for = |c_sym: &str| -> u8 {
     if let Some(path) = link_obj.extern_dylib_paths.get(c_sym) {
-      *path_ord
-        .get(path)
-        .expect("link path missing from ordinal table")
+      let resolved = final_load_path(path);
+
+      if let Some(ord) = path_ord.get(&resolved) {
+        *ord
+      } else {
+        runtime_ord.expect("runtime-routed link symbol with no runtime dylib")
+      }
     } else if c_sym.starts_with(ZO_RUNTIME_SYMBOL_PREFIX) {
       runtime_ord.expect("runtime symbol with no runtime dylib")
     } else {
@@ -202,25 +305,19 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   macho.add_dylib("/usr/lib/libSystem.B.dylib");
 
   if needs_runtime_dylib {
-    macho.add_dylib("@loader_path/deps/libzo_runtime.dylib");
+    macho.add_dylib(RUNTIME_DYLIB_LOAD_PATH);
   }
 
   // Each `#link { macos: ... }` path declared by a `pack`
   // referenced through `pub ffi` lands here in the same
-  // order ordinals were assigned. `@executable_path/<name>`
-  // entries get rewritten to `@loader_path/deps/<name>` so
-  // every staged dylib lives under the binary's sibling
-  // `deps/` directory — same invariant the runtime dylib
-  // above uses. Absolute system paths (`/usr/lib/...`,
-  // `/opt/...`) pass through unchanged; dyld resolves
-  // those at load time without help from the loader path.
+  // order ordinals were assigned. `link_paths` already
+  // holds the FINAL load form (`@executable_path/<name>`
+  // rewritten to `@loader_path/deps/<name>`) and is already
+  // deduped against the runtime entry above, so this loop
+  // adds dylibs verbatim — the add order matches the
+  // ordinal assignment 1:1.
   for path in &link_paths {
-    if let Some(name) = path.strip_prefix("@executable_path/") {
-      let rebased = format!("@loader_path/deps/{name}");
-      macho.add_dylib(&rebased);
-    } else {
-      macho.add_dylib(path);
-    }
+    macho.add_dylib(path);
   }
 
   macho.add_uuid();
@@ -238,5 +335,9 @@ pub fn link_macho(link_obj: MachoLinkObject) -> Vec<u8> {
   macho.add_main(main_entry);
 
   macho.add_dyld_info();
-  macho.finish_with_signature()
+
+  LinkOutput {
+    executable: macho.finish_with_signature(),
+    runtime: runtime_kind,
+  }
 }

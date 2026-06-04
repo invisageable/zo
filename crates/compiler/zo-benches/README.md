@@ -187,18 +187,18 @@ Workload: 10,000 lines of code.
 
 | Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      | Speed vs zo     |
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :-------------- |
-| **zo**   | 60.17ms  | 51.43ms  | 51.38ms  | 51.73ms  | 51.62ms  | **53.27ms**  | **1.0x**        |
-| clang    | 105.23ms | 96.81ms  | 94.96ms  | 97.49ms  | 96.87ms  | **98.27ms**  | **1.8x slower** |
-| go       | 94.92ms  | 91.63ms  | 93.44ms  | 90.60ms  | 93.56ms  | **92.83ms**  | **1.7x slower** |
-| odin     | 199.62ms | 186.51ms | 182.72ms | 191.62ms | 184.23ms | **188.94ms** | **3.5x slower** |
-| rustc    | 219.27ms | 206.80ms | 204.89ms | 214.84ms | 232.21ms | **215.60ms** | **4.0x slower** |
+| **zo**   | 34.54ms  | 27.21ms  | 25.60ms  | 25.12ms  | 25.38ms  | **27.57ms**  | **1.0x**        |
+| clang    | 114.21ms | 96.51ms  | 96.43ms  | 96.05ms  | 96.84ms  | **100.01ms** | **3.6x slower** |
+| go       | 106.71ms | 129.31ms | 94.79ms  | 89.16ms  | 92.33ms  | **102.46ms** | **3.7x slower** |
+| odin     | 202.45ms | 181.54ms | 191.23ms | 177.91ms | 178.90ms | **186.41ms** | **6.8x slower** |
+| rustc    | 218.81ms | 204.97ms | 204.53ms | 205.15ms | 204.76ms | **207.64ms** | **7.5x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
 | Compiler  | Size      |
 | :-------- | :-------- |
 | **clang** | 165.3 KB  |
-| zo        | 272.7 KB  |
+| zo        | 177.8 KB  |
 | odin      | 426.3 KB  |
 | rustc     | 661.3 KB  |
 | go        | 2721.5 KB |
@@ -223,7 +223,7 @@ Workload: 500,000 lines of code. go times are from-scratch (its build cache reli
 | :------- | :------- |
 | odin     | 5.98 MB  |
 | clang    | 7.34 MB  |
-| **zo**   | 12.52 MB |
+| **zo**   | 7.53 MB  |
 | go       | 16.97 MB |
 | rustc    | —        |
 
@@ -255,16 +255,20 @@ Workload: 500,000 lines of code. go times are from-scratch (its build cache reli
 
 WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **EXECUTE** AN EXECUTABLE FiLE.
 
-| Benchmark         | clang       | go          | rustc       | odin        | zo          |
-| :---------------- | :---------- | :---------- | :---------- | :---------- | :---------- |
-| `ackermann`       | **28.60ms** | 31.95ms     | 29.15ms     | 32.21ms     | 29.91ms     |
-| `arithmetic`      | 30.27ms     | 33.66ms     | 30.05ms     | 29.14ms     | **28.22ms** |
-| `fibonacci`       | 28.41ms     | 32.95ms     | 29.81ms     | 28.62ms     | **28.22ms** |
-| `hello`           | 28.71ms     | 31.31ms     | 29.40ms     | 28.94ms     | **28.19ms** |
-| `munchhausen`     | 5.86s       | **2.12s**   | 14.65s      | 15.02s      | 7.38s       |
-| `rule_110`        | 46.92ms     | 32.68ms     | 34.78ms     | 34.02ms     | **28.29ms** |
-| `stress_fun_10k`  | 28.66ms     | 33.27ms     | 29.23ms     | 29.70ms     | **28.47ms** |
-| `stress_fun_500k` | **40.19ms** | 63.19ms     | —           | 47.05ms     | 85.88ms     |
+| Benchmark         | clang     | go        | rustc     | odin      | zo        |
+| :---------------- | :-------- | :-------- | :-------- | :-------- | :-------- |
+| `ackermann`       | **1.3ms** | 2.0ms     | 1.7ms     | 1.8ms     | 5.2ms     |
+| `arithmetic`      | **1.5ms** | 2.3ms     | 1.5ms     | 1.6ms     | 4.9ms     |
+| `fibonacci`       | **1.4ms** | 2.5ms     | 1.4ms     | 1.9ms     | 3.2ms     |
+| `hello`           | 1.6ms     | 2.7ms     | 1.8ms     | **1.4ms** | 5.8ms     |
+| `mandelbrot`      | 70.5ms    | **30.7ms**| 71.9ms    | 86.3ms    | 75.3ms    |
+| `munchhausen`     | 5.79s     | **2.06s** | 14.39s    | 14.88s    | 5.98s     |
+| `rule_110`        | 2.8ms     | 2.8ms     | **1.9ms** | 2.1ms     | 5.0ms     |
+| `stress_fun_10k`  | 1.6ms     | 2.9ms     | **1.5ms** | 1.8ms     | 5.1ms     |
+| `stress_fun_500k` | **3.6ms** | 13.0ms    | —         | 5.5ms     | 8.2ms     |
+| `threadring`      | 11.3ms    | **3.5ms** | 10.6ms    | 13.5ms    | 7.8ms     |
+
+> *Warm steady-state (cold first run excluded — that's dyld/disk warmup, not the program). zo links a 1.34 MB runtime dylib; clang/rustc/odin are static, hence zo's ~3 ms startup floor on trivial programs.*
 
 ### benchmark — summary.
 
@@ -277,6 +281,6 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **EXECUTE** AN EXECUTABLE FiLE.
 | `mandelbrot`     | __6.5x__ faster | __9.5x__ faster  | __7.8x__ faster  | __20.4x__ faster |
 | `munchhausen`    | __5.8x__ faster | __11.4x__ faster | __9.3x__ faster  | __23.0x__ faster |
 | `rule_110`       | __6.6x__ faster | __13.5x__ faster | __14.6x__ faster | __28.3x__ faster |
-| `stress_fun_10k` | __1.8x__ faster | __1.7x__ faster  | __4.0x__ faster  | __3.5x__ faster  |
+| `stress_fun_10k` | __3.6x__ faster | __3.7x__ faster  | __7.5x__ faster  | __6.8x__ faster  |
 | `stress_fun_500k`| __1.7x__ faster | __1.9x__ faster  | crash            | __2.1x__ faster  |
 | `threadring`     | __8.2x__ faster | __13.3x__ faster | __13.5x__ faster | __19.3x__ faster |

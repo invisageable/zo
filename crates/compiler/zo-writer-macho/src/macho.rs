@@ -149,6 +149,27 @@ pub const LIBSYSTEM_DYLIB_ORDINAL: u8 = 1;
 /// ordinal.
 pub const ZO_RUNTIME_SYMBOL_PREFIX: &str = "_zo_";
 
+/// Runtime symbols exported ONLY by the full (`ui`) runtime
+/// dylib, never by the lean core.
+///
+/// @note — these are the `#[no_mangle]` exports of
+/// `zo-runtime-native::ffi`, the crate the `ui` cargo
+/// feature pulls in (alongside render / web). Every other
+/// `_zo_*` symbol the codegen emits resolves in the lean
+/// core. A program importing any name here must load the
+/// full dylib; importing none of them lets the compiler
+/// stage the 1.3 MB lean core instead of the 9.9 MB UI
+/// build. Kept in sync by `zo-runtime`'s
+/// `ui_exclusive_symbols_match_native_ffi` test.
+pub const UI_EXCLUSIVE_RUNTIME_SYMBOLS: &[&str] = &[
+  "_zo_run_native",
+  "_zo_state_init",
+  "_zo_state_get",
+  "_zo_state_get_str",
+  "_zo_state_set",
+  "_zo_state_set_str",
+];
+
 /// dyld load-time prefix for dylibs the compiler stages
 /// next to the user binary (`libzo_runtime`,
 /// `libzo_misato`, F7 vendored libs). Resolved by dyld at

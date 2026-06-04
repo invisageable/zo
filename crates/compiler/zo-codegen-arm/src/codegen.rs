@@ -196,10 +196,21 @@ struct VtableSlotFixup {
 }
 
 // Runtime dylib symbols: every `#dom` program emits calls
-// into `libzo_runtime_native.dylib`. Names match the
-// `#[no_mangle]` exports in `zo-runtime-native::ffi`
-// (Mach-O leading-underscore convention).
-const RUNTIME_DYLIB_FILE: &str = "libzo_runtime_native.dylib";
+// into the UI surface of `libzo_runtime.dylib`. Names match
+// the `#[no_mangle]` exports of `zo-runtime-native::ffi`
+// (the crate the runtime's `ui` feature re-exports;
+// Mach-O leading-underscore convention).
+//
+// These symbols route to the same staged runtime dylib as
+// every other `_zo_*` import (`@executable_path/` rewrites
+// to `@loader_path/deps/libzo_runtime.dylib` in the
+// linker). Folding them into the one runtime entry — rather
+// than a parallel absolute-path `libzo_runtime_native`
+// reference — lets the compiler stage a single relocatable
+// dylib and makes the lean-vs-full choice authoritative:
+// importing any of these is exactly what flips the linker
+// to `RuntimeKind::Full`.
+const RUNTIME_DYLIB_FILE: &str = "@executable_path/libzo_runtime.dylib";
 const SYM_RUN: &str = "_zo_run_native";
 const SYM_STATE_INIT: &str = "_zo_state_init";
 const SYM_STATE_GET: &str = "_zo_state_get";
@@ -210,49 +221,6 @@ const SYM_STATE_SET: &str = "_zo_state_set";
 const SYM_STATE_GET_STR: &str = "_zo_state_get_str";
 const SYM_STATE_SET_STR: &str = "_zo_state_set_str";
 
-/// Locate `libzo_runtime_native.dylib` next to the running
-/// `zo` binary, falling back to the sibling cargo profile
-/// when only one of `target/debug` / `target/release` has
-/// been built. `cargo run --bin zo --release` produces
-/// `target/release/zo` but doesn't compile the cdylib
-/// (it's not a rlib dep), so the dylib only exists under
-/// `target/debug/` — without the fallback the compiled
-/// program's `LC_LOAD_DYLIB` would be a bare basename
-/// that dyld can't resolve at run time.
-///
-/// Candidate order:
-///   1. `<exe-dir>/<dylib>` — same profile.
-///   2. `<exe-dir>/../debug/<dylib>` — release-zo + debug-dylib.
-///   3. `<exe-dir>/../release/<dylib>` — debug-zo + release-dylib.
-///   4. `<exe-dir>/../lib/<dylib>` — installed layout
-///      (`tasks/zo-install.sh` will write here).
-///
-/// Returns `None` when none of the candidates exist; the
-/// caller falls back to a bare basename so the linker
-/// still records something and dyld surfaces a clean
-/// "image not found" diagnostic at runtime.
-fn resolve_runtime_dylib_path() -> Option<String> {
-  let exe = std::env::current_exe().ok()?;
-  let exe_dir = exe.parent()?;
-  let candidates = [
-    exe_dir.join(RUNTIME_DYLIB_FILE),
-    exe_dir.join("..").join("debug").join(RUNTIME_DYLIB_FILE),
-    exe_dir.join("..").join("release").join(RUNTIME_DYLIB_FILE),
-    exe_dir.join("..").join("lib").join(RUNTIME_DYLIB_FILE),
-  ];
-
-  for candidate in &candidates {
-    if candidate.exists() {
-      let canon = candidate
-        .canonicalize()
-        .unwrap_or_else(|_| candidate.clone());
-
-      return Some(canon.to_string_lossy().into_owned());
-    }
-  }
-
-  None
-}
 /// Synthetic-symbol base for the per-template event
 /// dispatcher (`_zo_dispatch_N`). Paired 1:1 with
 /// `TEMPLATE_SYMBOL_OFFSET` — given template
@@ -417,15 +385,6 @@ pub struct ARM64Gen<'a> {
   /// promotes those functions to non-leaf so the
   /// prologue/epilogue reserve the right area.
   fns_needing_calls: HashSet<InsnIdx>,
-  /// Cached `libzo_runtime_native.dylib` path used for
-  /// the `LC_LOAD_DYLIB` entry. `ensure_runtime_dylib_
-  /// registered` resolves it once via `current_exe()` +
-  /// `parent()` + `join()` + `exists()` (a syscall on
-  /// Apple) and reuses the result across every subsequent
-  /// call site (`emit_state_init_prologue`,
-  /// `emit_state_load`, `emit_state_store`,
-  /// `emit_render_call`).
-  runtime_dylib_path: Option<String>,
   /// Whether we have templates that need the entry point.
   pub has_templates: bool,
   /// The label offsets: label_id → byte offset in code.
@@ -863,7 +822,6 @@ impl<'a> ARM64Gen<'a> {
       reactive_slots: HashMap::default(),
       template_text_bindings: HashMap::default(),
       fns_needing_calls: HashSet::default(),
-      runtime_dylib_path: None,
       has_templates: false,
       labels: HashMap::default(),
       branch_fixups: Vec::new(),
@@ -8681,8 +8639,9 @@ impl<'a> ARM64Gen<'a> {
   /// at the directive site; the call blocks anyway).
   ///
   /// Side effect: registers `_zo_run_native` in
-  /// `extern_dylib_paths` so the linker emits an
-  /// `LC_LOAD_DYLIB` for `libzo_runtime_native.dylib`.
+  /// `extern_dylib_paths` so the linker routes it through
+  /// the runtime `LC_LOAD_DYLIB` and selects the full UI
+  /// dylib for staging.
   fn emit_render_call(&mut self, value: ValueId) {
     self.ensure_runtime_dylib_registered();
 
@@ -8825,35 +8784,20 @@ impl<'a> ARM64Gen<'a> {
     base || self.fns_needing_calls.contains(&InsnIdx(idx))
   }
 
-  /// Idempotently insert every runtime-dylib symbol into
-  /// `extern_dylib_paths` so the Mach-O writer emits an
-  /// `LC_LOAD_DYLIB` for `libzo_runtime_native.dylib`. Path
-  /// resolution mirrors the `<exe-dir>/libzo_*.dylib`
-  /// pattern that cargo's `cdylib` target produces — for
-  /// dev workflow `target/debug/libzo_runtime_native.dylib`
-  /// is right next to `target/debug/zo`. Falls back to a
-  /// bare basename so the linker still records SOMETHING
-  /// rather than failing silently when `current_exe()`
-  /// can't be resolved (sandboxed test runners, etc.); dyld
-  /// will then surface a clean "image not found" error at
-  /// runtime instead of a malformed Mach-O.
+  /// Idempotently route every UI runtime symbol to the
+  /// canonical runtime dylib (`RUNTIME_DYLIB_FILE`,
+  /// `@executable_path/libzo_runtime.dylib`). The linker
+  /// rewrites that to `@loader_path/deps/libzo_runtime.dylib`
+  /// and folds it into the single runtime `LC_LOAD_DYLIB`,
+  /// so a `#dom` program loads one staged dylib rather than
+  /// a parallel absolute-path native reference. Importing
+  /// any of these symbols is what flips the linker's
+  /// `RuntimeKind` to `Full`.
   ///
-  /// The on-disk lookup (a syscall on Apple) runs at most
-  /// once per `ARM64Gen`: subsequent calls reuse the
-  /// `runtime_dylib_path` cache and only check / insert
-  /// into the `extern_dylib_paths` map.
+  /// The registered path is a compile-time literal, so this
+  /// only checks / inserts into the `extern_dylib_paths`
+  /// map — no syscall.
   fn ensure_runtime_dylib_registered(&mut self) {
-    let path = match &self.runtime_dylib_path {
-      Some(p) => p.clone(),
-      None => {
-        let resolved = resolve_runtime_dylib_path()
-          .unwrap_or_else(|| RUNTIME_DYLIB_FILE.to_string());
-
-        self.runtime_dylib_path = Some(resolved.clone());
-        resolved
-      }
-    };
-
     for sym in [
       SYM_RUN,
       SYM_STATE_INIT,
@@ -8865,7 +8809,7 @@ impl<'a> ARM64Gen<'a> {
       self
         .extern_dylib_paths
         .entry(sym.to_string())
-        .or_insert_with(|| path.clone());
+        .or_insert_with(|| RUNTIME_DYLIB_FILE.to_string());
     }
   }
 
