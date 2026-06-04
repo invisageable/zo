@@ -396,7 +396,11 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
     }
 
     // --- Handle Call (clobbers all caller-saved) ---
-    if let Insn::Call { .. } = insn {
+    // `CallIndirect` is a call through a pointer value — same
+    // caller-save clobber discipline; its `callee` is reloaded
+    // from a spill slot by codegen via the pre-call snapshot,
+    // just like the direct call's args.
+    if matches!(insn, Insn::Call { .. } | Insn::CallIndirect { .. }) {
       // Snapshot the pre-call register state. The codegen's
       // staging code for overflow args (>8) and the arg-move
       // loop both call `alloc_reg` at this instruction's
@@ -936,6 +940,7 @@ fn insn_is_fp(insn: &Insn) -> bool {
     Insn::UnOp { ty_id, .. }
     | Insn::Load { ty_id, .. }
     | Insn::Call { ty_id, .. }
+    | Insn::CallIndirect { ty_id, .. }
     | Insn::ArrayIndex { ty_id, .. }
     | Insn::TupleIndex { ty_id, .. } => ty_id.0 >= 15 && ty_id.0 <= 17,
     Insn::Cast { to_ty, .. } => to_ty.0 >= 15 && to_ty.0 <= 17,

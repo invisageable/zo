@@ -289,6 +289,20 @@ impl PrettyPrinter {
 
           self.sir_instruction(&call);
         }
+        Insn::CallIndirect {
+          dst,
+          callee,
+          args,
+          ty_id,
+        } => {
+          let args = args.iter().map(|v| format!("%{v}")).collect::<Vec<_>>();
+          let call = format!(
+            "%{dst} = call_indirect %{callee}({}) : {ty_id:?}",
+            args.join(", ")
+          );
+
+          self.sir_instruction(&call);
+        }
         Insn::ModuleLoad {
           path,
           kind,

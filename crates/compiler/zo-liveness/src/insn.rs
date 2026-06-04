@@ -20,6 +20,7 @@ pub fn insn_def(insn: &Insn) -> Option<ValueId> {
     | Insn::ConstBool { dst, .. }
     | Insn::ConstString { dst, .. }
     | Insn::Call { dst, .. }
+    | Insn::CallIndirect { dst, .. }
     | Insn::Load { dst, .. }
     | Insn::BinOp { dst, .. }
     | Insn::UnOp { dst, .. }
@@ -77,6 +78,14 @@ pub fn visit_uses(insn: &Insn, mut f: impl FnMut(ValueId)) {
     Insn::Return { value: Some(v), .. } => f(*v),
     Insn::Store { value, .. } => f(*value),
     Insn::Call { args, .. } => {
+      for &v in args {
+        f(v);
+      }
+    }
+    // The callee pointer is read before the branch, so it
+    // stays live alongside the args.
+    Insn::CallIndirect { callee, args, .. } => {
+      f(*callee);
       for &v in args {
         f(v);
       }

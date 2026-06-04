@@ -1305,6 +1305,11 @@ impl<'a> ARM64Gen<'a> {
       | Insn::BranchIfNot { .. }
       | Insn::Return { .. }
       | Insn::VarDef { .. }
+      // An indirect call marshals args into x0..x7, loads the
+      // callee into x16, and `BLR`s — none of which touch the
+      // promotion bank x19..x28. It can never be a `show*`
+      // builtin, so it has no aggregate-print hazard.
+      | Insn::CallIndirect { .. }
       | Insn::Drop { .. } => true,
       // A plain call is safe; a `show*` of an aggregate routes
       // into the x19..x28 pretty-printer and is not.
@@ -3580,127 +3585,10 @@ impl<'a> ARM64Gen<'a> {
 
             // User-function call (zo's own positional
             // calling convention — not full AAPCS).
-            // Move args to X0-X7 (GP) or D0-D7 (FP).
-            // Count overflow args and compute aligned
-            // stack allocation (AAPCS: SP 16-byte aligned
-            // at the BL boundary).
-            let stack_arg_count = args.len().saturating_sub(MAX_REG_ARGS);
-            let stack_arg_bytes = if stack_arg_count > 0 {
-              let bytes = stack_arg_count as u32 * STACK_SLOT_SIZE;
-              (bytes + 15) & !15
-            } else {
-              0
-            };
-
-            // Stage overflow arg values into dedicated
-            // caller-save area slots (past the X1..X15
-            // region) BEFORE register moves clobber their
-            // source registers. The staging slots survive
-            // across register moves AND caller-save spill.
-            let overflow_staging_base = self.caller_save_base
-              + (CALLER_SAVE_COUNT as u32 + 1) * STACK_SLOT_SIZE;
-
-            for (i, arg) in args.iter().enumerate() {
-              if i < MAX_REG_ARGS {
-                continue;
-              }
-
-              if let Some(src_reg) = self.alloc_reg(*arg) {
-                let stage_off = overflow_staging_base
-                  + (i - MAX_REG_ARGS) as u32 * STACK_SLOT_SIZE;
-                self.emit_str_sp(src_reg, stage_off);
-              }
-            }
-
-            // Collect register moves for args 0..7.
-            let mut gp_moves: [(Register, Register); MAX_REG_ARGS] =
-              [(X0, X0); MAX_REG_ARGS];
-            let mut gp_moves_len: usize = 0;
-
-            for (i, arg) in args.iter().enumerate() {
-              if i >= MAX_REG_ARGS {
-                continue;
-              }
-
-              if let Some(fp_src) = self.alloc_fp_reg(*arg) {
-                let fp_dst = FpRegister::new(i as u8);
-
-                if fp_src != fp_dst {
-                  self.emitter.emit_fmov_fp(fp_dst, fp_src);
-                }
-              } else if let Some(src_reg) = self.alloc_reg(*arg) {
-                let dst_reg = Register::new(i as u8);
-
-                if src_reg != dst_reg {
-                  gp_moves[gp_moves_len] = (dst_reg, src_reg);
-                  gp_moves_len += 1;
-                }
-              }
-            }
-
-            let gp_moves = &gp_moves[..gp_moves_len];
-
-            // Pre-save: if any move's src is also another
-            // move's dst, save the src to a scratch register
-            // before any moves happen. X16 and X17 handle up
-            // to two simultaneous clobbers.
-            let mut saved: [(Register, Register); 2] = [(X0, X0); 2];
-            let mut saved_count = 0usize;
-
-            for j in 0..gp_moves.len() {
-              let (_, src) = gp_moves[j];
-
-              let is_clobbered = gp_moves
-                .iter()
-                .enumerate()
-                .any(|(k, (dst, _))| k != j && *dst == src);
-
-              if is_clobbered
-                && saved_count < 2
-                && !saved[..saved_count].iter().any(|(s, _)| *s == src)
-              {
-                let scratch = if saved_count == 0 { X16 } else { X17 };
-
-                self.emitter.emit_mov_reg(scratch, src);
-                saved[saved_count] = (src, scratch);
-                saved_count += 1;
-              }
-            }
-
-            for (dst, src) in gp_moves {
-              let actual_src = saved[..saved_count]
-                .iter()
-                .find(|(s, _)| *s == *src)
-                .map(|(_, scratch)| *scratch)
-                .unwrap_or(*src);
-
-              self.emitter.emit_mov_reg(*dst, actual_src);
-            }
-
-            // No blanket caller-save here. The register
-            // allocator already spilled every value live
-            // across this `Insn::Call` into its own slot via
-            // `spill_ops` (emitted by `emit_spills(Before)`)
-            // and reloads them after, so the flat X1..X15
-            // store/reload that used to bracket the `BL` only
-            // ever saved dead registers — pure frame bloat
-            // that overflowed the stack on deep zo→zo chains.
-
-            // Adjust SP and copy overflow args from staging
-            // slots to the stack arg region.
-            if stack_arg_bytes > 0 {
-              self.emitter.emit_sub_imm(SP, SP, stack_arg_bytes as u16);
-
-              for i in 0..stack_arg_count {
-                let stage_off = stack_arg_bytes
-                  + overflow_staging_base
-                  + i as u32 * STACK_SLOT_SIZE;
-                let dest_off = i as u32 * STACK_SLOT_SIZE;
-
-                self.emit_ldr_sp(X16, stage_off);
-                self.emitter.emit_str(X16, SP, dest_off as i16);
-              }
-            }
+            // Marshal args into X0-X7 / D0-D7 and the
+            // overflow stack region; returns the aligned
+            // byte count SP was lowered by (0 when ≤8 args).
+            let stack_arg_bytes = self.marshal_user_call_args(args);
 
             // BL to user-defined function. Strict
             // `(name, callee_pack)` lookup — no fallback.
@@ -3913,6 +3801,53 @@ impl<'a> ARM64Gen<'a> {
               self.emitter.emit_mov_reg(result_reg, X0);
             }
           }
+        }
+      }
+
+      Insn::CallIndirect { callee, args, .. } => {
+        // Marshal args into the positional ABI slots exactly
+        // like a direct call. The callee pointer is loaded
+        // AFTER this so materializing it can't clobber an arg
+        // register (x0..x7) — and X16/X17 (the move scratch)
+        // are intra-procedure scratch, never arg/return regs.
+        let stack_arg_bytes = self.marshal_user_call_args(args);
+
+        // Bring the 64-bit code pointer into X16. Prefer
+        // re-emitting the producing load from its stable slot
+        // (the same path const/local args use); fall back to
+        // the allocator's register when the callee is a
+        // computed value the materializer can't replay.
+        if !self.materialize_value_into_x16(*callee, all_insns)
+          && let Some(reg) = self.alloc_reg(*callee)
+          && reg != X16
+        {
+          self.emitter.emit_mov_reg(X16, reg);
+        }
+
+        // Branch through the pointer. AAPCS64 reserves
+        // x16/x17 for exactly this intra-procedure indirect
+        // branch, so the callee can clobber them freely.
+        self.emitter.emit_blr(X16);
+
+        // Restore SP so SP-relative offsets after the call
+        // match the frame the rest of the body expects.
+        if stack_arg_bytes > 0 {
+          self.emitter.emit_add_imm(SP, SP, stack_arg_bytes as u16);
+        }
+
+        // Result lands in X0 (GP) or D0 (FP) per AAPCS — move
+        // it to dst's allocated register if different. A
+        // `Fn` value never returns an aggregate, so the
+        // struct deep-copy path the direct call needs does
+        // not apply here.
+        if let Some(fp_result) = self.fp_reg_for_insn(idx) {
+          if fp_result != D0 {
+            self.emitter.emit_fmov_fp(fp_result, D0);
+          }
+        } else if let Some(result_reg) = self.reg_for_insn(idx)
+          && result_reg != X0
+        {
+          self.emitter.emit_mov_reg(result_reg, X0);
         }
       }
 
@@ -8097,6 +8032,135 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_add_imm(X0, X16, 16u16);
 
     self.emit_extern_call("_zo_arr_sort_i32");
+  }
+
+  /// Marshal a call's argument values into the positional
+  /// ABI slots — X0-X7 (GP) / D0-D7 (FP) plus the overflow
+  /// stack region for args beyond 8. Returns the aligned
+  /// byte count SP was lowered by (0 when ≤8 args); the
+  /// caller restores SP by the same amount after the branch.
+  ///
+  /// Shared by `Insn::Call` (direct `BL`) and
+  /// `Insn::CallIndirect` (`BLR x16`). The callee pointer of
+  /// an indirect call is loaded into X16 *after* this returns
+  /// so the move-scratch use of X16/X17 here can't clobber it.
+  fn marshal_user_call_args(&mut self, args: &[ValueId]) -> u32 {
+    let stack_arg_count = args.len().saturating_sub(MAX_REG_ARGS);
+    let stack_arg_bytes = if stack_arg_count > 0 {
+      let bytes = stack_arg_count as u32 * STACK_SLOT_SIZE;
+      (bytes + 15) & !15
+    } else {
+      0
+    };
+
+    // Stage overflow arg values into dedicated caller-save
+    // area slots (past the X1..X15 region) BEFORE register
+    // moves clobber their source registers. The staging slots
+    // survive across register moves AND caller-save spill.
+    let overflow_staging_base =
+      self.caller_save_base + (CALLER_SAVE_COUNT as u32 + 1) * STACK_SLOT_SIZE;
+
+    for (i, arg) in args.iter().enumerate() {
+      if i < MAX_REG_ARGS {
+        continue;
+      }
+
+      if let Some(src_reg) = self.alloc_reg(*arg) {
+        let stage_off =
+          overflow_staging_base + (i - MAX_REG_ARGS) as u32 * STACK_SLOT_SIZE;
+        self.emit_str_sp(src_reg, stage_off);
+      }
+    }
+
+    // Collect register moves for args 0..7.
+    let mut gp_moves: [(Register, Register); MAX_REG_ARGS] =
+      [(X0, X0); MAX_REG_ARGS];
+    let mut gp_moves_len: usize = 0;
+
+    for (i, arg) in args.iter().enumerate() {
+      if i >= MAX_REG_ARGS {
+        continue;
+      }
+
+      if let Some(fp_src) = self.alloc_fp_reg(*arg) {
+        let fp_dst = FpRegister::new(i as u8);
+
+        if fp_src != fp_dst {
+          self.emitter.emit_fmov_fp(fp_dst, fp_src);
+        }
+      } else if let Some(src_reg) = self.alloc_reg(*arg) {
+        let dst_reg = Register::new(i as u8);
+
+        if src_reg != dst_reg {
+          gp_moves[gp_moves_len] = (dst_reg, src_reg);
+          gp_moves_len += 1;
+        }
+      }
+    }
+
+    let gp_moves = &gp_moves[..gp_moves_len];
+
+    // Pre-save: if any move's src is also another move's dst,
+    // save the src to a scratch register before any moves
+    // happen. X16 and X17 handle up to two simultaneous
+    // clobbers.
+    let mut saved: [(Register, Register); 2] = [(X0, X0); 2];
+    let mut saved_count = 0usize;
+
+    for j in 0..gp_moves.len() {
+      let (_, src) = gp_moves[j];
+
+      let is_clobbered = gp_moves
+        .iter()
+        .enumerate()
+        .any(|(k, (dst, _))| k != j && *dst == src);
+
+      if is_clobbered
+        && saved_count < 2
+        && !saved[..saved_count].iter().any(|(s, _)| *s == src)
+      {
+        let scratch = if saved_count == 0 { X16 } else { X17 };
+
+        self.emitter.emit_mov_reg(scratch, src);
+        saved[saved_count] = (src, scratch);
+        saved_count += 1;
+      }
+    }
+
+    for (dst, src) in gp_moves {
+      let actual_src = saved[..saved_count]
+        .iter()
+        .find(|(s, _)| *s == *src)
+        .map(|(_, scratch)| *scratch)
+        .unwrap_or(*src);
+
+      self.emitter.emit_mov_reg(*dst, actual_src);
+    }
+
+    // No blanket caller-save here. The register allocator
+    // already spilled every value live across this call into
+    // its own slot via `spill_ops` (emitted by
+    // `emit_spills(Before)`) and reloads them after, so the
+    // flat X1..X15 store/reload that used to bracket the
+    // branch only ever saved dead registers — pure frame
+    // bloat that overflowed the stack on deep zo→zo chains.
+
+    // Adjust SP and copy overflow args from staging slots to
+    // the stack arg region.
+    if stack_arg_bytes > 0 {
+      self.emitter.emit_sub_imm(SP, SP, stack_arg_bytes as u16);
+
+      for i in 0..stack_arg_count {
+        let stage_off =
+          stack_arg_bytes + overflow_staging_base + i as u32 * STACK_SLOT_SIZE;
+        let dest_off = i as u32 * STACK_SLOT_SIZE;
+
+        self.emit_ldr_sp(X16, stage_off);
+        self.emitter.emit_str(X16, SP, dest_off as i16);
+      }
+    }
+
+    stack_arg_bytes
   }
 
   /// Materialize a value into X16 by re-emitting the

@@ -204,6 +204,7 @@ fn collect_value_types(insns: &[Insn]) -> HashMap<ValueId, TyId> {
       | Insn::ConstString { dst, ty_id, .. }
       | Insn::Load { dst, ty_id, .. }
       | Insn::Call { dst, ty_id, .. }
+      | Insn::CallIndirect { dst, ty_id, .. }
       | Insn::BinOp { dst, ty_id, .. }
       | Insn::UnOp { dst, ty_id, .. }
       | Insn::ArrayLiteral { dst, ty_id, .. }
@@ -403,6 +404,14 @@ fn check_insn(insn: &Insn, idx: usize, ctx: &mut ValidatorCtx<'_>) {
           });
         }
       }
+    }
+
+    // The callee is an SSA value, not a named `FunDef`, so no
+    // signature is available to width-check args against. Only
+    // the return type's placeholder check applies — arg/return
+    // typing was already enforced at the executor call site.
+    Insn::CallIndirect { ty_id, .. } => {
+      check_placeholder(&mut ctx.report, idx, *ty_id, "CallIndirect.ty_id");
     }
 
     // Remaining value-producing insns: just the placeholder check.
