@@ -2,7 +2,7 @@ use crate::args;
 use crate::cmd::Handle;
 use crate::constants::EXIT_CODE_ERROR;
 
-use zo_compiler::Compiler;
+use zo_compiler::{Analyzed, Compiler};
 use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
 use zo_runtime::Runtime;
@@ -72,7 +72,7 @@ impl Run {
       explain_decisions: self.args.explain_decisions,
     });
 
-    let (semantic, _tokenization, _parsing, session, _file_table) =
+    let (semantic, tokenization, parsing, session, file_table) =
       compiler.analyze_source(&source, input_path);
 
     // Collect the set of template ValueIds targeted by `#dom`
@@ -255,12 +255,23 @@ impl Run {
 
       let temp_path = run_dir.join("a.out");
 
-      compiler.compile(
-        &[(input_path, source.clone())],
+      // Reuse the single analysis from above — codegen and
+      // link the program we already analyzed for template
+      // detection, instead of re-analyzing it through
+      // `compile`. One analysis per program, one diagnostic
+      // report.
+      let analyzed = Analyzed {
+        semantic,
+        tokenization,
+        parsing,
+        session,
+        file_table,
+      };
+
+      compiler.compile_analyzed(
+        &analyzed,
         self.args.target.into(),
-        &[],
-        &Some(temp_path.clone()),
-        None,
+        &temp_path,
       )?;
 
       // Run with cwd set to the source file's parent so
