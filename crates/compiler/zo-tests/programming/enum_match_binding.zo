@@ -102,7 +102,7 @@ fun main() {
 -- hello
 -- true
 -- z
--- 3.140000
+-- 3.14
 -- 99
 -- world
 -- false

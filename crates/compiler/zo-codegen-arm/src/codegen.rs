@@ -5494,13 +5494,21 @@ impl<'a> ARM64Gen<'a> {
     self.last_was_math_intrinsic = false;
 
     if is_flt {
+      // FP regs are uniformly 64-bit internally (see
+      // `ConstFloat` / `Cast`), so D0 already holds the f64
+      // bit pattern even for an `f32`-typed value — no FCVT
+      // is needed before the call. `_zo_float_to_str` takes
+      // its f64 argument in D0 (AAPCS64) and returns a zo
+      // `str` pointer in X0; `emit_extern_call` reloads only
+      // X1..X15, leaving that return value intact.
       if let Some(fp_src) = arg_vid.and_then(|v| self.alloc_fp_reg(v))
         && fp_src != D0
       {
         self.emitter.emit_fmov_fp(D0, fp_src);
       }
 
-      self.emit_ftoa_and_write(fd);
+      self.emit_extern_call("_zo_float_to_str");
+      self.emit_zo_str_write(X0, fd);
     } else if is_bool && arg_vid.is_some() {
       if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
         && src != X0
@@ -5586,22 +5594,9 @@ impl<'a> ARM64Gen<'a> {
       self.emit_itoa_and_write(fd);
     } else if is_str {
       // String: single pointer to [len: u64][bytes][null].
-      // Read length and data pointer from the struct.
-      // Move to X16 first to avoid clobbering if ptr is
-      // X1 or X2 (used by syscall args).
       let ptr = arg_vid.and_then(|v| self.alloc_reg(v)).unwrap_or(X1);
 
-      if ptr != X16 {
-        self.emitter.emit_mov_reg(X16, ptr);
-      }
-
-      // LDR X2, [X16, #0] — load length from struct.
-      self.emitter.emit_ldr(X2, X16, 0);
-      // ADD X1, X16, #8 — data starts at offset 8.
-      self.emitter.emit_add_imm(X1, X16, 8);
-      self.emitter.emit_mov_imm(X16, SYS_WRITE);
-      self.emitter.emit_mov_imm(X0, fd);
-      self.emitter.emit_svc(0);
+      self.emit_zo_str_write(ptr, fd);
     } else {
       // No argument — emit empty write.
       self.emitter.emit_mov_imm(X16, SYS_WRITE);
@@ -5891,8 +5886,14 @@ impl<'a> ARM64Gen<'a> {
         self.emit_synthetic_str_write(STR_DQUOTE_SYM, fd);
       }
     } else if is_float {
+      // The field's raw 64-bit slot arrives in X0 as an f64
+      // bit pattern; move it to D0 and hand off to the
+      // shortest-round-trip formatter. `_zo_float_to_str`
+      // returns a zo `str` pointer in X0 — same write shape
+      // as the `is_str` arm above.
       self.emitter.emit_fmov_gp_to_fp(D0, X0);
-      self.emit_ftoa_and_write(fd);
+      self.emit_extern_call("_zo_float_to_str");
+      self.emit_zo_str_write(X0, fd);
     } else if is_bool {
       self.emit_bool_and_write(fd);
     } else if is_char {
@@ -6366,62 +6367,24 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_strb(X16, buf_reg, buf_off);
   }
 
-  /// Convert D0 (double) to decimal string and write to fd.
+  /// Write a zo `str` whose pointer lives in `ptr_reg` to
+  /// file descriptor `fd`.
   ///
-  /// Strategy: print integer part, ".", then 6 fractional
-  /// digits. Handles negative by printing "-" prefix.
-  fn emit_ftoa_and_write(&mut self, fd: u16) {
-    // FCVTZS X0, D0 — integer part (truncated).
-    self.emitter.emit_fcvtzs(X0, D0);
+  /// @note — a zo `str` is a pointer to `[len: u64][bytes]
+  /// [null]`. The pointer moves to X16 first so reusing X1 /
+  /// X2 for the `write` syscall args cannot clobber it.
+  fn emit_zo_str_write(&mut self, ptr_reg: Register, fd: u16) {
+    if ptr_reg != X16 {
+      self.emitter.emit_mov_reg(X16, ptr_reg);
+    }
 
-    // Print the integer part via itoa.
-    self.emit_itoa_and_write(fd);
-
-    // Print "."
-    self.emitter.emit_sub_imm(SP, SP, NEWLINE_BUFFER_OFFSET);
-    self.emitter.emit_mov_imm(X1, b'.' as u16);
-    self.emitter.emit_strb(X1, SP, 0);
-    // ADD X1, SP, #0 (can't use MOV for SP — XZR alias).
-    self.emitter.emit_add_imm(X1, SP, 0);
-    self.emitter.emit_mov_imm(X2, 1);
+    // LDR X2, [X16, #0] — length header at offset 0.
+    self.emitter.emit_ldr(X2, X16, 0);
+    // ADD X1, X16, #8 — payload starts at offset 8.
+    self.emitter.emit_add_imm(X1, X16, 8);
     self.emitter.emit_mov_imm(X16, SYS_WRITE);
     self.emitter.emit_mov_imm(X0, fd);
     self.emitter.emit_svc(0);
-    self.emitter.emit_add_imm(SP, SP, NEWLINE_BUFFER_OFFSET);
-
-    // Compute fractional part: frac = (D0 - int_part) * 1e6.
-    // Reload D0's integer part into X0, convert back to D1.
-    self.emitter.emit_fcvtzs(X0, D0);
-    self.emitter.emit_scvtf(D1, X0);
-    // D0 = D0 - D1 (fractional part, 0.0 to 0.999...)
-    self.emitter.emit_fsub(D0, D0, D1);
-
-    // Multiply by 1000000 to get 6 decimal digits.
-    // Load 1000000.0 into D1 via GP.
-    let million_bits = 1_000_000.0f64.to_bits();
-
-    self
-      .emitter
-      .emit_mov_imm(X0, (million_bits & 0xFFFF) as u16);
-    self
-      .emitter
-      .emit_movk(X0, ((million_bits >> 16) & 0xFFFF) as u16, 16);
-    self
-      .emitter
-      .emit_movk(X0, ((million_bits >> 32) & 0xFFFF) as u16, 32);
-    self
-      .emitter
-      .emit_movk(X0, ((million_bits >> 48) & 0xFFFF) as u16, 48);
-
-    self.emitter.emit_fmov_gp_to_fp(D1, X0);
-
-    // D0 = frac * 1000000.0
-    self.emitter.emit_fmul(D0, D0, D1);
-    // X0 = int(D0)
-    self.emitter.emit_fcvtzs(X0, D0);
-
-    // Print 6 digits via itoa.
-    self.emit_itoa_and_write(fd);
   }
 
   /// Emit bool-to-string write: prints "true" or "false".

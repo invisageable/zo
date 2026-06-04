@@ -1,6 +1,7 @@
 pub(crate) mod common;
 pub(crate) mod concurrency;
 pub(crate) mod errors;
+pub(crate) mod float_show;
 pub(crate) mod templates;
 
 use crate::ARM64Gen;
