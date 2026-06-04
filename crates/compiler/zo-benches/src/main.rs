@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
@@ -253,6 +253,7 @@ fn run_bench(
   let go_file = bench_dir.join(format!("{name}.go"));
   let rs_file = bench_dir.join(format!("{name}.rs"));
   let odin_file = bench_dir.join(format!("{name}.odin"));
+  let gleam_file = bench_dir.join(format!("{name}.gleam"));
   let zo_file = bench_dir.join(format!("{name}.zo"));
 
   let bin_dir = bench_dir.join("bin");
@@ -300,6 +301,15 @@ fn run_bench(
         with_runtime,
         argv,
         with_rss,
+      );
+    }
+
+    if gleam_file.exists() {
+      benchmark_gleam(
+        &gleam_file,
+        &bin_dir.join(format!("{name}_gleam")),
+        num_runs,
+        with_runtime,
       );
     }
   }
@@ -770,6 +780,179 @@ fn benchmark_zo(
   println!();
 
   hot
+}
+
+/// Benchmark a Gleam program on the BEAM target.
+///
+/// Gleam compiles a *project*, not a bare file, so we scaffold a
+/// throwaway project under `bin/<name>_gleam/` and reuse its
+/// `build/` (downloaded + compiled stdlib) across runs. Each
+/// timed run deletes only our module's compiled output and runs
+/// `gleam build` — recompiling our module against the prebuilt
+/// stdlib, the analog of clang compiling against a prebuilt libc.
+fn benchmark_gleam(
+  source: &PathBuf,
+  proj_dir: &Path,
+  runs: usize,
+  with_runtime: bool,
+) {
+  println!("gleam (BEAM):");
+
+  let lines = count_lines(source).unwrap_or(0);
+  let filename = source.file_name().unwrap().to_string_lossy();
+
+  println!("Compiling {filename} — {lines} lines.");
+
+  // Module names forbid hyphens — `n-body` → module `n_body`.
+  let module = source
+    .file_stem()
+    .unwrap()
+    .to_string_lossy()
+    .replace('-', "_");
+
+  if scaffold_gleam_project(proj_dir, &module, source).is_err() {
+    println!("Run 1: FAILED (scaffold)");
+    println!();
+
+    return;
+  }
+
+  // Warm-up: resolve + download + compile deps and our module
+  // once, untimed. The timed loop measures only our module.
+  let warm = Command::new("gleam")
+    .arg("build")
+    .current_dir(proj_dir)
+    .output();
+
+  if !matches!(&warm, Ok(o) if o.status.success()) {
+    println!("Run 1: FAILED (build)");
+
+    if let Ok(o) = &warm {
+      eprint!("{}", String::from_utf8_lossy(&o.stderr));
+    }
+
+    println!();
+
+    return;
+  }
+
+  let module_build = proj_dir.join("build/dev/erlang").join(&module);
+
+  let mut times = Vec::new();
+
+  for i in 1..=runs {
+    let _ = fs::remove_dir_all(&module_build);
+
+    let start = Instant::now();
+    let result = Command::new("gleam")
+      .arg("build")
+      .current_dir(proj_dir)
+      .output();
+    let elapsed = start.elapsed().as_nanos() as u64;
+
+    match result {
+      Ok(o) if o.status.success() => {
+        times.push(elapsed);
+        println!("Run {i}: {}", fmt_dur(elapsed));
+      }
+      _ => println!("Run {i}: FAILED"),
+    }
+  }
+
+  if !times.is_empty() {
+    let avg = times.iter().sum::<u64>() / times.len() as u64;
+
+    println!("Average: {}", fmt_dur(avg));
+  }
+
+  if let Some(hot) = hot_avg(&times) {
+    println!("Hot avg: {}", fmt_dur(hot));
+  }
+
+  if with_runtime {
+    time_gleam_runtime(proj_dir, &module, runs);
+  }
+
+  println!();
+}
+
+/// Write a minimal Gleam project (`gleam.toml` + `src/<module>.
+/// gleam`) into `proj_dir`. `gleam_erlang` is pulled in for the
+/// concurrency ports (`threadring`); numeric ports ignore it.
+fn scaffold_gleam_project(
+  proj_dir: &Path,
+  module: &str,
+  source: &PathBuf,
+) -> std::io::Result<()> {
+  let src_dir = proj_dir.join("src");
+
+  fs::create_dir_all(&src_dir)?;
+
+  let manifest = format!(
+    "name = \"{module}\"\n\
+     version = \"1.0.0\"\n\
+     target = \"erlang\"\n\n\
+     [dependencies]\n\
+     gleam_stdlib = \">= 0.34.0 and < 2.0.0\"\n\
+     gleam_erlang = \">= 0.25.0 and < 2.0.0\"\n"
+  );
+
+  fs::write(proj_dir.join("gleam.toml"), manifest)?;
+  fs::copy(source, src_dir.join(format!("{module}.gleam")))?;
+
+  Ok(())
+}
+
+/// Time `runs` direct BEAM executions of a compiled Gleam
+/// module via `erl`, bypassing `gleam run` so its build-freshness
+/// check doesn't leak into the runtime number. The wall time is
+/// dominated by BEAM VM startup — the honest cost of running any
+/// BEAM program, analogous to a dynamic-runtime startup floor.
+fn time_gleam_runtime(proj_dir: &Path, module: &str, runs: usize) {
+  let erlang_dir = proj_dir.join("build/dev/erlang");
+  let mut pa_args: Vec<String> = Vec::new();
+
+  if let Ok(entries) = fs::read_dir(&erlang_dir) {
+    for entry in entries.flatten() {
+      let ebin = entry.path().join("ebin");
+
+      if ebin.is_dir() {
+        pa_args.push("-pa".to_string());
+        pa_args.push(ebin.to_string_lossy().into_owned());
+      }
+    }
+  }
+
+  let mut times = Vec::new();
+
+  for i in 1..=runs {
+    let start = Instant::now();
+    let result = Command::new("erl")
+      .args(&pa_args)
+      .arg("-noshell")
+      .arg("-eval")
+      .arg(format!("{module}:main()"))
+      .arg("-eval")
+      .arg("init:stop()")
+      .stdout(std::process::Stdio::null())
+      .stderr(std::process::Stdio::null())
+      .output();
+    let elapsed = start.elapsed().as_nanos() as u64;
+
+    match result {
+      Ok(o) if o.status.success() => {
+        times.push(elapsed);
+        println!("  Runtime {i}: {}", fmt_dur(elapsed));
+      }
+      _ => println!("  Runtime {i}: FAILED"),
+    }
+  }
+
+  if !times.is_empty() {
+    let avg = times.iter().sum::<u64>() / times.len() as u64;
+
+    println!("  Runtime avg: {}", fmt_dur(avg));
+  }
 }
 
 fn count_lines(path: &PathBuf) -> std::io::Result<usize> {

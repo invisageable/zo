@@ -1,6 +1,6 @@
 # crates — compiler — benches.
 
-> *A series of benches to compare compile-time between c, go, rust, odin and zo.*
+> *A series of benches to compare compile-time between c, go, rust, odin, gleam and zo.*
 
 ## about.
 
@@ -13,6 +13,7 @@ iT'S REALLY ABOUT CHALLENGiNG. zo DOESN'T CLAiM TO BE A DiRECT COMPETiTOR TO c, 
 iNSTALL ALL PROGRAMMiNG LANGUAGES REQUiRED:
 
   - @SEE — [clang](https://clang.llvm.org/get_started.html) OR [gcc](https://gcc.gnu.org/install)
+  - @SEE — [gleam](https://gleam.run/getting-started/installing)
   - @SEE — [go](https://go.dev/dl)
   - @SEE — [oding](https://odin-lang.org/docs/install)
   - @SEE — [rust](https://rust-lang.org/tools/install)
@@ -20,6 +21,8 @@ iNSTALL ALL PROGRAMMiNG LANGUAGES REQUiRED:
 ## benchmark.
 
 > *Measurements: `arm64-apple-darwin`. 5 runs per bench.*
+
+> *gleam compiles to BEAM bytecode, not a native binary — it appears in the comptime and runtime tables but not the size tables. Its runtime carries the BEAM VM startup floor (~95 ms), and BEAM is not tuned for tight numeric loops.*
 
 ### benchmark — comptime.
 
@@ -124,6 +127,7 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | go       | 86.74ms  | 87.03ms  | 83.72ms  | 86.09ms  | 86.07ms  | **85.93ms**  | **9.5x slower**  |
 | rustc    | 69.46ms  | 71.83ms  | 69.06ms  | 69.55ms  | 72.20ms  | **70.42ms**  | **7.8x slower**  |
 | odin     | 311.04ms | 151.96ms | 153.38ms | 152.06ms | 150.62ms | **183.81ms** | **20.4x slower** |
+| gleam    | 249.08ms | 203.95ms | 203.75ms | 213.00ms | 207.23ms | **215.40ms** | **23.9x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
@@ -146,6 +150,7 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | go       | 91.92ms  | 87.01ms  | 88.67ms  | 86.80ms  | 87.27ms  | **88.33ms**  | **11.4x slower** |
 | rustc    | 87.94ms  | 70.30ms  | 68.92ms  | 66.66ms  | 65.60ms  | **71.88ms**  | **9.3x slower**  |
 | odin     | 280.14ms | 155.56ms | 151.32ms | 147.46ms | 156.76ms | **178.25ms** | **23.0x slower** |
+| gleam    | 242.19ms | 211.24ms | 207.36ms | 205.27ms | 205.45ms | **214.30ms** | **27.7x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
@@ -168,6 +173,7 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | go       | 92.07ms  | 93.46ms  | 121.81ms | 91.77ms  | 93.89ms  | **98.60ms**  | **13.6x slower** |
 | rustc    | 94.83ms  | 94.09ms  | 96.04ms  | 93.05ms  | 93.06ms  | **94.21ms**  | **13.0x slower** |
 | odin     | 181.35ms | 162.48ms | 163.04ms | 167.07ms | 165.51ms | **167.89ms** | **23.2x slower** |
+| gleam    | 212.21ms | 213.47ms | 211.22ms | 217.17ms | 216.32ms | **214.08ms** | **29.6x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
@@ -203,8 +209,6 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 
 #### stress_fun_10k.
 
-Workload: 10,000 lines of code.
-
 @RUN: `just zo_bench stress_fun_10k`
 
 | Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      | Speed vs zo     |
@@ -214,6 +218,8 @@ Workload: 10,000 lines of code.
 | go       | 106.71ms | 129.31ms | 94.79ms  | 89.16ms  | 92.33ms  | **102.46ms** | **3.7x slower** |
 | odin     | 202.45ms | 181.54ms | 191.23ms | 177.91ms | 178.90ms | **186.41ms** | **6.8x slower** |
 | rustc    | 218.81ms | 204.97ms | 204.53ms | 205.15ms | 204.76ms | **207.64ms** | **7.5x slower** |
+
+> *Workload: 10,000 lines of code.*
 
 **-AWTY—are-we-tiny-yet?**
 
@@ -227,8 +233,6 @@ Workload: 10,000 lines of code.
 
 #### stress_fun_500k.
 
-Workload: 500,000 lines of code. go times are from-scratch (its build cache relinks unchanged sources). rustc crashes — SIGBUS in its monomorphization collector recursing the 50,000-deep call chain.
-
 @RUN: `just zo_bench stress_fun_500k`
 
 | Compiler | Run 1 | Run 2 | Run 3 | Run 4 | Run 5 | Average   | Speed vs zo     |
@@ -239,19 +243,19 @@ Workload: 500,000 lines of code. go times are from-scratch (its build cache reli
 | rustc    | —     | —     | —     | —     | —     | **crash** | **SIGBUS**      |
 | odin     | 3.89s | 3.66s | 3.69s | 3.66s | 3.66s | **3.71s** | **2.1x slower** |
 
+> *Workload: 500,000 lines of code.*
+
 **-AWTY—are-we-tiny-yet?**
 
 | Compiler | Size     |
 | :------- | :------- |
-| odin     | 5.98 MB  |
+| **odin** | 5.98 MB  |
 | clang    | 7.34 MB  |
-| **zo**   | 7.53 MB  |
+| zo       | 7.53 MB  |
 | go       | 16.97 MB |
 | rustc    | —        |
 
 #### threadring.
-
-503 TASKS iN A RiNG; A TOKEN HOPS NODE-TO-NODE `N` TiMES. CONCURRENCY PORT — zo GREEN TASKS vs c/odin `pthread` mutex-batons vs rust `mpsc` THREADS.
 
 @RUN: `just zo_bench threadring`
 
@@ -261,7 +265,10 @@ Workload: 500,000 lines of code. go times are from-scratch (its build cache reli
 | clang    | 270.34ms | 76.76ms  | 81.65ms  | 66.49ms  | 61.47ms  | **111.34ms** | **8.2x slower**  |
 | go       | 376.35ms | 131.52ms | 125.96ms | 143.16ms | 129.17ms | **181.23ms** | **13.3x slower** |
 | rustc    | 272.33ms | 164.42ms | 147.28ms | 170.54ms | 167.56ms | **184.42ms** | **13.5x slower** |
+| gleam    | 205.87ms | 206.04ms | 205.66ms | 205.48ms | 202.47ms | **205.11ms** | **15.0x slower** |
 | odin     | 422.94ms | 216.09ms | 219.56ms | 228.20ms | 230.74ms | **263.50ms** | **19.3x slower** |
+
+> *Workload: 503 tasks in a ring. A token hops node-to-node `N` times.*
 
 **-AWTY—are-we-tiny-yet?**
 
@@ -275,37 +282,37 @@ Workload: 500,000 lines of code. go times are from-scratch (its build cache reli
 
 ### benchmark — comptime (summary).
 
-| Benchmark        | `zo` vs `c`     | `zo` vs `go`     | `zo` vs `rust`   | `zo` vs `odin`   |
-| :--------------- | :-------------- | :--------------- | :--------------- | :--------------- |
-| `ackermann`      | __7.1x__ faster | __16.7x__ faster | __10.8x__ faster | __11.3x__ faster |
-| `arithmetic`     | __7.0x__ faster | __14.9x__ faster | __9.5x__ faster  | __23.6x__ faster |
-| `fibonacci`      | __7.9x__ faster | __15.6x__ faster | __11.9x__ faster | __28.0x__ faster |
-| `hello`          | __8.0x__ faster | __16.5x__ faster | __12.1x__ faster | __28.2x__ faster |
-| `mandelbrot`     | __6.5x__ faster | __9.5x__ faster  | __7.8x__ faster  | __20.4x__ faster |
-| `munchhausen`    | __5.8x__ faster | __11.4x__ faster | __9.3x__ faster  | __23.0x__ faster |
-| `n-body`         | __6.4x__ faster | __13.6x__ faster | __13.0x__ faster | __23.2x__ faster |
-| `rule_110`       | __6.6x__ faster | __13.5x__ faster | __14.6x__ faster | __28.3x__ faster |
-| `stress_fun_10k` | __3.6x__ faster | __3.7x__ faster  | __7.5x__ faster  | __6.8x__ faster  |
-| `stress_fun_500k`| __1.7x__ faster | __1.9x__ faster  | crash            | __2.1x__ faster  |
-| `threadring`     | __8.2x__ faster | __13.3x__ faster | __13.5x__ faster | __19.3x__ faster |
+| Benchmark        | `zo` vs `c`     | `zo` vs `go`     | `zo` vs `rust`   | `zo` vs `odin`   | `zo` vs `gleam`  |
+| :--------------- | :-------------- | :--------------- | :--------------- | :--------------- | :--------------- |
+| `ackermann`      | __7.1x__ faster | __16.7x__ faster | __10.8x__ faster | __11.3x__ faster | —                |
+| `arithmetic`     | __7.0x__ faster | __14.9x__ faster | __9.5x__ faster  | __23.6x__ faster | —                |
+| `fibonacci`      | __7.9x__ faster | __15.6x__ faster | __11.9x__ faster | __28.0x__ faster | —                |
+| `hello`          | __8.0x__ faster | __16.5x__ faster | __12.1x__ faster | __28.2x__ faster | —                |
+| `mandelbrot`     | __6.5x__ faster | __9.5x__ faster  | __7.8x__ faster  | __20.4x__ faster | __23.9x__ faster |
+| `munchhausen`    | __5.8x__ faster | __11.4x__ faster | __9.3x__ faster  | __23.0x__ faster | __27.7x__ faster |
+| `n-body`         | __6.4x__ faster | __13.6x__ faster | __13.0x__ faster | __23.2x__ faster | __29.6x__ faster |
+| `rule_110`       | __6.6x__ faster | __13.5x__ faster | __14.6x__ faster | __28.3x__ faster | —                |
+| `stress_fun_10k` | __3.6x__ faster | __3.7x__ faster  | __7.5x__ faster  | __6.8x__ faster  | —                |
+| `stress_fun_500k`| __1.7x__ faster | __1.9x__ faster  | crash            | __2.1x__ faster  | —                |
+| `threadring`     | __8.2x__ faster | __13.3x__ faster | __13.5x__ faster | __19.3x__ faster | __15.0x__ faster |
 
 ### benchmark — runtime.
 
 WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **EXECUTE** AN EXECUTABLE FiLE.
 
-| Benchmark         | clang     | go        | rustc     | odin      | zo        |
-| :---------------- | :-------- | :-------- | :-------- | :-------- | :-------- |
-| `ackermann`       | **1.3ms** | 2.0ms     | 1.7ms     | 1.8ms     | 5.2ms     |
-| `arithmetic`      | **1.5ms** | 2.3ms     | 1.5ms     | 1.6ms     | 4.9ms     |
-| `fibonacci`       | **1.4ms** | 2.5ms     | 1.4ms     | 1.9ms     | 3.2ms     |
-| `hello`           | 1.6ms     | 2.7ms     | 1.8ms     | **1.4ms** | 5.8ms     |
-| `mandelbrot`      | 70.5ms    | **30.7ms**| 71.9ms    | 86.3ms    | 75.3ms    |
-| `munchhausen`     | 5.79s     | **2.06s** | 14.39s    | 14.88s    | 5.98s     |
-| `n-body`          | **1.8ms** | 2.2ms     | 2.0ms     | 2.5ms     | 4.7ms     |
-| `rule_110`        | 2.8ms     | 2.8ms     | **1.9ms** | 2.1ms     | 5.0ms     |
-| `stress_fun_10k`  | 1.6ms     | 2.9ms     | **1.5ms** | 1.8ms     | 5.1ms     |
-| `stress_fun_500k` | **3.6ms** | 13.0ms    | —         | 5.5ms     | 8.2ms     |
-| `threadring`      | 11.3ms    | **3.5ms** | 10.6ms    | 13.5ms    | 7.8ms     |
+| Benchmark         | clang     | go        | rustc     | odin      | zo        | gleam     |
+| :---------------- | :-------- | :-------- | :-------- | :-------- | :-------- | :-------- |
+| `ackermann`       | **1.3ms** | 2.0ms     | 1.7ms     | 1.8ms     | 5.2ms     | —         |
+| `arithmetic`      | **1.5ms** | 2.3ms     | 1.5ms     | 1.6ms     | 4.9ms     | —         |
+| `fibonacci`       | **1.4ms** | 2.5ms     | 1.4ms     | 1.9ms     | 3.2ms     | —         |
+| `hello`           | 1.6ms     | 2.7ms     | 1.8ms     | **1.4ms** | 5.8ms     | —         |
+| `mandelbrot`      | 70.5ms    | **30.7ms**| 71.9ms    | 86.3ms    | 75.3ms    | 368.1ms   |
+| `munchhausen`     | 5.79s     | **2.06s** | 14.39s    | 14.88s    | 5.98s     | 23.32s    |
+| `n-body`          | **1.8ms** | 2.2ms     | 2.0ms     | 2.5ms     | 4.7ms     | 97.3ms    |
+| `rule_110`        | 2.8ms     | 2.8ms     | **1.9ms** | 2.1ms     | 5.0ms     | —         |
+| `stress_fun_10k`  | 1.6ms     | 2.9ms     | **1.5ms** | 1.8ms     | 5.1ms     | —         |
+| `stress_fun_500k` | **3.6ms** | 13.0ms    | —         | 5.5ms     | 8.2ms     | —         |
+| `threadring`      | 11.3ms    | **3.5ms** | 10.6ms    | 13.5ms    | 7.8ms     | 97.7ms    |
 
 > *Warm steady-state (cold first run excluded — that's dyld/disk warmup, not the program). zo links a 1.34 MB runtime dylib; clang/rustc/odin are static, hence zo's ~3 ms startup floor on trivial programs.*
 
