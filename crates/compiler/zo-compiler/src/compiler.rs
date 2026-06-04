@@ -23,8 +23,8 @@ use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
 use zo_reporter::{
-  ErrorAggregator, Reporter, json, rationale, render_errors_to_stderr,
-  report_error,
+  DiagnosticFormat, ErrorAggregator, Reporter, json, rationale,
+  render_errors_to_stderr, report_error, xml,
 };
 use zo_session::Session;
 use zo_sir::{Insn, Sir};
@@ -147,12 +147,13 @@ fn implicit_pack_for(path: &Path, search_paths: &[PathBuf]) -> Option<String> {
 /// [`Compiler::configure_diagnostics`].
 #[derive(Clone, Copy, Debug)]
 pub struct DiagnosticsConfig {
-  /// `true` → stream NDJSON on stdout (instead of ariadne
-  /// snippets on stderr).
-  pub json: bool,
+  /// Which renderer materialises diagnostics — `Human`
+  /// (ariadne snippets on stderr) or a machine format
+  /// (`Json` / `Xml` on stdout).
+  pub format: DiagnosticFormat,
   /// Number of source lines of context to inline in each
-  /// JSON diagnostic's `snippet`. Ignored when `json` is
-  /// false. `0` disables context.
+  /// machine diagnostic's `snippet`. Ignored for the human
+  /// format. `0` disables context.
   pub snippet_context: usize,
   /// `true` → emit `severity: "note"` rationale entries
   /// explaining compiler decisions (DCE'd functions, …).
@@ -162,7 +163,7 @@ pub struct DiagnosticsConfig {
 impl Default for DiagnosticsConfig {
   fn default() -> Self {
     Self {
-      json: false,
+      format: DiagnosticFormat::Human,
       snippet_context: 2,
       explain_decisions: false,
     }
@@ -180,16 +181,16 @@ pub struct Compiler {
   /// Modules declared via `pub pack` in lib.zo.
   /// Populated during pack compilation, queried by `load`.
   module_table: HashMap<Symbol, ModuleExports>,
-  /// When `true`, diagnostics stream as NDJSON on stdout
-  /// instead of ariadne-styled snippets on stderr. Driver
-  /// flips this from the `--format=json` CLI flag; library
-  /// callers (fret build pipeline, tests) leave it `false`.
-  emit_json: bool,
-  /// Lines of source context inlined in each NDJSON
+  /// Which renderer materialises diagnostics. The driver
+  /// sets this from the `--format` CLI flag; library callers
+  /// (fret build pipeline, tests) leave it `Human`. The
+  /// machine formats (`Json` / `Xml`) stream structured
+  /// output on stdout instead of ariadne snippets on stderr.
+  emit_format: DiagnosticFormat,
+  /// Lines of source context inlined in each machine
   /// diagnostic's `snippet.before` / `snippet.after`. Only
-  /// consulted when `emit_json` is `true`. Defaults to the
-  /// driver's `--snippet-context` flag value (2 unless
-  /// overridden).
+  /// consulted for a machine format. Defaults to the driver's
+  /// `--snippet-context` flag value (2 unless overridden).
   snippet_context: usize,
   /// When `true`, `test fun` functions are pinned as DCE
   /// roots so the synthesized test harness can call them.
@@ -561,7 +562,7 @@ impl Compiler {
       module_resolver: ModuleResolver::new(default_core_search_paths()),
       compiling: HashSet::default(),
       module_table: HashMap::default(),
-      emit_json: false,
+      emit_format: DiagnosticFormat::Human,
       snippet_context: 2,
       test_mode: false,
     }
@@ -577,7 +578,7 @@ impl Compiler {
       module_resolver: ModuleResolver::new(search_paths),
       compiling: HashSet::default(),
       module_table: HashMap::default(),
-      emit_json: false,
+      emit_format: DiagnosticFormat::Human,
       snippet_context: 2,
       test_mode: false,
     }
@@ -593,15 +594,15 @@ impl Compiler {
   }
 
   /// Applies a [`DiagnosticsConfig`] to this compiler. Bound
-  /// from the driver's `--format=json` / `--snippet-context`
-  /// / `--explain-decisions` flags in lockstep. State lands
-  /// in two places — local fields for `json` / `snippet_context`
+  /// from the driver's `--format` / `--snippet-context` /
+  /// `--explain-decisions` flags in lockstep. State lands in
+  /// two places — local fields for `format` / `snippet_context`
   /// and a process-wide atomic for `explain_decisions` (the
   /// rationale channel needs cheap reads from passes in many
   /// crates). The asymmetry is internal; callers see one
   /// uniform setter.
   pub fn configure_diagnostics(&mut self, cfg: DiagnosticsConfig) {
-    self.emit_json = cfg.json;
+    self.emit_format = cfg.format;
     self.snippet_context = cfg.snippet_context;
     rationale::enable_rationale(cfg.explain_decisions);
   }
@@ -1898,10 +1899,16 @@ impl Compiler {
       aggregator.add_errors(errors);
       aggregator.add_details(self.reporter.details());
 
-      let _ = if self.emit_json {
-        json::to_stdout(&aggregator, &file_table, self.snippet_context)
-      } else {
-        render_errors_to_stderr(&aggregator, &file_table)
+      let _ = match self.emit_format {
+        DiagnosticFormat::Json => {
+          json::to_stdout(&aggregator, &file_table, self.snippet_context)
+        }
+        DiagnosticFormat::Xml => {
+          xml::to_stdout(&aggregator, &file_table, self.snippet_context)
+        }
+        DiagnosticFormat::Human => {
+          render_errors_to_stderr(&aggregator, &file_table)
+        }
       };
 
       aggregator.clear();
@@ -1923,11 +1930,11 @@ impl Compiler {
     self.profiler.set_inferences_count(self.stats.numinferences);
     self.profiler.set_artifacts_count(self.stats.numartifacts);
     self.profiler.set_artifacts_linked(self.stats.numlinked);
-    // Profiler text writes to stdout — when `--format=json`
-    // is active, that bleed corrupts the NDJSON stream a
+    // Profiler text writes to stdout — when a machine format
+    // is active, that bleed corrupts the structured stream a
     // consumer is parsing. Suppress; the timing data is
     // human-only.
-    if !self.emit_json {
+    if !self.emit_format.is_machine() {
       self.profiler.summary(target.name());
     }
 

@@ -1,4 +1,5 @@
 use zo_codegen_backend::Target;
+use zo_reporter::DiagnosticFormat;
 
 use std::path::PathBuf;
 
@@ -27,16 +28,18 @@ pub struct Args {
   pub out_dir: Option<PathBuf>,
   /// Diagnostic output format. `human` (default) renders
   /// ariadne-styled colored snippets to stderr. `json`
-  /// streams one NDJSON object per diagnostic to stdout
-  /// for agent / IDE consumers, with a frozen schema keyed
-  /// by stable kebab-case `id`.
+  /// streams one NDJSON object per diagnostic to stdout;
+  /// `xml` emits one well-formed `<diagnostics>` document
+  /// to stdout. Both machine formats target agent / IDE
+  /// consumers and share a frozen schema keyed by stable
+  /// kebab-case `id`.
   #[arg(long, value_enum, default_value_t = Format::Human)]
   pub format: Format,
   /// Number of source lines of context to include before
-  /// and after each diagnostic's span in `--format=json`
-  /// output. `0` disables context. Default `2`. Ignored
-  /// for the human renderer (which always shows full
-  /// snippets via ariadne).
+  /// and after each diagnostic's span in a machine format
+  /// (`--format=json` / `--format=xml`). `0` disables
+  /// context. Default `2`. Ignored for the human renderer
+  /// (which always shows full snippets via ariadne).
   #[arg(long, default_value_t = 2)]
   pub snippet_context: usize,
   /// Emit `severity: "note"` rationale entries explaining
@@ -97,13 +100,29 @@ impl From<ArgsTarget> for Target {
 
 /// Diagnostic output shape. `Human` prints ariadne snippets
 /// to stderr; `Json` streams one NDJSON object per error to
-/// stdout for agentic consumers.
+/// stdout; `Xml` emits one well-formed `<diagnostics>`
+/// document to stdout. Both machine formats are for agentic
+/// consumers and share one frozen, isomorphic schema.
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[clap(rename_all = "lower")]
 pub enum Format {
   #[default]
   Human,
   Json,
+  Xml,
+}
+
+/// Bridges the clap-facing CLI enum to the renderer selector
+/// the compiler consumes. Keeping the two separate spares the
+/// low-level `zo-reporter` crate a `clap` dependency.
+impl From<Format> for DiagnosticFormat {
+  fn from(format: Format) -> Self {
+    match format {
+      Format::Human => Self::Human,
+      Format::Json => Self::Json,
+      Format::Xml => Self::Xml,
+    }
+  }
 }
 
 /// Represents the compiler [`Stage`] output.

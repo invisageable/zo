@@ -27,7 +27,7 @@ impl Test {
     let mut compiler = Compiler::with_search_paths(search_paths);
 
     compiler.configure_diagnostics(DiagnosticsConfig {
-      json: self.args.format == args::Format::Json,
+      format: self.args.format.into(),
       snippet_context: self.args.snippet_context,
       explain_decisions: self.args.explain_decisions,
     });

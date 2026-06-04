@@ -20,7 +20,6 @@ apply []int {
   -- the surface language doesn't expose yet.
   pub fun sort(mut self) {}
 
-
   -! Sum of every element. Empty array returns `0`.
   pub fun sum(self) -> int {
     mut total: int = 0;
