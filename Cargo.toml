@@ -96,6 +96,7 @@ zo-runtime-native = { path = "crates/compiler/zo-runtime-native", version = "0.4
 zo-runtime-render = { path = "crates/compiler/zo-runtime-render", version = "0.4.0" }
 zo-runtime-web = { path = "crates/compiler/zo-runtime-web", version = "0.4.0" }
 zo-provider-json = { path = "crates/compiler/zo-provider-json", version = "0.4.0" }
+zo-provider-raylib = { path = "crates/compiler/zo-provider-raylib", version = "0.4.0" }
 zo-provider-sqlite = { path = "crates/compiler/zo-provider-sqlite", version = "0.4.0" }
 zo-sir = { path = "crates/compiler/zo-sir", version = "0.4.0" }
 zo-session = { path = "crates/compiler/zo-session", version = "0.4.0" }
@@ -172,6 +173,7 @@ hashbrown = { version = "0.16.0",  default-features = true, features = [
 js-sys = "0.3.81"
 kanal = "0.1.1"
 libm = "0.2.15"
+libzstd-rs-sys = "0.0.0"
 lyon_geom = "1.0.17"
 image = { version = "0.25.10", default-features = false, features = [
   "jpeg",

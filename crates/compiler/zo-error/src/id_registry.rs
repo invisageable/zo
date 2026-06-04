@@ -117,6 +117,7 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
     ErrorKind::ExpectedPostfix => ("expected-postfix", 136),
     ErrorKind::ParenthesizedCondition => ("parenthesized-condition", 137),
     ErrorKind::MixedLoopBodyForms => ("mixed-loop-body-forms", 138),
+    ErrorKind::ReservedKeyword => ("reserved-keyword", 139),
 
     // --- Analyzer: semantic + types (E0300 .. E0499) ---
     ErrorKind::DuplicateDefinition => ("duplicate-definition", 300),
@@ -216,6 +217,9 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
     ErrorKind::PrivatePackInLoad => ("private-pack-in-load", 708),
     ErrorKind::PrivateItemInLoad => ("private-item-in-load", 709),
     ErrorKind::ModuleNotReachable => ("module-not-reachable", 710),
+    ErrorKind::CapturingClosureAsFnPointer => {
+      ("capturing-closure-as-fn-pointer", 711)
+    }
 
     // --- Entry point & misc (E0800 .. E0899) ---
     ErrorKind::MissingMainFunction => ("missing-main-function", 800),

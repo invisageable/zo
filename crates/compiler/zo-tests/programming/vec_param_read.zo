@@ -1,0 +1,31 @@
+-- tests-run-pass: a function can take a `Vec<int>` parameter, read it
+-- through `len`/`get`, and the caller still owns the vec afterwards
+-- (so the post-call `free` is valid — i.e. the param is not consumed).
+-- @cmd — zo run vec_param_read.zo
+
+fun count_above(values: Vec<int>, threshold: int) -> int {
+  mut count: int = 0;
+
+  for i := 0..values.len() {
+    match values.get(i) {
+      Option::Some(value) => { if value > threshold { count += 1; } }
+      Option::None => {}
+    }
+  }
+
+  count
+}
+
+fun main() {
+  mut values: Vec<int> = Vec::new();
+  values.push(10);
+  values.push(20);
+  values.push(30);
+
+  showln(count_above(values, 15));
+
+  values.free();
+}
+
+-- EXPECTED OUTPUT:
+-- 2

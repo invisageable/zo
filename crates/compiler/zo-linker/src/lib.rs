@@ -23,7 +23,7 @@ use zo_codegen_backend::{LinkObject, Target};
 
 pub use error::LinkError;
 pub use linker::link_to_executable;
-pub use linker_macho::link_macho;
+pub use linker_macho::{LinkOutput, RuntimeKind, link_macho};
 
 /// Top-level link entry point — turns codegen's
 /// [`LinkObject`] into an executable file.
@@ -38,18 +38,31 @@ pub use linker_macho::link_macho;
 /// Errors from `cc` are surfaced via the returned
 /// `LinkError`; the user's `output_path` is left
 /// untouched on failure.
+///
+/// On success returns the [`RuntimeKind`] the binary needs
+/// — which `libzo_runtime.dylib` flavor the caller stages
+/// next to it. The `cc` path links system libraries
+/// directly and stages no zo runtime, so it reports
+/// [`RuntimeKind::None`].
 pub fn link(
   link_obj: LinkObject,
   output_path: &Path,
   target: Target,
-) -> Result<(), LinkError> {
+) -> Result<RuntimeKind, LinkError> {
   match link_obj {
     LinkObject::Macho(m) => {
-      let executable = link_macho(*m);
+      let output = link_macho(*m);
 
-      write_executable(&executable, output_path).map_err(LinkError::Io)
+      write_executable(&output.executable, output_path)
+        .map_err(LinkError::Io)?;
+
+      Ok(output.runtime)
     }
-    LinkObject::Object(code) => link_to_executable(&code, output_path, target),
+    LinkObject::Object(code) => {
+      link_to_executable(&code, output_path, target)?;
+
+      Ok(RuntimeKind::None)
+    }
   }
 }
 

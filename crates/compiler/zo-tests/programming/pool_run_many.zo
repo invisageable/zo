@@ -1,0 +1,40 @@
+-- tests-run-pass: N pool tasks each write a distinct byte of one
+-- shared buffer. The slots are disjoint, so the writes race-free
+-- without any atomic; `wait()` joins every worker before main reads
+-- back. Proves dispatch + completion + pending accounting across
+-- workers, and that task arguments (the buffer handle + an index)
+-- reach the callee. This is the mandelbrot shape: a shared base
+-- pointer + a per-task region index.
+-- @cmd — zo run pool_run_many.zo
+
+load core::pool;
+load core::mem;
+
+fun write_slot(buffer: s64, index: s64) {
+  mem::write_u8(buffer + index, (index as int) + 1);
+}
+
+fun main() {
+  imu buffer: s64 = mem::alloc(4);
+  mem::set(buffer, 0, 4);
+
+  imu thread_pool := pool::spawn_pool(2);
+  for i := 0..4 {
+    thread_pool.run2(write_slot, buffer, i as s64);
+  }
+
+  thread_pool.wait();
+
+  for i := 0..4 {
+    showln(mem::read_u8(buffer + (i as s64)));
+  }
+
+  thread_pool.shutdown();
+  mem::free(buffer);
+}
+
+-- EXPECTED OUTPUT:
+-- 1
+-- 2
+-- 3
+-- 4

@@ -645,6 +645,22 @@ impl PrettyPrinter {
 
           self.sir_instruction(&c);
         }
+        Insn::FnAddr {
+          dst,
+          callee,
+          callee_pack,
+        } => {
+          let name = match callee_pack {
+            Some(p) => {
+              format!("{}::{}", interner.get(*p), interner.get(*callee))
+            }
+            None => interner.get(*callee).to_string(),
+          };
+
+          let c = format!("%{dst} = fn.addr {name}");
+
+          self.sir_instruction(&c);
+        }
         Insn::NurseryBegin { label, kind } => {
           let label_str = match kind {
             NurseryKind::Scoped => "nursery.begin",

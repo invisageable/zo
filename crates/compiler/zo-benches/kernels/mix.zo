@@ -1,0 +1,28 @@
+-- runtime kernel: register pressure. Nine live `mut` locals
+-- threaded through a dependent chain — the workload that
+-- exposes whether the codegen keeps scalars in registers or
+-- round-trips them through the stack every iteration.
+-- @cmd — zo run mix.zo
+
+fun mix(n: int) -> int {
+  mut a: int = 1; mut b: int = 2; mut c: int = 3; mut d: int = 4;
+  mut e: int = 5; mut f: int = 6; mut g: int = 7; mut h: int = 8;
+  mut i: int = 0;
+
+  while i < n {
+    a = a + h; b = b + a; c = c + b; d = d + c;
+    e = e + d; f = f + e; g = g + f; h = h + g;
+    i = i + 1;
+  }
+
+  return a + b + c + d + e + f + g + h;
+}
+
+fun main() {
+  imu r: int = mix(50000000);
+
+  showln(r);
+}
+
+-- EXPECTED OUTPUT:
+-- -8993397723945324764

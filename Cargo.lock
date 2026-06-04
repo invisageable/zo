@@ -7960,6 +7960,7 @@ dependencies = [
  "zo-pp",
  "zo-profiler",
  "zo-provider-json",
+ "zo-provider-raylib",
  "zo-provider-sqlite",
  "zo-reporter",
  "zo-runtime",
@@ -8250,6 +8251,10 @@ dependencies = [
  "smallvec",
  "zo-c-abi",
 ]
+
+[[package]]
+name = "zo-provider-raylib"
+version = "0.4.0"
 
 [[package]]
 name = "zo-provider-sqlite"

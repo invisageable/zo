@@ -54,7 +54,7 @@ fun main() {
 -- EXPECTED OUTPUT:
 -- int: 42
 -- neg: -7
--- float: 2.500000
+-- float: 2.5
 -- yes: true
 -- no: false
 -- DONE

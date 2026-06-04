@@ -1,5 +1,9 @@
 //! Integration test for template loading and rendering
 
+// `Runtime` and the render config types live behind the `ui`
+// feature; a lean build sees an empty test target.
+#![cfg(feature = "ui")]
+
 use zo_runtime::Runtime;
 use zo_runtime_render::render::{Graphics, RuntimeConfig};
 use zo_ui_protocol::{Attr, ElementTag, UiCommand};

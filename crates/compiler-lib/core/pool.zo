@@ -5,16 +5,34 @@
   linux: "@executable_path/libzo_runtime.so",
 }
 
+-! ...
 pub ffi zo_sys_cpu_count() -> int;
-
+-! ...
 pub ffi zo_pool_new(workers: int) -> s64;
-
+-! ...
 pub ffi zo_pool_spawn(handle: s64, callee: Fn());
-
+-! ...
+pub ffi zo_pool_spawn_1(handle: s64, callee: Fn(s64), arg0: s64);
+-! ...
+pub ffi zo_pool_spawn_2(
+  handle: s64,
+  callee: Fn(s64, s64),
+  arg0: s64,
+  arg1: s64,
+);
+-! ...
+pub ffi zo_pool_spawn_3(
+  handle: s64,
+  callee: Fn(s64, s64, s64),
+  arg0: s64,
+  arg1: s64,
+  arg2: s64,
+);
+-! ...
 pub ffi zo_pool_wait_idle(handle: s64);
-
+-! ...
 pub ffi zo_pool_shutdown(handle: s64);
-
+-! ...
 pub ffi zo_pool_worker_count(handle: s64) -> int;
 
 -! Number of logical CPU cores.
@@ -34,6 +52,30 @@ apply Pool {
   -! Submit a function for execution on a worker.
   pub fun run(self, task: Fn()) {
     zo_pool_spawn(self.handle, task);
+  }
+
+  -! Submit a 1-arg task. Each argument rides as a single
+  -! word (`s64`): a shared buffer handle, an index cast
+  -! with `as s64`, anything pointer-sized. The callee
+  -! reads them back in its own param types.
+  pub fun run1(self, task: Fn(s64), arg0: s64) {
+    zo_pool_spawn_1(self.handle, task, arg0);
+  }
+
+  -! Submit a 2-arg task.
+  pub fun run2(self, task: Fn(s64, s64), arg0: s64, arg1: s64) {
+    zo_pool_spawn_2(self.handle, task, arg0, arg1);
+  }
+
+  -! Submit a 3-arg task — the green-task argument ceiling.
+  pub fun run3(
+    self,
+    task: Fn(s64, s64, s64),
+    arg0: s64,
+    arg1: s64,
+    arg2: s64,
+  ) {
+    zo_pool_spawn_3(self.handle, task, arg0, arg1, arg2);
   }
 
   -! Block until all submitted tasks complete.

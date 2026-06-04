@@ -42,7 +42,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Auto-detect the std lib search path so every caller of
+/// Auto-detect the system-pack search paths so every caller of
 /// `Compiler::new()` (the zo CLI driver, the fret build
 /// pipeline, integration tests, …) gets `preload`/`io`/etc.
 /// resolved without each one having to wire its own search
@@ -469,8 +469,8 @@ struct DfsCtx {
   module_next_label_id: u32,
   /// System-pack roots (`core`, `provider`, …) — loads
   /// through these bypass the user lib.zo membership
-  /// check because the std layout is what governs them,
-  /// not the user's `pack` declarations.
+  /// check because the system-pack layout is what governs
+  /// them, not the user's `pack` declarations.
   system_pack_roots: HashSet<Symbol>,
   /// `true` when the user file is paired with a sibling
   /// `lib.zo` package manifest. Drives the "missing pack
@@ -550,7 +550,7 @@ impl Compiler {
     self.module_resolver.search_paths()
   }
 
-  /// detected std lib search path. Every caller (zo CLI,
+  /// detected system-pack search path. Every caller (zo CLI,
   /// fret build pipeline, integration tests) gets
   /// `preload`/`io`/etc. resolved without per-call wiring.
   pub fn new() -> Self {
@@ -829,7 +829,7 @@ impl Compiler {
 
     // System-pack roots bypass the user lib.zo membership
     // check: loads through `core` / `provider` are governed
-    // by the std layout, not the user's pack declarations.
+    // by the system-pack layout, not the user's declarations.
     ctx.system_pack_roots = zo_host_paths::SYSTEM_PACK_ROOTS
       .iter()
       .map(|n| session.interner.intern(n))
@@ -1089,6 +1089,7 @@ impl Compiler {
         implicit_pack: implicit_sym,
         in_scope_packs,
         is_entry: true,
+        test_mode: self.test_mode,
         file_id: 0,
       })
       .analyze();
@@ -1858,27 +1859,32 @@ impl Compiler {
       // `link_obj`.
       self.profiler.start_phase(LINKER_NAME);
 
-      if let Err(err) = zo_linker::link(link_obj, &output_path, target) {
-        eprintln!("zo: link failed: {err}");
-      } else {
-        self.stats.numlinked += 1;
+      let mut runtime = zo_linker::RuntimeKind::None;
+
+      match zo_linker::link(link_obj, &output_path, target) {
+        Ok(kind) => {
+          runtime = kind;
+          self.stats.numlinked += 1;
+        }
+        Err(err) => eprintln!("zo: link failed: {err}"),
       }
 
-      // Colocate runtime dylibs that the compiled
-      // binary references at `@executable_path/`. zo's
-      // runtimes are context-dependent — concurrency,
-      // native UI, and web are three independent
-      // artifacts. A program that only prints strings
-      // needs none; a program that `spawn`s tasks
-      // needs the concurrency dylib; a templating
-      // program needs the UI dylib. Detection is on
-      // the SIR emitted by the executor — each
-      // concurrency / UI insn maps to a set of
-      // runtime-symbol imports, and the codegen
-      // already gates the `LC_LOAD_DYLIB` entry on
-      // those same imports. We just mirror that gate
-      // here to stage the matching dylib file.
-      stage_runtime_artifacts(&semantic.sir, &session.interner, &output_path);
+      // Colocate the runtime dylibs the compiled binary
+      // references at `@loader_path/deps/`. The linker is
+      // the authority on which `libzo_runtime.dylib` flavor
+      // to stage: it sees the exact set of `_zo_*` symbols
+      // the program imports and reports `RuntimeKind` — lean
+      // core when every import resolves in the 1.3 MB core,
+      // the full 9.9 MB UI build when any UI-exclusive
+      // symbol (`#dom` / render) is referenced. Vendored
+      // `#link` dylibs (raylib, …) are staged separately by
+      // basename from the SIR.
+      stage_runtime_artifacts(
+        runtime,
+        &semantic.sir,
+        &session.interner,
+        &output_path,
+      );
 
       self.profiler.end_phase(LINKER_NAME);
       self.profiler.set_output(path.display().to_string());
@@ -2038,11 +2044,20 @@ impl Compiler {
         abstract_state,
       );
 
-      if let Err(err) = zo_linker::link(link_obj, output_path, target) {
-        eprintln!("zo: link failed: {err}");
-      }
+      let runtime = match zo_linker::link(link_obj, output_path, target) {
+        Ok(kind) => kind,
+        Err(err) => {
+          eprintln!("zo: link failed: {err}");
+          zo_linker::RuntimeKind::None
+        }
+      };
 
-      stage_runtime_artifacts(&semantic.sir, &session.interner, output_path);
+      stage_runtime_artifacts(
+        runtime,
+        &semantic.sir,
+        &session.interner,
+        output_path,
+      );
     }
 
     let errors = self.reporter.errors();
@@ -2107,107 +2122,68 @@ impl Stats {
   }
 }
 
-/// Runtime context a compiled binary depends on.
-/// Orthogonal flags — a program may pull in zero, one,
-/// or several runtimes (e.g. a UI program that also
-/// spawns background tasks). `dylib_basenames` carries the
-/// `@executable_path/...` dylib basenames extracted from
-/// `Insn::PackLink` (per-pack `#link { ... }`); each one
-/// gets staged next to the user binary so dyld can
-/// resolve it.
+/// Vendored `@executable_path/<name>` dylibs a binary
+/// references through `#link` — raylib, future C libs.
+/// Collected from `Insn::PackLink`; each is staged next to
+/// the user binary so dyld resolves it at load time. The zo
+/// runtime dylib is staged separately, flavor chosen by the
+/// linker (see [`zo_linker::RuntimeKind`]).
 #[derive(Default, Clone)]
 struct RuntimeNeeds {
-  concurrency: bool,
-  native_ui: bool,
-  web_ui: bool,
   dylib_basenames: Vec<String>,
 }
 
-/// Call-name prefixes that trigger runtime-dylib staging.
-/// Any `Insn::Call` whose mangled name starts with one of
-/// these resolves to a `_zo_*` symbol in
-/// `libzo_runtime.dylib`.
-const RUNTIME_DYLIB_PREFIXES: &[&str] = &[
-  "HashMap::",
-  "HashSet::",
-  "Vec::",
-  "zo_map_",
-  "zo_vec_",
-  "zo_set_",
-];
+// Per-host names for zo's own runtime cdylib. The compiler
+// builds two flavors — a lean core (`--no-default-features`)
+// and the full UI build (default) — and stages the one the
+// linker selected under the canonical `libzo_runtime`
+// basename the binary's `LC_LOAD_DYLIB` resolves against.
+#[cfg(target_os = "macos")]
+const RUNTIME_CORE_DYLIB: &str = "libzo_runtime_core.dylib";
+#[cfg(target_os = "macos")]
+const RUNTIME_UI_DYLIB: &str = "libzo_runtime_ui.dylib";
+#[cfg(target_os = "macos")]
+const RUNTIME_STAGED_DYLIB: &str = "libzo_runtime.dylib";
 
-/// Exact call names that trigger runtime-dylib staging.
-/// Use the prefix table above when a call family shares
-/// a stem; this list is for one-off intrinsics.
-const RUNTIME_DYLIB_NAMES: &[&str] = &[
-  "arr_int::sort",
-  "check",
-  "read",
-  "readln",
-  "args",
-  "read_dir",
-  "zo_str_replace",
-];
+#[cfg(target_os = "linux")]
+const RUNTIME_CORE_DYLIB: &str = "libzo_runtime_core.so";
+#[cfg(target_os = "linux")]
+const RUNTIME_UI_DYLIB: &str = "libzo_runtime_ui.so";
+#[cfg(target_os = "linux")]
+const RUNTIME_STAGED_DYLIB: &str = "libzo_runtime.so";
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+const RUNTIME_CORE_DYLIB: &str = "libzo_runtime_core.dylib";
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+const RUNTIME_UI_DYLIB: &str = "libzo_runtime_ui.dylib";
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+const RUNTIME_STAGED_DYLIB: &str = "libzo_runtime.dylib";
 
 impl RuntimeNeeds {
   fn from_sir(sir: &Sir, interner: &zo_interner::Interner) -> Self {
     let mut needs = Self::default();
 
     for insn in &sir.instructions {
-      match insn {
-        zo_sir::Insn::ChannelCreate { .. }
-        | zo_sir::Insn::ChannelSend { .. }
-        | zo_sir::Insn::ChannelRecv { .. }
-        | zo_sir::Insn::ChannelClose { .. }
-        | zo_sir::Insn::TaskSpawn { .. }
-        | zo_sir::Insn::TaskAwait { .. }
-        | zo_sir::Insn::TaskCancelled { .. }
-        | zo_sir::Insn::TaskCancel { .. }
-        | zo_sir::Insn::SelectWait { .. }
-        | zo_sir::Insn::NurseryBegin { .. }
-        | zo_sir::Insn::NurseryEnd { .. }
-        | zo_sir::Insn::StrSlice { .. }
-        | zo_sir::Insn::ToStr { .. }
-        | zo_sir::Insn::StringFormat { .. }
-        | zo_sir::Insn::TestBegin { .. }
-        | zo_sir::Insn::TestRun { .. }
-        | zo_sir::Insn::TestSummary => {
-          needs.concurrency = true;
+      if let zo_sir::Insn::PackLink {
+        resolution: zo_sir::LinkResolution::Resolved(sym),
+        ..
+      } = insn
+      {
+        // The executor pre-resolved `system → vendor`; we
+        // stage whatever it produced.
+        // `@executable_path/<name>` entries need the file
+        // copied next to the user binary; absolute system
+        // paths (`/opt/...`, `/usr/...`) are resolved by
+        // dyld at load time and need no staging. The zo
+        // runtime dylib resolves through this same `#link`
+        // (`core/io.zo`), but its flavor is the linker's
+        // call — skip it here so we don't stage a stale
+        // copy over the linker-chosen one.
+        if let Some(rest) = interner.get(*sym).strip_prefix("@executable_path/")
+          && rest != RUNTIME_STAGED_DYLIB
+        {
+          needs.dylib_basenames.push(rest.to_owned());
         }
-        zo_sir::Insn::Call { name, .. } => {
-          let n = interner.get(*name);
-
-          if RUNTIME_DYLIB_PREFIXES.iter().any(|p| n.starts_with(p))
-            || RUNTIME_DYLIB_NAMES.contains(&n)
-          {
-            needs.concurrency = true;
-          }
-        }
-        zo_sir::Insn::Template { .. } => {
-          // Template programs run in-process through
-          // `zo run` today; a future `zo build`
-          // web-target would flip `web_ui` here and
-          // emit `bridge.js` alongside the binary.
-          needs.native_ui = true;
-        }
-        zo_sir::Insn::PackLink {
-          resolution: zo_sir::LinkResolution::Resolved(sym),
-          ..
-        } => {
-          // The executor pre-resolved `system → vendor`;
-          // we stage whatever it produced.
-          // `@executable_path/<name>` entries need the
-          // file copied next to the user binary; absolute
-          // system paths (`/opt/...`, `/usr/...`) are
-          // resolved by dyld at load time and need no
-          // staging.
-          if let Some(rest) =
-            interner.get(*sym).strip_prefix("@executable_path/")
-          {
-            needs.dylib_basenames.push(rest.to_owned());
-          }
-        }
-        _ => {}
       }
     }
 
@@ -2215,30 +2191,23 @@ impl RuntimeNeeds {
   }
 }
 
-// Per-host file names — `.dylib` on macOS, `.so` on Linux.
-#[cfg(target_os = "macos")]
-const CONCURRENCY_DYLIB: &str = "libzo_runtime.dylib";
-#[cfg(target_os = "linux")]
-const CONCURRENCY_DYLIB: &str = "libzo_runtime.so";
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-const CONCURRENCY_DYLIB: &str = "libzo_runtime.dylib";
-
-/// Materialise each `@executable_path/<dylib>` reference
-/// the linker emitted by copying that dylib next to the
-/// produced user binary. Sourced from the sibling
-/// directory of the running `zo` compiler (e.g.
-/// `target/debug/`). No-op when no runtime is needed or
-/// when the source dylib is missing.
+/// Materialise the runtime dylibs a freshly-built binary
+/// references at `@loader_path/deps/`. The linker's
+/// `runtime` verdict picks which `libzo_runtime` flavor —
+/// lean core or full UI — gets staged under the canonical
+/// basename; vendored `#link` dylibs are staged by basename
+/// from the SIR. Sourced from the sibling directory of the
+/// running `zo` compiler (e.g. `target/release/`). No-op
+/// when nothing is needed or the source dylib is missing.
 fn stage_runtime_artifacts(
+  runtime: zo_linker::RuntimeKind,
   sir: &Sir,
   interner: &zo_interner::Interner,
   output_path: &std::path::Path,
 ) {
   let needs = RuntimeNeeds::from_sir(sir, interner);
 
-  if !needs.concurrency
-    && !needs.native_ui
-    && !needs.web_ui
+  if matches!(runtime, zo_linker::RuntimeKind::None)
     && needs.dylib_basenames.is_empty()
   {
     return;
@@ -2268,13 +2237,20 @@ fn stage_runtime_artifacts(
     return;
   }
 
-  if needs.concurrency {
-    stage_dylib(runtime_dir, &deps_dir, CONCURRENCY_DYLIB);
-  }
+  // Copy the linker-chosen runtime flavor under the
+  // canonical basename. The source file differs (lean core
+  // vs full UI); the destination is always
+  // `libzo_runtime.dylib`, the name every binary's
+  // `LC_LOAD_DYLIB` resolves against.
+  let runtime_source = match runtime {
+    zo_linker::RuntimeKind::None => None,
+    zo_linker::RuntimeKind::Lean => Some(RUNTIME_CORE_DYLIB),
+    zo_linker::RuntimeKind::Full => Some(RUNTIME_UI_DYLIB),
+  };
 
-  // Native / web UI staging will land here when those
-  // runtimes become separate dylibs referenced by the
-  // binary (today they run in-process via `zo run`).
+  if let Some(source) = runtime_source {
+    stage_dylib_as(runtime_dir, &deps_dir, source, RUNTIME_STAGED_DYLIB);
+  }
 
   for name in &needs.dylib_basenames {
     stage_dylib(runtime_dir, &deps_dir, name);
@@ -2300,22 +2276,41 @@ fn stage_dylib(
   output_dir: &std::path::Path,
   name: &str,
 ) {
+  stage_dylib_as(runtime_dir, output_dir, name, name);
+}
+
+/// Copy a runtime dylib, renaming `source` to `dest` at the
+/// destination. The runtime-flavor selection builds two
+/// files (`libzo_runtime_core` / `libzo_runtime_ui`) but a
+/// binary's `LC_LOAD_DYLIB` names only `libzo_runtime`, so
+/// the chosen flavor is staged under that canonical name.
+/// When `source == dest` this is a plain copy.
+fn stage_dylib_as(
+  runtime_dir: &std::path::Path,
+  output_dir: &std::path::Path,
+  source: &str,
+  dest: &str,
+) {
   // Search order:
-  // 1. `deps/<name>` — cargo build artifacts that the
-  //    runtime crate produces (libzo_runtime,
+  // 1. `deps/<source>` — cargo build artifacts that the
+  //    runtime crate produces (libzo_runtime_*,
   //    libzo_misato).
-  // 2. `<runtime_dir>/<name>` — the sibling copy cargo
+  // 2. `<runtime_dir>/<source>` — the sibling copy cargo
   //    stages on direct cdylib builds (stale in
   //    transitive builds, see below).
-  // 3. `<runtime_dir>/../lib/vendor/<name>` — F7
+  // 3. `<runtime_dir>/../lib/vendor/<source>` — F7
   //    vendored prebuilts (raylib, future C libs)
   //    placed by `tasks/zo-install.sh` or staged
   //    manually under `target/lib/vendor/` for local
   //    development.
   let candidates = [
-    runtime_dir.join("deps").join(name),
-    runtime_dir.join(name),
-    runtime_dir.join("..").join("lib").join("vendor").join(name),
+    runtime_dir.join("deps").join(source),
+    runtime_dir.join(source),
+    runtime_dir
+      .join("..")
+      .join("lib")
+      .join("vendor")
+      .join(source),
   ];
 
   // Race-safe staging: copy to a PID-stamped tempfile,
@@ -2330,12 +2325,12 @@ fn stage_dylib(
   // partial one.
   for src in &candidates {
     if src.exists() {
-      let dest = output_dir.join(name);
+      let destination = output_dir.join(dest);
       let tmp =
-        output_dir.join(format!(".{}.{}.tmp", name, std::process::id(),));
+        output_dir.join(format!(".{}.{}.tmp", dest, std::process::id()));
 
       if std::fs::copy(src, &tmp).is_ok() {
-        let _ = std::fs::rename(&tmp, &dest);
+        let _ = std::fs::rename(&tmp, &destination);
       } else {
         let _ = std::fs::remove_file(&tmp);
       }

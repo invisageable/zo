@@ -24,6 +24,10 @@ pub ffi zo_mem_write_u8(dst: s64, value: int);
 
 pub ffi zo_mem_read_u8(src: s64) -> int;
 
+pub ffi zo_mem_write_f64(dst: s64, value: float);
+
+pub ffi zo_mem_read_f64(src: s64) -> float;
+
 pub ffi zo_mem_realloc(ptr: s64, size: int) -> s64;
 
 
@@ -60,6 +64,16 @@ pub fun write_u8(dst: s64, value: int) {
 -! Read one byte at `src`.
 pub fun read_u8(src: s64) -> int {
   zo_mem_read_u8(src)
+}
+
+-! Write an `f64` (8 bytes) at `dst`. Unaligned-safe.
+pub fun write_f64(dst: s64, value: float) {
+  zo_mem_write_f64(dst, value);
+}
+
+-! Read an `f64` (8 bytes) at `src`. Unaligned-safe.
+pub fun read_f64(src: s64) -> float {
+  zo_mem_read_f64(src)
 }
 
 -! Resize a heap allocation. Returns the new pointer.

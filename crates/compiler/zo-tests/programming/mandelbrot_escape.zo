@@ -1,0 +1,36 @@
+-- tests-run-pass: the Mandelbrot escape-time loop — the core of the
+-- raylib `mandelbrot.zo`, checked headless. Counts iterations until
+-- the orbit escapes (|z|^2 > 4) or hits MAX_ITER (assumed in-set).
+-- Exercises the `while cond_float && cond_int` loop, the complex
+-- arithmetic, and the `mut`/reassign dance the windowed version hides.
+-- @cmd — zo run mandelbrot_escape.zo
+
+val MAX_ITER: int = 100;
+
+fun escape(cr: float, ci: float) -> int {
+  mut zr: float = 0.0;
+  mut zi: float = 0.0;
+  mut iter: int = 0;
+
+  while zr * zr + zi * zi <= 4.0 && iter < MAX_ITER {
+    imu temp := zr * zr - zi * zi + cr;
+    zi = 2.0 * zr * zi + ci;
+    zr = temp;
+    iter += 1;
+  }
+
+  return iter;
+}
+
+fun main() {
+  showln(escape(0.0, 0.0));   -- origin never escapes
+  showln(escape(2.0, 0.0));   -- escapes in 2
+  showln(escape(1.0, 0.0));   -- escapes in 3
+  showln(escape(-1.0, 0.0));  -- period-2 cycle, stays in-set
+}
+
+-- EXPECTED OUTPUT:
+-- 100
+-- 2
+-- 3
+-- 100

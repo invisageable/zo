@@ -8,7 +8,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   # Pin the vendored raylib version. Bump in lockstep
-  # with what `compiler-lib/std/raylib.zo`'s `pub ffi`
+  # with what `compiler-lib/provider/raylib`'s `pub ffi`
   # surface assumes about the C ABI (struct layouts,
   # symbol names). raylib's MAJOR.MINOR is stable; we
   # pull binaries from raylib's own GitHub releases.
@@ -178,7 +178,7 @@ jobs:
   # `${ZO_HOME}/lib/vendor/`. Today: just raylib —
   # downloaded from raylib's own release artifacts so
   # we don't take on a Cmake build dep. Each entry is
-  # the basename `compiler-lib/std/raylib.zo`'s
+  # the basename `compiler-lib/provider/raylib`'s
   # `#link { ..., vendor: "..." }` references.
   vendor:
     name: Vendor ${{ matrix.target }}

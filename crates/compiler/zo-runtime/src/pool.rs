@@ -158,11 +158,46 @@ impl Pool {
     }
   }
 
-  /// Submit a task. Places it on the emptiest worker's
-  /// shared queue and wakes that worker.
+  /// Submit a zero-arg task.
   pub fn spawn(&self, callee: extern "C-unwind" fn()) {
-    let task = Box::into_raw(ZoTask::new_green_standalone(callee));
+    self.enqueue(Box::into_raw(ZoTask::new_green_standalone(callee)));
+  }
 
+  /// Submit a 1-arg task. `arg0` is replayed into the
+  /// callee by the task shim on first dispatch.
+  pub fn spawn_1(&self, callee: extern "C-unwind" fn(u64), arg0: u64) {
+    self.enqueue(Box::into_raw(ZoTask::new_green_standalone_1(callee, arg0)));
+  }
+
+  /// Submit a 2-arg task.
+  pub fn spawn_2(
+    &self,
+    callee: extern "C-unwind" fn(u64, u64),
+    arg0: u64,
+    arg1: u64,
+  ) {
+    self.enqueue(Box::into_raw(ZoTask::new_green_standalone_2(
+      callee, arg0, arg1,
+    )));
+  }
+
+  /// Submit a 3-arg task — the green-task argument ceiling.
+  pub fn spawn_3(
+    &self,
+    callee: extern "C-unwind" fn(u64, u64, u64),
+    arg0: u64,
+    arg1: u64,
+    arg2: u64,
+  ) {
+    self.enqueue(Box::into_raw(ZoTask::new_green_standalone_3(
+      callee, arg0, arg1, arg2,
+    )));
+  }
+
+  /// Place a freshly-built task on the emptiest worker's
+  /// shared queue, bump the pending count, and wake that
+  /// worker. Shared by every `spawn*` arity.
+  fn enqueue(&self, task: *mut ZoTask) {
     self.pending.fetch_add(1, Ordering::SeqCst);
 
     let idx = self.emptiest_worker();
@@ -380,6 +415,60 @@ pub unsafe extern "C-unwind" fn zo_pool_spawn(
   let pool = unsafe { &*(handle as *const Pool) };
 
   pool.spawn(callee);
+}
+
+/// Submit a 1-arg function to the pool. `arg0` rides as a
+/// raw word and is replayed into the callee by the task
+/// shim (e.g. a shared buffer handle or a band index).
+///
+/// # Safety
+///
+/// `handle` must be a live pool from `zo_pool_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_pool_spawn_1(
+  handle: i64,
+  callee: extern "C-unwind" fn(u64),
+  arg0: u64,
+) {
+  let pool = unsafe { &*(handle as *const Pool) };
+
+  pool.spawn_1(callee, arg0);
+}
+
+/// Submit a 2-arg function to the pool.
+///
+/// # Safety
+///
+/// `handle` must be a live pool from `zo_pool_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_pool_spawn_2(
+  handle: i64,
+  callee: extern "C-unwind" fn(u64, u64),
+  arg0: u64,
+  arg1: u64,
+) {
+  let pool = unsafe { &*(handle as *const Pool) };
+
+  pool.spawn_2(callee, arg0, arg1);
+}
+
+/// Submit a 3-arg function to the pool — the green-task
+/// argument ceiling.
+///
+/// # Safety
+///
+/// `handle` must be a live pool from `zo_pool_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_pool_spawn_3(
+  handle: i64,
+  callee: extern "C-unwind" fn(u64, u64, u64),
+  arg0: u64,
+  arg1: u64,
+  arg2: u64,
+) {
+  let pool = unsafe { &*(handle as *const Pool) };
+
+  pool.spawn_3(callee, arg0, arg1, arg2);
 }
 
 /// Block until all submitted tasks complete.

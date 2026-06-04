@@ -294,6 +294,13 @@ pub struct Executor<'a> {
     Option<(ValueId, u32, TyId, ValueId, BinOp, Symbol, Span)>,
   /// Array context stack — one entry per open `[ ... ]`.
   array_ctx: Vec<ArrayCtx>,
+  /// Root variable of the most recently closed index
+  /// expression (`arr` for `arr[i]`, `self` for `self.f[i]`).
+  /// The `Eq` store handler reads it O(1) to check the root's
+  /// mutability — the array operand is a field read or a
+  /// parameter, neither of which survives as a `Load(Local)`
+  /// to recover the name from after the fact.
+  last_index_root: Option<Symbol>,
   /// Pending array element assignment (deferred to Semicolon).
   /// (array_sir, index_sir, array_name, span)
   pending_array_assign: Option<(ValueId, ValueId, Symbol, Span)>,
@@ -868,6 +875,7 @@ impl<'a> Executor<'a> {
       pending_compound_receiver: None,
       pending_compound_field: None,
       array_ctx: Vec::new(),
+      last_index_root: None,
       pending_array_assign: None,
       pending_field_assign: None,
       tuple_ctx: Vec::new(),
@@ -1396,6 +1404,50 @@ impl<'a> Executor<'a> {
   /// injected helpers).
   fn callee_pack_of(&self, name: Symbol) -> Option<Symbol> {
     self.find_fun(name).and_then(|f| f.owning_pack)
+  }
+
+  /// Materialize `callee`'s code address as a SIR value via
+  /// `Insn::FnAddr`. This is how a non-capturing `Fn()`
+  /// operand becomes a real runtime pointer (`s64`), so it
+  /// flows unchanged through bindings and across the C-ABI
+  /// FFI boundary (e.g. into `zo_pool_spawn`). A call site
+  /// that can statically devirtualize (`g()`) ignores this
+  /// value, so the emitted `FnAddr` is dead there and DCE
+  /// reclaims it.
+  fn emit_fn_addr(&mut self, callee: Symbol) -> ValueId {
+    let dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let callee_pack = self.callee_pack_of(callee);
+
+    self.sir.emit(Insn::FnAddr {
+      dst,
+      callee,
+      callee_pack,
+    })
+  }
+
+  /// True when `value` is a closure that captured at least
+  /// one variable. A capturing closure owns an environment,
+  /// so it cannot become a bare function pointer when a
+  /// `Fn()` operand flows into a real-pointer position (an
+  /// FFI argument or a non-monomorphizable call).
+  fn is_capturing_closure(&self, value: ValueId) -> bool {
+    let idx = value.0 as usize;
+
+    if idx >= self.values.kinds.len()
+      || !matches!(self.values.kinds[idx], Value::Closure)
+    {
+      return false;
+    }
+
+    let ci = self.values.indices[idx] as usize;
+
+    self
+      .values
+      .closures
+      .get(ci)
+      .is_some_and(|cv| !cv.captures.is_empty())
   }
 
   /// Pack-qualified lookup. Resolves `<pack>::<name>` to
@@ -4761,9 +4813,16 @@ impl<'a> Executor<'a> {
                 captures: Vec::new(),
               });
 
+              // Materialize the function's real address. A
+              // bare fn name captures nothing, so it can flow
+              // as a code pointer into an FFI / binding. A
+              // devirtualizable `g()` ignores this and DCE
+              // reclaims it; only a real-pointer use reads it.
+              let fn_addr = self.emit_fn_addr(sym);
+
               self.value_stack.push(closure_val);
               self.ty_stack.push(fun_ty);
-              self.sir_values.push(ValueId(u32::MAX));
+              self.sir_values.push(fn_addr);
             } else if sym_str == "channel" && self.ident_is_call_target(idx) {
               // `channel` is a compiler intrinsic, not a
               // FunDef — skip the undefined-variable report
@@ -4822,11 +4881,23 @@ impl<'a> Executor<'a> {
               | Token::RParen
           );
 
+        // Resolve the array's root binding once, here, where
+        // its shape is in front of us. `arr[` → the ident;
+        // `self.f[` → walk the receiver chain; `m[i][` → the
+        // inner index already resolved the same root, inherit
+        // it O(1). Carried on the ctx so the store handler
+        // never re-scans SIR for provenance.
         let array_name = if is_indexing && idx > 0 {
-          self.node_value(idx - 1).and_then(|v| match v {
-            NodeValue::Symbol(s) => Some(s),
+          match self.tree.nodes[idx - 1].token {
+            Token::Ident => self.node_value(idx - 1).and_then(|v| match v {
+              NodeValue::Symbol(s) => Some(s),
+              _ => None,
+            }),
+            Token::SelfLower => Some(Symbol::SELF_LOWER),
+            Token::Dot => self.field_assign_root(idx - 1),
+            Token::RBracket => self.last_index_root,
             _ => None,
-          })
+          }
         } else {
           None
         };
@@ -4860,12 +4931,16 @@ impl<'a> Executor<'a> {
           let ArrayCtx {
             is_indexing,
             depth,
-            array_name: _array_name,
+            array_name,
             ellipsis_at,
           } = ctx;
           let int_ty = self.ty_checker.int_type();
 
           if is_indexing {
+            // Publish the resolved root for a following `=`
+            // store (and for an enclosing chained index).
+            self.last_index_root = array_name;
+
             // Slice (`s[lo..hi]` / `s[lo..=hi]`). Detect by
             // looking at the node immediately before the
             // closing bracket — the parser emits postorder,
@@ -5831,23 +5906,10 @@ impl<'a> Executor<'a> {
             let array_sir = *array;
             let index_sir = *index;
 
-            // Find the array name from the Load instruction.
-            let array_name =
-              self.sir.instructions.iter().rev().find_map(|insn| {
-                if let Insn::Load {
-                  dst,
-                  src: LoadSource::Local(sym),
-                  ..
-                } = insn
-                  && *dst == array_sir
-                {
-                  Some(*sym)
-                } else {
-                  None
-                }
-              });
-
-            if let Some(name) = array_name {
+            // Root resolved when the index closed (handles
+            // `self.f[i]` and parameter arrays, which the array
+            // operand's SIR no longer names).
+            if let Some(name) = self.last_index_root {
               // Pop the ArrayIndex result from stacks.
               self.value_stack.pop();
               self.ty_stack.pop();
@@ -7021,7 +7083,7 @@ impl<'a> Executor<'a> {
           }
         }
         // Primitive type keywords (`bool`/`char`/`int`/`str`,
-        // …) share names with std packs that extend them
+        // …) share names with core packs that extend them
         // (`load core::bool::*;` etc.). The tokenizer emits
         // them as `Token::BoolType`/`StrType`/…, not `Ident`,
         // so we re-intern the keyword string into a Symbol.
@@ -7071,7 +7133,7 @@ impl<'a> Executor<'a> {
     // First name token after `pack` — either a regular
     // `Ident` (most packs) or a primitive type keyword
     // (`pack char;` / `pack int;` / `pack bool;` /
-    // `pack str;` etc., where the std pack shares its name
+    // `pack str;` etc., where the core pack shares its name
     // with the primitive it extends). Without the latter,
     // `name` stays `None` for those preload packs,
     // `top_pack` never gets set, and any `pub fun` emitted
@@ -8405,14 +8467,29 @@ impl<'a> Executor<'a> {
       })
       .collect::<Vec<_>>();
 
+    let is_capturing = !capture_infos.is_empty();
+
     let closure_val = self.values.store_closure(ClosureValue {
       fun_name: closure_name,
       captures: capture_infos,
     });
 
+    // A non-capturing closure is a plain code pointer, so
+    // materialize its address — it can then flow into an FFI
+    // / binding like any `Fn()` value. A capturing closure
+    // has an environment a bare pointer cannot carry; keep
+    // the sentinel so a devirtualizable / monomorphizable
+    // site still works, and let the real-pointer use sites
+    // raise `CapturingClosureAsFnPointer` instead.
+    let closure_sir = if is_capturing {
+      ValueId(u32::MAX)
+    } else {
+      self.emit_fn_addr(closure_name)
+    };
+
     self.value_stack.push(closure_val);
     self.ty_stack.push(closure_ty);
-    self.sir_values.push(ValueId(u32::MAX));
+    self.sir_values.push(closure_sir);
 
     // Skip past the closure tokens in the main loop,
     // but not the trailing Semicolon — it belongs to the
@@ -11887,6 +11964,28 @@ impl<'a> Executor<'a> {
             idx += 1;
           }
         }
+        other if other.is_reserved_word() && !other.is_ty() => {
+          // A non-type reserved keyword in field-name position
+          // (e.g. `struct S { state: int }`). Without this the
+          // field was silently dropped, leaving the struct
+          // short a member. Type keywords are excluded — they
+          // appear legitimately in a field's type, including as
+          // generic arguments (`HashMap<str, str>`), which the
+          // field-type resolver may leave for this loop to skip.
+          // Skip past `: Type` so the type isn't mis-reported.
+          self.report(ErrorKind::ReservedKeyword, self.tree.spans[idx]);
+
+          idx += 1;
+
+          while idx < end_idx
+            && !matches!(
+              self.tree.nodes[idx].token,
+              Token::Comma | Token::RBrace
+            )
+          {
+            idx += 1;
+          }
+        }
         _ => idx += 1,
       }
     }
@@ -15224,6 +15323,35 @@ impl<'a> Executor<'a> {
     arg_types.reverse();
     args.reverse();
 
+    // A capturing closure can't become a bare function
+    // pointer. A non-generic method never monomorphizes a
+    // closure argument into a direct call, so a `Fn()`-typed
+    // param treats the argument as a real address — reject a
+    // capturing closure with a clear diagnostic rather than
+    // forwarding the silent sentinel. (`self` is params[0],
+    // so explicit arg `i` maps to `func.params[i + 1]`.)
+    if func.type_params.is_empty() {
+      for (i, arg) in args.iter().enumerate() {
+        let Some((_, param_ty)) = func.params.get(i + 1) else {
+          continue;
+        };
+
+        if matches!(self.ty_checker.kind_of(*param_ty), Ty::Fun(_))
+          && self.is_capturing_closure(*arg)
+        {
+          let arg_node = lparen_idx + 1 + i * 2;
+          let span = self
+            .tree
+            .spans
+            .get(arg_node)
+            .copied()
+            .unwrap_or(self.tree.spans[lparen_idx]);
+
+          self.report(ErrorKind::CapturingClosureAsFnPointer, span);
+        }
+      }
+    }
+
     // Pop receiver (self) — it's before the explicit
     // args on the stack.
     let receiver_sir = self.sir_values.pop();
@@ -17430,14 +17558,17 @@ impl<'a> Executor<'a> {
               continue;
             }
 
-            // Reject type keywords (str, int, bytes, etc.)
-            // as binding names — the tokenizer turns them
-            // into type tokens, making them unusable as
-            // variable references in the arm body.
-            if tok.is_ty() {
+            // Reject reserved keywords as binding names. The
+            // tokenizer maps them to dedicated tokens — a type
+            // keyword (`str`/`int`/`bytes`/…) or a word like
+            // `state`/`match` — so they can't be a variable
+            // reference in the arm body. Without this the
+            // binding is silently dropped and the name reads
+            // garbage at runtime.
+            if tok.is_reserved_word() {
               let span = self.tree.spans[bind_idx];
 
-              self.report(ErrorKind::ExpectedIdentifier, span);
+              self.report(ErrorKind::ReservedKeyword, span);
 
               bind_idx += 1;
               field_i += 1;

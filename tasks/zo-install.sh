@@ -1,7 +1,7 @@
 #!/bin/sh
 
-# An installer for the graphical programming language zo.
-# Usage: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/invisageable/zo/main/tasks/install.sh | sh
+# An installer for the programming language zo.
+# Usage: curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh
 
 set -e
 
@@ -94,36 +94,45 @@ install() {
   echo "zo installed to $INSTALL_DIR/$BINARY_NAME"
   echo ""
 
-  # Download and install the stdlib alongside the binary so
-  # the compiler can auto-import the prelude (io, assert, math).
-  # The runtime looks for it at `<exe>/../lib/std`.
-  STD_URL="https://github.com/${REPO}/archive/refs/tags/${VERSION}.tar.gz"
-  TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t zo-std)"
+  # Download and install the shipped packages alongside the
+  # binary so the compiler can resolve `load core::…` and
+  # `load provider::…`. It looks for each at `<exe>/../lib/<pack>`
+  # (see `zo-host-paths`); `core` carries the auto-imported
+  # prelude (io, assert, math).
+  PACKS_URL="https://github.com/${REPO}/archive/refs/tags/${VERSION}.tar.gz"
+  TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t zo-packs)"
 
-  echo "Downloading stdlib from $STD_URL..."
+  echo "Downloading standard packages from $PACKS_URL..."
 
-  if ! download_tarball "$STD_URL" "$TMP_DIR"; then
+  if ! download_tarball "$PACKS_URL" "$TMP_DIR"; then
     echo ""
-    echo "error: failed to download stdlib archive"
+    echo "error: failed to download standard-package archive"
     rm -rf "$TMP_DIR"
     exit 1
   fi
 
-  SRC_STD="$(find "$TMP_DIR" -type d -path '*/crates/compiler-lib/std' | head -n 1)"
+  # Keep in lockstep with `SYSTEM_PACK_ROOTS` in
+  # `crates/compiler/zo-host-paths/src/lib.rs`.
+  for pack in core provider; do
+    src="$(find "$TMP_DIR" -type d \
+      -path "*/crates/compiler-lib/${pack}" | head -n 1)"
 
-  if [ -z "$SRC_STD" ] || [ ! -d "$SRC_STD" ]; then
-    echo "error: stdlib not found in archive at crates/compiler-lib/std"
-    rm -rf "$TMP_DIR"
-    exit 1
-  fi
+    if [ -z "$src" ] || [ ! -d "$src" ]; then
+      echo "error: pack '${pack}' not found in archive at" \
+        "crates/compiler-lib/${pack}"
+      rm -rf "$TMP_DIR"
+      exit 1
+    fi
 
-  rm -rf "$LIB_DIR/std"
-  mkdir -p "$LIB_DIR/std"
-  # Copy contents (portable across BSD/GNU cp; no -T).
-  (cd "$SRC_STD" && tar cf - .) | (cd "$LIB_DIR/std" && tar xf -)
+    rm -rf "$LIB_DIR/${pack}"
+    mkdir -p "$LIB_DIR/${pack}"
+    # Copy contents (portable across BSD/GNU cp; no -T).
+    (cd "$src" && tar cf - .) | (cd "$LIB_DIR/${pack}" && tar xf -)
+
+    echo "pack '${pack}' installed to $LIB_DIR/${pack}"
+  done
+
   rm -rf "$TMP_DIR"
-
-  echo "stdlib installed to $LIB_DIR/std"
   echo ""
 
   # Vendored prebuilt dylibs (raylib today; more libs land

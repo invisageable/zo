@@ -66,10 +66,8 @@ fun run(code: str) -> int {
 fun main() {
   -- +++++ → tape[0] = 5.
   showln(run("+++++"));
-
   -- +++[>++<-]> → 3 loops, each +2 to cell 1 → 6.
   showln(run("+++[>++<-]>"));
-
   -- hello world preamble → cell at ptr = 72 ('H').
   showln(run("++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>"));
 

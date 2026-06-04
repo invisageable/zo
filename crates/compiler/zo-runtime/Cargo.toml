@@ -10,6 +10,18 @@ doctest = false
 # - `cdylib` — use `libzo_runtime.dylib` on macOS / `libzo_runtime.so` on Linux.
 crate-type = ["lib", "staticlib", "cdylib"]
 
+[features]
+# The graphical / webview runtime (`eframe` + `wgpu` + `wry`
+# plus the image and TLS trees) is the bulk of the build. Gate
+# it behind `ui` so lean CLI / CI builds skip the whole GPU +
+# webview dependency tree with `--no-default-features`.
+default = ["ui"]
+ui = [
+  "dep:zo-runtime-native",
+  "dep:zo-runtime-render",
+  "dep:zo-runtime-web",
+]
+
 [dependencies]
 # internal:sources.
 
@@ -18,9 +30,9 @@ zo-c-abi = { workspace = true }
 zo-error = { workspace = true }
 zo-reporter = { workspace = true }
 zo-ui-protocol = { workspace = true }
-zo-runtime-native = { workspace = true }
-zo-runtime-render = { workspace = true }
-zo-runtime-web = { workspace = true }
+zo-runtime-native = { workspace = true, optional = true }
+zo-runtime-render = { workspace = true, optional = true }
+zo-runtime-web = { workspace = true, optional = true }
 
 # external:crates.
 base64 = { workspace = true }

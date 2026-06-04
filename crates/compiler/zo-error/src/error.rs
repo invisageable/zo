@@ -385,6 +385,12 @@ pub enum ErrorKind {
   /// and erodes the visual cue that distinguishes a
   /// one-liner from a multi-statement loop.
   MixedLoopBodyForms,
+  /// A reserved keyword appeared where an identifier was
+  /// required — as a binding name, parameter, field, or
+  /// pattern binder (e.g. `match … { Some(state) => … }`,
+  /// where `state` is the typestate keyword). Reserved
+  /// words can never name a value.
+  ReservedKeyword,
 
   // linker errors
   LinkerError,
@@ -417,6 +423,11 @@ pub enum ErrorKind {
   SpawnOutsideNursery, // `spawn` without enclosing `nursery { }`
   AwaitOnNonTask,      // `await expr` where expr is not `Ty::Task(_)`
   ChannelCapacityNotLiteral, // `channel(N)` with non-literal N
+  // A capturing closure cannot become a bare function
+  // pointer — the runtime ABI carries no environment, so
+  // only a non-capturing function or closure can flow into
+  // a `Fn()` position that materializes a real address.
+  CapturingClosureAsFnPointer,
 
   // Repeat-array literal `[v...]` / `[v...n]` errors.
   // `[v...]` needs `[N]T` annotation to provide N; `[]T`

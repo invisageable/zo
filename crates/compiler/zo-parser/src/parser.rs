@@ -632,7 +632,7 @@ impl<'a> Parser<'a> {
         .peek()
         .is_some_and(|n| !matches!(n, Token::Ident | Token::Pub | Token::Any))
     {
-      self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
+      self.report_expected_name(self.pos + 1);
     }
 
     let node_index = self.emit_node(token);
@@ -1573,6 +1573,20 @@ impl<'a> Parser<'a> {
     }
   }
 
+  /// At a name position (declaration name, binding, param,
+  /// field), report the right diagnostic for an invalid
+  /// follower at token index `at`: a reserved keyword yields
+  /// `ReservedKeyword`, anything else (or EOF) yields the
+  /// generic `ExpectedIdentifier`.
+  fn report_expected_name(&mut self, at: usize) {
+    let kind = match self.tokens.kinds.get(at) {
+      Some(tok) if tok.is_reserved_word() => ErrorKind::ReservedKeyword,
+      _ => ErrorKind::ExpectedIdentifier,
+    };
+
+    self.error_at(kind, at);
+  }
+
   fn handle_binding_keyword(&mut self, kind: Token) {
     // Variable declaration: imu/mut/val are introducers
     self.flush_expr();
@@ -1584,10 +1598,7 @@ impl<'a> Parser<'a> {
     // destructuring (`imu [a, b, c] := …;`).
     match self.peek() {
       Some(Token::Ident | Token::LParen | Token::LBrace | Token::LBracket) => {}
-      Some(_) => {
-        self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
-      }
-      None => self.error(ErrorKind::ExpectedIdentifier),
+      _ => self.report_expected_name(self.pos + 1),
     }
 
     // Emit the binding keyword as introducer
@@ -1636,7 +1647,7 @@ impl<'a> Parser<'a> {
 
     // `enum` must be followed by an identifier (name).
     if self.peek().is_some_and(|n| n != Token::Ident) {
-      self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
+      self.report_expected_name(self.pos + 1);
     }
 
     let node_index = self.emit_node(Token::Enum);
@@ -1656,7 +1667,7 @@ impl<'a> Parser<'a> {
 
     // `struct` must be followed by an identifier (name).
     if self.peek().is_some_and(|n| n != Token::Ident) {
-      self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
+      self.report_expected_name(self.pos + 1);
     }
 
     let node_index = self.emit_node(Token::Struct);
@@ -1697,7 +1708,7 @@ impl<'a> Parser<'a> {
     if self.peek().is_some_and(|n| {
       n != Token::Ident && n != Token::LBracket && n.ty_keyword_str().is_none()
     }) {
-      self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
+      self.report_expected_name(self.pos + 1);
     }
 
     let node_index = self.emit_node(Token::Apply);
@@ -1717,7 +1728,7 @@ impl<'a> Parser<'a> {
 
     // `type` must be followed by an identifier (alias name).
     if self.peek().is_some_and(|n| n != Token::Ident) {
-      self.error_at(ErrorKind::ExpectedIdentifier, self.pos + 1);
+      self.report_expected_name(self.pos + 1);
     }
 
     let node_index = self.emit_node(Token::Type);

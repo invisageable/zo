@@ -1,0 +1,47 @@
+-- tests-run-pass: a double-buffer swap performed conditionally inside
+-- a loop must compile. `temp` is declared inside the `if` branch and
+-- moved out (`b = temp`); the ownership analyzer used to flag the
+-- binding's scope-exit drop as a path-dependent free (E0352) because
+-- the sibling path — where `temp` was never declared — counted as a
+-- "live, needs-free" path. Definite-assignment seeding fixes it.
+-- @cmd — zo run ownership_conditional_swap.zo
+
+fun main() {
+  mut a: Vec<int> = Vec::new();
+  a.push(1);
+
+  mut b: Vec<int> = Vec::new();
+  b.push(2);
+
+  mut flip: bool = true;
+  mut steps: int = 0;
+
+  loop {
+    if steps >= 3 { break }
+    steps += 1;
+
+    if flip {
+      imu temp := a;
+      a = b;
+      b = temp;
+    }
+
+    flip = !flip;
+  }
+
+  match a.get(0) {
+    Option::Some(value) => { showln(value); }
+    Option::None => {}
+  }
+  match b.get(0) {
+    Option::Some(value) => { showln(value); }
+    Option::None => {}
+  }
+
+  a.free();
+  b.free();
+}
+
+-- EXPECTED OUTPUT:
+-- 1
+-- 2

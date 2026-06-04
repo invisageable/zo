@@ -88,6 +88,11 @@ pub struct AnalyzerConfig {
   /// loaded transitively (preload, `core::*`, user packs)
   /// stay default `false` and skip the check.
   pub is_entry: bool,
+  /// `true` when the test harness synthesizes the entry
+  /// point (`zo test`). Suppresses the missing-`main` check
+  /// for the entry file: a library or test file need not
+  /// declare `main`, since `compile_test` provides one.
+  pub test_mode: bool,
   /// Index into the compiler's file table. Stamped onto
   /// every `Error` the executor emits so the renderer
   /// resolves spans against the correct source text.
@@ -154,7 +159,14 @@ impl<'a> Analyzer<'a> {
     // from the tree (unterminated comments, mismatched
     // delimiters). Suppress the missing-main check then —
     // the primary diagnostic wins. Matches rustc E0601.
-    if self.config.is_entry && error_count() == 0 && !self.has_main() {
+    //
+    // Under `zo test` the harness synthesizes `main`, so a
+    // library/test entry need not declare one — skip too.
+    if self.config.is_entry
+      && !self.config.test_mode
+      && error_count() == 0
+      && !self.has_main()
+    {
       report_error(Error::new(
         ErrorKind::MissingMainFunction,
         self.tree.eof_span(),
@@ -183,6 +195,7 @@ impl<'a> Analyzer<'a> {
       implicit_pack,
       in_scope_packs,
       is_entry: _,
+      test_mode: _,
       file_id,
     } = self.config;
 

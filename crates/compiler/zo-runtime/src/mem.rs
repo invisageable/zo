@@ -1,8 +1,4 @@
-//! Raw memory operations — `core/mem.zo` FFI backing.
-//!
-//! Thin wrappers around libc `memcpy`, `memset`, `memcmp`,
-//! `malloc`, `free`. No safety checks — the zo API makes
-//! the unsafety explicit via `s64` pointer arguments.
+//! Unchecked libc memory FFI backing `core/mem.zo`.
 
 /// `mem::copy(dst, src, len)` — non-overlapping byte copy.
 ///
@@ -113,6 +109,34 @@ pub unsafe extern "C-unwind" fn zo_mem_read_u8(src: *const u8) -> u8 {
   if src.is_null() { 0 } else { unsafe { *src } }
 }
 
+/// Write an `f64` (8 bytes, native endian) at `dst`.
+/// Unaligned-safe so callers can pack floats at arbitrary
+/// byte offsets in a raw buffer.
+///
+/// # Safety
+///
+/// `dst` must point at 8 writable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_mem_write_f64(dst: *mut u8, value: f64) {
+  if !dst.is_null() {
+    unsafe { dst.cast::<f64>().write_unaligned(value) };
+  }
+}
+
+/// Read an `f64` (8 bytes, native endian) at `src`.
+///
+/// # Safety
+///
+/// `src` must point at 8 readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_mem_read_f64(src: *const u8) -> f64 {
+  if src.is_null() {
+    0.0
+  } else {
+    unsafe { src.cast::<f64>().read_unaligned() }
+  }
+}
+
 /// Resize a heap allocation. Returns the new pointer.
 ///
 /// # Safety
@@ -210,6 +234,24 @@ mod tests {
   fn read_u8_null_returns_zero() {
     unsafe {
       assert_eq!(zo_mem_read_u8(std::ptr::null()), 0);
+    }
+  }
+
+  #[test]
+  fn write_read_f64_roundtrip() {
+    unsafe {
+      let buf = zo_mem_alloc(24);
+
+      zo_mem_write_f64(buf, -0.743643);
+      zo_mem_write_f64(buf.add(8), 0.131825);
+      zo_mem_write_f64(buf.add(16), 1.0e-9);
+
+      assert_eq!(zo_mem_read_f64(buf), -0.743643);
+      assert_eq!(zo_mem_read_f64(buf.add(8)), 0.131825);
+      assert_eq!(zo_mem_read_f64(buf.add(16)), 1.0e-9);
+      assert_eq!(zo_mem_read_f64(std::ptr::null()), 0.0);
+
+      zo_mem_free(buf);
     }
   }
 

@@ -1,0 +1,91 @@
+load core::c::*;
+load provider::raylib;
+
+val SCREEN_WIDTH: int = 800;
+val SCREEN_HEIGHT: int = 600;
+val MAX_ITER: int = 100;
+
+val COLOR_BLACK: int = 0xFF000000;
+
+-- A horizontal band of the screen — one parallel task's rows.
+struct Band {
+  y_start: int,
+  y_end: int,
+}
+
+-- Render one horizontal band of the Mandelbrot set straight to the
+-- raylib backbuffer. Each pixel's color encodes how fast its orbit
+-- escapes; points that never escape within MAX_ITER stay black.
+fun calculate_band(bounds: Band) {
+  imu width_f := SCREEN_WIDTH as float;
+  imu height_f := SCREEN_HEIGHT as float;
+
+  for y := bounds.y_start..bounds.y_end {
+    for x := 0..SCREEN_WIDTH {
+      -- Map the pixel (x, y) onto the complex plane: the real axis
+      -- spans [-2.0, 1.0], the imaginary axis [-1.12, 1.12].
+      imu cr := (x as float) / width_f * 3.0 - 2.0;
+      imu ci := (y as float) / height_f * 2.24 - 1.12;
+
+      mut zr: float = 0.0;
+      mut zi: float = 0.0;
+      mut iter: int = 0;
+
+      while zr * zr + zi * zi <= 4.0 && iter < MAX_ITER {
+        imu temp := zr * zr - zi * zi + cr;
+        zi = 2.0 * zr * zi + ci;
+        zr = temp;
+        iter += 1;
+      }
+
+      -- Color the pixel by escape speed — a blue-to-green gradient —
+      -- or black for points still inside the set.
+      if iter < MAX_ITER {
+        imu r := (iter * 2) % 256;
+        imu g := (iter * 5) % 256;
+        imu b := (iter * 9) % 256;
+        imu color := 0xFF000000 | (r << 16) | (g << 8) | b;
+
+        raylib::draw_pixel(x, y, color);
+      } else {
+        raylib::draw_pixel(x, y, COLOR_BLACK);
+      }
+    }
+  }
+}
+
+fun main() {
+  raylib::init_window(
+    SCREEN_WIDTH,
+    SCREEN_HEIGHT,
+    CStr::new("zo parallel mandelbrot"),
+  );
+
+  raylib::set_target_fps(60);
+
+  -- Four disjoint horizontal bands of 150 rows, one green task each.
+  imu b1: Band = Band { y_start = 0,   y_end = 150 };
+  imu b2: Band = Band { y_start = 150, y_end = 300 };
+  imu b3: Band = Band { y_start = 300, y_end = 450 };
+  imu b4: Band = Band { y_start = 450, y_end = 600 };
+
+  loop {
+    if raylib::window_should_close() { break }
+
+    raylib::begin_drawing();
+      -- Every pixel is overwritten each frame, so no clear is needed.
+      -- Dispatch the four bands concurrently; the nursery joins them
+      -- before raylib flushes the backbuffer.
+      nursery {
+        spawn calculate_band(b1);
+        spawn calculate_band(b2);
+        spawn calculate_band(b3);
+        spawn calculate_band(b4);
+      }
+
+      raylib::draw_fps(10, 10);
+    raylib::end_drawing();
+  }
+
+  raylib::close_window();
+}

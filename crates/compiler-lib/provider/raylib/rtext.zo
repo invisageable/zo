@@ -12,7 +12,7 @@ load core::c::*;
 -! @param y — Vertical pixel offset.
 -! @param font_size — The text size.
 -! @param color — RGBA-packed color per `clear_background`.
-%% link_name = "DrawText".
+%% link_name = "zo_raylib_draw_text".
 pub ffi draw_text(text: CStr, x: int, y: int, font_size: int, color: int);
 
 -! Draw the current frames-per-second at the given position
@@ -20,5 +20,5 @@ pub ffi draw_text(text: CStr, x: int, y: int, font_size: int, color: int);
 -!
 -! @param x — Horizontal pixel offset.
 -! @param y — Vertical pixel offset.
-%% link_name = "DrawFPS".
+%% link_name = "zo_raylib_draw_fps".
 pub ffi draw_fps(x: int, y: int);

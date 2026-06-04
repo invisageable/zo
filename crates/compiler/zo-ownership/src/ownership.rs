@@ -81,6 +81,10 @@ struct Facts {
   /// Bindings that alias a value they do not own — their drops
   /// always elide.
   borrowed: HashSet<Symbol>,
+  /// Bindings introduced by a `VarDef` (locals). A local has no
+  /// value to free until its definition, so it seeds "dead" at
+  /// function entry; a parameter (no `VarDef`) is live at entry.
+  declared: HashSet<Symbol>,
 }
 
 impl Facts {
@@ -371,6 +375,14 @@ impl<'a> Ownership<'a> {
           }
         }
 
+        // A `VarDef` introduces a local. Recording it lets the
+        // dataflow seed the local "dead" until this definition —
+        // a local declared inside a branch is undefined, hence
+        // has nothing to free, on the sibling path.
+        Insn::VarDef { name, .. } => {
+          facts.declared.insert(*name);
+        }
+
         _ => {}
       }
     }
@@ -410,12 +422,28 @@ impl<'a> Ownership<'a> {
     let nbits = facts.bit_of.len();
     let cfg = Cfg::build(insns, start, end);
 
+    // Only the intersection (which feeds `moved_all` → drop
+    // elide) is gated by definite assignment: a local seeds
+    // "dead" at entry so a binding declared inside a branch
+    // elides its drop on the sibling path. The union feeds both
+    // move detection (`report_use`) and `moved_some`, and must
+    // keep the plain ∅ seed — seeding it would falsely flag a
+    // use of a binding freed-and-reassigned in another branch.
+    let union_seed = BitVec::new(nbits);
+    let mut inter_seed = BitVec::new(nbits);
+    for (sym, &bit) in &facts.bit_of {
+      if facts.declared.contains(sym) {
+        inter_seed.set(bit);
+      }
+    }
+
     let in_union = solve(
       insns,
       &cfg,
       nbits,
       &facts.bit_of,
       &facts.move_set_at,
+      &union_seed,
       Join::Union,
     );
     let in_inter = solve(
@@ -424,6 +452,7 @@ impl<'a> Ownership<'a> {
       nbits,
       &facts.bit_of,
       &facts.move_set_at,
+      &inter_seed,
       Join::Intersect,
     );
 
@@ -664,6 +693,7 @@ fn solve(
   nbits: usize,
   bit_of: &HashMap<Symbol, usize>,
   move_set_at: &HashMap<usize, Symbol>,
+  entry_seed: &BitVec,
   join: Join,
 ) -> Vec<BitVec> {
   let nblocks = cfg.blocks.len();
@@ -681,8 +711,17 @@ fn solve(
     for b in 0..nblocks {
       let preds = &cfg.blocks[b].preds;
 
+      // A block with no predecessors (entry, or unreachable)
+      // seeds from `entry_seed`: a local starts "dead" (not yet
+      // defined → nothing to free), a parameter starts "live".
+      // A local's defining store then clears its bit (births a
+      // live value); a move re-sets it. This is the definite-
+      // assignment gate: a local declared inside a branch
+      // (`if c { imu t := … }`) is never defined on the sibling
+      // path, so it stays dead there and its scope-exit drop
+      // elides instead of being mis-read as a path-dependent free.
       let new_in = if preds.is_empty() {
-        BitVec::new(nbits)
+        entry_seed.clone()
       } else {
         match join {
           Join::Union => {

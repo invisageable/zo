@@ -1,0 +1,95 @@
+load core::c::*;
+load core::mem;
+load core::pool;
+load provider::raylib;
+
+val SCREEN_WIDTH: int = 800;
+val SCREEN_HEIGHT: int = 600;
+val MAX_ITER: int = 100;
+
+val BANDS: int = 16;
+val WORKERS: int = 8;
+
+fun compute_band(buffer: s64, band: s64) {
+  imu width_f := SCREEN_WIDTH as float;
+  imu height_f := SCREEN_HEIGHT as float;
+  imu rows := SCREEN_HEIGHT / BANDS;
+  imu y_start := (band as int) * rows;
+  imu y_end := y_start + rows;
+
+  for y := y_start..y_end {
+    for x := 0..SCREEN_WIDTH {
+      -- Map the pixel (x, y) onto the complex plane: the real
+      -- axis spans [-2.0, 1.0], the imaginary axis
+      -- [-1.12, 1.12].
+      imu cr := x as float / width_f * 3.0 - 2.0;
+      imu ci := y as float / height_f * 2.24 - 1.12;
+
+      mut zr: float = 0.0;
+      mut zi: float = 0.0;
+      mut iter: int = 0;
+
+      while zr * zr + zi * zi <= 4.0 && iter < MAX_ITER {
+        imu temp := zr * zr - zi * zi + cr;
+
+        zi = 2.0 * zr * zi + ci;
+        zr = temp;
+        iter += 1;
+      }
+
+      -- Color by escape speed (a blue-to-green gradient); a
+      -- point still inside the set stays black.
+      mut r: int = 0;
+      mut g: int = 0;
+      mut b: int = 0;
+
+      if iter < MAX_ITER {
+        r = (iter * 2) % 256;
+        g = (iter * 5) % 256;
+        b = (iter * 9) % 256;
+      }
+
+      imu off := ((y * SCREEN_WIDTH + x) * 4) as s64;
+
+      mem::write_u8(buffer + off, r);
+      mem::write_u8(buffer + off + 1, g);
+      mem::write_u8(buffer + off + 2, b);
+      mem::write_u8(buffer + off + 3, 255);
+    }
+  }
+}
+
+fun main() {
+  imu buffer: s64 = mem::alloc(SCREEN_WIDTH * SCREEN_HEIGHT * 4);
+  imu thread_pool := pool::spawn_pool(WORKERS);
+
+  for band := 0..BANDS {
+    thread_pool.run2(compute_band, buffer, band as s64);
+  }
+
+  thread_pool.wait();
+  thread_pool.shutdown();
+
+  raylib::init_window(
+    SCREEN_WIDTH,
+    SCREEN_HEIGHT,
+    CStr::new("zo — parallel mandelbrot (thread pool)"),
+  );
+
+  raylib::set_target_fps(60);
+
+  imu texture := raylib::load_texture(buffer, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+  loop {
+    if raylib::window_should_close() { break }
+
+    raylib::begin_drawing();
+      raylib::draw_texture(texture, 0, 0);
+      raylib::draw_fps(10, 10);
+    raylib::end_drawing();
+  }
+
+  raylib::unload_texture(texture);
+  mem::free(buffer);
+  raylib::close_window();
+}

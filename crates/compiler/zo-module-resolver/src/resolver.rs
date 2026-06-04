@@ -65,12 +65,12 @@ impl ModuleResolver {
   /// [`resolve_folder_entries`]; the per-file resolver here
   /// only deals with single .zo modules.
   ///
-  /// For `load std::math;` with std search path `/lib/std/`:
-  /// tries `/lib/std/std/math.zo`. Since the std search path
-  /// already points to the std root, the first segment `std`
-  /// maps to the search path itself — handled by checking if
-  /// the first segment matches the search path's directory
-  /// name and skipping it.
+  /// For `load core::math;` with core search path `/lib/core/`:
+  /// tries `/lib/core/core/math.zo`. Since the search path
+  /// already points to the `core` root, the first segment
+  /// `core` maps to the search path itself — handled by
+  /// checking if the first segment matches the search path's
+  /// directory name and skipping it.
   pub fn resolve(
     &mut self,
     segments: &[Symbol],

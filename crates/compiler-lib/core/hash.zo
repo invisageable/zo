@@ -8,8 +8,9 @@ load core::c::(CStr, CBytes);
 }
 
 
+-! ...
 pub ffi zo_hash_sha1(input: CStr) -> CBytes;
-
+-! ...
 pub ffi zo_hash_sha256(input: CStr) -> CBytes;
 
 

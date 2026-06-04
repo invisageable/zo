@@ -1,0 +1,127 @@
+-- tests-run-pass: Conway's Game of Life.
+-- @cmd — zo run game_of_life.zo
+--
+-- @note —  computed in parallel across nursery
+-- tasks over a shared grid — the headless twin of the raylib `life.zo`. A 
+-- blinker at the centre of a 6x6 toroidal grid must oscillate horizontal ->
+-- vertical -> horizontal.
+--
+-- Exercises, in one program: a `Vec` shared (read) and mutated (`mut` param)
+-- across spawned tasks, `count_neighbors` with edge wrapping, the B3/S23 rules,
+-- the double-buffer swap, `continue`, `return`, and a negative-bound range.
+
+val COLS: int = 6;
+val ROWS: int = 6;
+val TOTAL_CELLS: int = 36;
+
+struct Rect {
+  x_start: int,
+  x_end: int,
+  y_start: int,
+  y_end: int,
+}
+
+fun count_neighbors(grid: Vec<int>, x: int, y: int) -> int {
+  mut count: int = 0;
+
+  for dy := -1..2 {
+    for dx := -1..2 {
+      if dx == 0 && dy == 0 { continue; }
+
+      imu nx := (x + dx + COLS) % COLS;
+      imu ny := (y + dy + ROWS) % ROWS;
+      imu idx := ny * COLS + nx;
+
+      match grid.get(idx) {
+        Option::Some(cell) => if cell == 1 { count += 1; },
+        Option::None => {}
+      }
+    }
+  }
+
+  count
+}
+
+fun calculate_quadrant(grid: Vec<int>, mut next_grid: Vec<int>, bounds: Rect) {
+  for y := bounds.y_start..bounds.y_end {
+    for x := bounds.x_start..bounds.x_end {
+      imu idx := y * COLS + x;
+      imu neighbors := count_neighbors(grid, x, y);
+
+      match grid.get(idx) {
+        Option::Some(alive) => {
+          mut next_state: int = 0;
+
+          if alive == 1 {
+            if neighbors == 2 || neighbors == 3 { next_state = 1; }
+          } else {
+            if neighbors == 3 { next_state = 1; }
+          }
+
+          next_grid.set(idx, next_state);
+        }
+        Option::None => {}
+      }
+    }
+  }
+}
+
+fun print_live(grid: Vec<int>) {
+  for i := 0..TOTAL_CELLS {
+    match grid.get(i) {
+      Option::Some(cell) => if cell == 1 { showln(i); },
+      Option::None => {}
+    }
+  }
+
+  showln("-");
+}
+
+fun main() {
+  mut grid: Vec<int> = Vec::new();
+  for i := 0..TOTAL_CELLS => grid.push(0);
+
+  mut next_grid: Vec<int> = Vec::new();
+  for i := 0..TOTAL_CELLS => next_grid.push(0);
+
+  -- A horizontal blinker at row 3, columns 2/3/4.
+  grid.set(20, 1);
+  grid.set(21, 1);
+  grid.set(22, 1);
+
+  imu top: Rect = Rect { x_start = 0, x_end = COLS, y_start = 0, y_end = 3 };
+  imu bottom: Rect =
+    Rect { x_start = 0, x_end = COLS, y_start = 3, y_end = ROWS };
+
+  print_live(grid);
+
+  for gen := 0..2 {
+    nursery {
+      spawn calculate_quadrant(grid, next_grid, top);
+      spawn calculate_quadrant(grid, next_grid, bottom);
+    }
+
+    imu temp := grid;
+    grid = next_grid;
+    next_grid = temp;
+
+    print_live(grid);
+  }
+
+  grid.free();
+  next_grid.free();
+}
+
+-- EXPECTED OUTPUT:
+-- 20
+-- 21
+-- 22
+-- -
+-- 15
+-- 21
+-- 27
+-- -
+-- 20
+-- 21
+-- 22
+-- -

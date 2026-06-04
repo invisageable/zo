@@ -80,9 +80,44 @@ fn compile_macho_and_inspect<F: FnOnce(&[u8])>(source: &str, check: F) {
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
   let link_obj = codegen.into_link_object(artifact);
-  let binary = zo_linker::link_macho(link_obj);
+  let binary = zo_linker::link_macho(link_obj).executable;
 
   check(&binary);
+}
+
+/// Compiles `source` to a full `LinkOutput` (executable
+/// bytes + the runtime flavor the linker selected) and
+/// hands it to `check`. Exercises the real resolution path
+/// — SIR fragment → `MachoLinkObject` → `link_macho` — so
+/// the runtime-kind verdict is the genuine one the compiler
+/// stages from.
+fn compile_link_output_and_inspect<F: FnOnce(&zo_linker::LinkOutput)>(
+  source: &str,
+  check: F,
+) {
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
+
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let (sir, _, _, _, _, _, _) = executor.execute();
+
+  let mut codegen = ARM64Gen::new(&interner);
+  let artifact = codegen.generate(&sir);
+  let link_obj = codegen.into_link_object(artifact);
+
+  check(&zo_linker::link_macho(link_obj));
 }
 
 fn contains_bytes(binary: &[u8], needle: &[u8]) -> bool {
@@ -205,6 +240,47 @@ fn nursery_markers_do_not_emit_externs() {
           "bare nursery should not pull in a concurrency runtime symbol, got {sym}"
         );
       }
+    },
+  );
+}
+
+#[test]
+fn concurrency_program_selects_lean_runtime() {
+  // Channel / task symbols all live in the lean core, so a
+  // pure-concurrency program must stage the lean dylib.
+  compile_link_output_and_inspect(
+    r#"
+      fun main() {
+        nursery {
+          imu (tx, rx) := channel();
+        }
+      }
+    "#,
+    |output| {
+      assert_eq!(
+        output.runtime,
+        zo_linker::RuntimeKind::Lean,
+        "concurrency-only program must select the lean runtime"
+      );
+    },
+  );
+}
+
+#[test]
+fn non_runtime_program_selects_no_runtime() {
+  // No `_zo_*` import at all — nothing to stage.
+  compile_link_output_and_inspect(
+    r#"
+      fun main() {
+        imu x: int = 42;
+      }
+    "#,
+    |output| {
+      assert_eq!(
+        output.runtime,
+        zo_linker::RuntimeKind::None,
+        "program with no runtime symbol must select RuntimeKind::None"
+      );
     },
   );
 }

@@ -1,0 +1,50 @@
+-- tests-run-pass: indexed assignment must store through an
+-- array that lives in a struct field (`self.f[i] = v`) or that
+-- arrives as a parameter (`xs[i] = v`). Neither survives as a
+-- named local in SIR, so the store resolves the root from the
+-- tree to check mutability and emit the write. Before the fix
+-- both were silent no-ops — the element write was dropped.
+-- @cmd — zo run struct_field_array_store.zo
+
+struct Grid {
+  cells: []int,
+}
+
+apply Grid {
+  fun bump(mut self, at: int, by: int) {
+    self.cells[at] = self.cells[at] + by;
+  }
+}
+
+fun scale(mut xs: []int, factor: int) {
+  for i := 0..xs.len {
+    xs[i] = xs[i] * factor;
+  }
+}
+
+fun main() {
+  mut g: Grid = Grid { cells = [10, 20, 30] };
+
+  g.bump(0, 5);
+  g.bump(2, 100);
+
+  showln(g.cells[0]);
+  showln(g.cells[1]);
+  showln(g.cells[2]);
+
+  mut xs: []int = [1, 2, 3];
+
+  scale(xs, 10);
+
+  showln(xs[0]);
+  showln(xs[1]);
+  showln(xs[2]);
+}
+
+-- EXPECTED OUTPUT:
+-- 15
+-- 20
+-- 130
+-- 10
+-- 20
+-- 30

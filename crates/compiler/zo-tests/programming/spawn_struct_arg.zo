@@ -1,0 +1,40 @@
+-- tests-run-pass: a spawned task takes a struct argument (read its
+-- fields inside the task) alongside a shared `Vec`. This is the Game
+-- of Life quadrant shape: `worker(mut grid, bounds)` where `bounds`
+-- carries the region. Struct rides as one pointer-sized spawn arg, so
+-- vec + struct stays within the 3-arg green-task ceiling.
+-- @cmd — zo run spawn_struct_arg.zo
+
+struct Span { start: int, end: int }
+
+fun fill_span(mut values: Vec<int>, region: Span) {
+  for i := region.start..region.end {
+    values.set(i, 5);
+  }
+}
+
+fun main() {
+  mut values: Vec<int> = Vec::new();
+  for i := 0..4 { values.push(0); }
+
+  imu region: Span = Span { start = 1, end = 3 };
+
+  nursery {
+    spawn fill_span(values, region);
+  }
+
+  for i := 0..4 {
+    match values.get(i) {
+      Option::Some(value) => { showln(value); }
+      Option::None => {}
+    }
+  }
+
+  values.free();
+}
+
+-- EXPECTED OUTPUT:
+-- 0
+-- 5
+-- 5
+-- 0

@@ -121,7 +121,7 @@ fun main() {
 
 -- EXPECTED OUTPUT:
 -- currency: €
--- price: 99.989999
+-- price: 99.99
 -- qty: 3
 -- in_stock: true
 -- items (3):
@@ -134,7 +134,7 @@ fun main() {
 -- missing: 0
 -- derive currency: EUR
 -- derive qty: 2
--- derive weight: 1.250000
+-- derive weight: 1.25
 -- derive express: true
 -- derive wire: {"currency":"EUR","price":12.5,"qty":2,"in_stock":true,"shipping":{"weight":1.25,"express":true}}
 -- DONE

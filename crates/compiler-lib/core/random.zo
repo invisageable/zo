@@ -1,9 +1,6 @@
 -! random — pseudo-random number generator.
 -!
--! Pure-zo xorshift32 (Marsaglia 2003): three shift-XOR steps per draw,
--! ~2^32 period. Non-cryptographic — for games, simulation, hashing,
--! and jitter.
-
+-! xorshift32 (Marsaglia 2003): three shift-XOR steps per draw, ~2^32 period.
 
 -! A stateful pseudo-random number generator.
 -!
@@ -45,5 +42,23 @@ apply Rng {
   pub fun flip(mut self) -> bool {
     imu sample: int = self.next();
     (sample & 1) == 1
+  }
+
+  -! Uniform float in `[0.0, 1.0)`.
+  pub fun next_float(mut self) -> float {
+    -- Mask `next()` to its low 31 bits, then scale by 2^31
+    -- so the result lands in `[0.0, 1.0)`.
+    imu sample: int = self.next() & 0x7FFFFFFF;
+    (sample as float) / 2147483648.0
+  }
+
+  -! Uniform float in `[lo, hi)`. Returns `lo` when
+  -! `hi <= lo`.
+  pub fun range_float(mut self, lo: float, hi: float) -> float {
+    if hi <= lo {
+      return lo;
+    }
+
+    lo + self.next_float() * (hi - lo)
   }
 }

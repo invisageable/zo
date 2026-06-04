@@ -144,6 +144,7 @@ impl ErrorAggregator {
 
         // Parser errors
         ErrorKind::UnexpectedToken
+        | ErrorKind::ReservedKeyword
         | ErrorKind::ExpectedIdentifier
         | ErrorKind::ExpectedType
         | ErrorKind::ExpectedExpression

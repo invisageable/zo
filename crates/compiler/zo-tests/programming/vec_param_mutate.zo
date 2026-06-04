@@ -1,0 +1,33 @@
+-- tests-run-pass: a function that mutates a `Vec<int>` parameter via
+-- `set` writes through to the caller's vec (shared buffer, not a copy).
+-- This is the primitive Game of Life leans on: a worker fills a region
+-- of the grid and the change is visible after the call returns.
+-- @cmd — zo run vec_param_mutate.zo
+
+fun fill_region(mut values: Vec<int>, start: int, end: int, value: int) {
+  for i := start..end {
+    values.set(i, value);
+  }
+}
+
+fun main() {
+  mut values: Vec<int> = Vec::new();
+  for i := 0..4 { values.push(0); }
+
+  fill_region(values, 0, 4, 7);
+
+  for i := 0..4 {
+    match values.get(i) {
+      Option::Some(value) => { showln(value); }
+      Option::None => {}
+    }
+  }
+
+  values.free();
+}
+
+-- EXPECTED OUTPUT:
+-- 7
+-- 7
+-- 7
+-- 7

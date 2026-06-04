@@ -48,7 +48,7 @@ pub(crate) fn handle_with_watch(
 }
 
 /// Build search paths for module resolution: ZO_CORE_PATH
-/// env, installed/dev std layout (`core` + `provider`),
+/// env, installed/dev system-pack layout (`core` + `provider`),
 /// and the input file's parent directory.
 pub(crate) fn search_paths(input: &Path) -> Vec<PathBuf> {
   let mut paths = Vec::new();

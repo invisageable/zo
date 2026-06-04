@@ -1,0 +1,31 @@
+-! # how to errors: pattern_binder_reserved_keyword.zo
+-!
+-! @cmd: `zo build pattern_binder_reserved_keyword.zo`
+-!
+-! `state` is a reserved keyword, so it can't name a value. Here it is
+-! used as a match pattern binder. Before the fix it compiled silently
+-! and mis-bound, reading garbage at runtime; now it is a hard error.
+-! Rename the binder to a normal identifier (`cell`, `value`, ...).
+
+fun main() {
+  mut xs: Vec<int> = Vec::new();
+  xs.push(1);
+
+  match xs.get(0) {
+    Option::Some(state) => { showln(0); }
+    Option::None => {}
+  }
+
+  xs.free();
+}
+
+-- EXPECTED OUTPUT:
+-- [E0139] Error • Reserved keyword used as an identifier
+--     ╭─[ pattern_binder_reserved_keyword.zo:15:18 ]
+--     │
+--  15 │     Option::Some(state) => { showln(0); }
+--     │                  ──┬──
+--     │                    ╰──── this reserved word can't name a value
+--     │
+--     │ Help • Reserved words name language constructs, so they can't name a value — rename the binding
+-- ────╯

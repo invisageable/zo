@@ -11,41 +11,41 @@ load core::c::(CBytes, CStr);
   linux: "@executable_path/libzo_runtime.so",
 }
 
-
+-! ...
 pub ffi zo_regex_compile(pattern: CStr, flags: CStr) -> int;
-
+-! ...
 pub ffi zo_regex_free(handle: int);
-
+-! ...
 pub ffi zo_regex_matches(handle: int, s: CStr) -> int;
-
+-! ...
 pub ffi zo_regex_find(handle: int, s: CStr) -> int;
-
+-! ...
 pub ffi zo_regex_find_end(handle: int, s: CStr) -> int;
-
+-! ...
 pub ffi zo_regex_exec(handle: int, s: CStr) -> int;
-
+-! ...
 pub ffi zo_regex_match_free(handle: int);
-
+-! ...
 pub ffi zo_regex_match_start(handle: int) -> int;
-
+-! ...
 pub ffi zo_regex_match_end(handle: int) -> int;
-
+-! ...
 pub ffi zo_regex_match_group_count(handle: int) -> int;
-
+-! ...
 pub ffi zo_regex_match_group(handle: int, index: int) -> CBytes;
-
+-! ...
 pub ffi zo_regex_replace(
   handle: int,
   s: CStr,
   replacement: CStr,
 ) -> CBytes;
-
+-! ...
 pub ffi zo_regex_replace_all(
   handle: int,
   s: CStr,
   replacement: CStr,
 ) -> CBytes;
-
+-! ...
 pub ffi zo_regex_split(handle: int, s: CStr) -> []str;
 
 
@@ -124,26 +124,26 @@ apply Regex {
   }
 
   -! True when `s` contains at least one match.
-  pub fun matches(self, s: str) -> bool {
-    zo_regex_matches(self.handle, CStr::new(s)) == 1
+  pub fun matches(self, pattern: str) -> bool {
+    zo_regex_matches(self.handle, CStr::new(pattern)) == 1
   }
 
   -! Byte offset of the first match's start, or `-1`.
   -!
   -! @note — pair with `find_end` on the same `(self, s)` to
   -! recover the matched slice.
-  pub fun find(self, s: str) -> int {
-    zo_regex_find(self.handle, CStr::new(s))
+  pub fun find(self, pattern: str) -> int {
+    zo_regex_find(self.handle, CStr::new(pattern))
   }
 
   -! Byte offset of the first match's end (exclusive), or `-1`.
-  pub fun find_end(self, s: str) -> int {
-    zo_regex_find_end(self.handle, CStr::new(s))
+  pub fun find_end(self, pattern: str) -> int {
+    zo_regex_find_end(self.handle, CStr::new(pattern))
   }
 
   -! Find the first match in `s` and return its captures.
-  pub fun exec(self, s: str) -> Match {
-    Match { handle = zo_regex_exec(self.handle, CStr::new(s)) }
+  pub fun exec(self, pattern: str) -> Match {
+    Match { handle = zo_regex_exec(self.handle, CStr::new(pattern)) }
   }
 
   -! Replace only the first match in `s` with `replacement`.
@@ -151,10 +151,10 @@ apply Regex {
   -! @note — replacement supports `$0` (whole match) and
   -! `$1`/`$2`/… (capture groups). Use `replace_all` for every
   -! match.
-  pub fun replace(self, s: str, replacement: str) -> str {
+  pub fun replace(self, pattern: str, replacement: str) -> str {
     zo_regex_replace(
       self.handle,
-      CStr::new(s),
+      CStr::new(pattern),
       CStr::new(replacement),
     )
       .to_str()
@@ -164,17 +164,139 @@ apply Regex {
   -!
   -! @note — replacement supports `$0` and `$1`/`$2`/…
   -! backreferences.
-  pub fun replace_all(self, s: str, replacement: str) -> str {
+  pub fun replace_all(self, pattern: str, replacement: str) -> str {
     zo_regex_replace_all(
       self.handle,
-      CStr::new(s),
+      CStr::new(pattern),
       CStr::new(replacement),
     )
       .to_str()
   }
 
   -! Split `s` on every match; empty array on invalid regex.
-  pub fun split(self, s: str) -> []str {
-    zo_regex_split(self.handle, CStr::new(s))
+  pub fun split(self, pattern: str) -> []str {
+    zo_regex_split(self.handle, CStr::new(pattern))
   }
+}
+
+-! The expected outcome of a single match: `text` at byte offset `index`.
+struct Expected {
+  text: str,
+  index: int,
+}
+
+-! Assert `regex` matches `input` with no capture groups, yielding
+-! `expected.text` at `expected.index`.
+fun expect_match(regex: Regex, input: str, expected: Expected) {
+  imu matched: Match = regex.exec(input);
+  check(matched.is_valid());
+  check@eq(matched.count(), 0);
+  check@eq(matched.text(), expected.text);
+  check@eq(matched.start(), expected.index);
+}
+
+test fun matches_full_sequence() {
+  -- Single chars matching the whole input.
+  expect_match(/abc/, "abc", Expected { text = "abc", index = 0 });
+  -- Non-capturing groups, same meaning.
+  expect_match(
+    /(?:a)(?:b)(?:c)/,
+    "abc",
+    Expected { text = "abc", index = 0 },
+  );
+}
+
+test fun matches_anchored_and_offset() {
+  -- Matching in the middle.
+  expect_match(/abc/, "1abc2", Expected { text = "abc", index = 1 });
+  -- Anchored at the beginning.
+  expect_match(/^abc/, "abcdefg", Expected { text = "abc", index = 0 });
+  -- Anchored at the end.
+  expect_match(/abc$/, "abcabc", Expected { text = "abc", index = 3 });
+}
+
+test fun word_boundaries() {
+  -- `\b` between a word char and a non-word char.
+  expect_match(/.\b./, "abc-+", Expected { text = "c-", index = 2 });
+  -- `\B` between two word chars.
+  expect_match(/.\B./, "a*c*ab+", Expected { text = "ab", index = 4 });
+}
+
+test fun disjunction_and_charsets() {
+  -- Disjunction matching the second alternative.
+  expect_match(/abc|cde/, "abbcdef", Expected { text = "cde", index = 3 });
+  -- Character classes and the `.` wildcard.
+  expect_match(
+    /[a-zA-Z0-9][abc][^f]./,
+    "+-*GafGa88",
+    Expected { text = "Ga88", index = 6 },
+  );
+  -- `\s` charset.
+  expect_match(/\s/, "ab cd", Expected { text = " ", index = 2 });
+}
+
+test fun optional_and_counted_quantifiers() {
+  -- Optional char, absent then present.
+  expect_match(/ab?/, "xac", Expected { text = "a", index = 1 });
+  expect_match(/ab?/, "xabc", Expected { text = "ab", index = 1 });
+  -- Bounded `{2,5}`, lower-bounded `{2,}`, then `{2,}.`.
+  expect_match(
+    /ab{2,5}/,
+    "xabbbbbbbc",
+    Expected { text = "abbbbb", index = 1 },
+  );
+  expect_match(
+    /ab{2,}/,
+    "xabbbbbbbc",
+    Expected { text = "abbbbbbb", index = 1 },
+  );
+  expect_match(/ab{2,}./, "xabcabbbd", Expected { text = "abbbd", index = 4 });
+}
+
+test fun greedy_and_lazy_quantifiers() {
+  -- Greedy `*` consuming every `b`, then matching none.
+  expect_match(
+    /ab*/,
+    "xabbbbbbbc",
+    Expected { text = "abbbbbbb", index = 1 },
+  );
+  expect_match(/ab*/, "xacbbbbbbbc", Expected { text = "a", index = 1 });
+  -- Lazy `*?` stopping at the first reachable `c`.
+  expect_match(/a(?:b|c)*?c/, "abcbc", Expected { text = "abc", index = 0 });
+}
+
+test fun capture_groups() {
+  -- One capture.
+  imu single_capture: Match = /a(b)c/.exec("01abc23");
+  check(single_capture.is_valid());
+  check@eq(single_capture.count(), 1);
+  check@eq(single_capture.text(), "abc");
+  check@eq(single_capture.at(1), "b");
+  check@eq(single_capture.start(), 2);
+
+  -- Six groups; non-participating ones read "" (JS `undefined`).
+  imu nested_groups: Match = /((a)|(ab))((c)|(bc))/.exec("abc");
+  check(nested_groups.is_valid());
+  check@eq(nested_groups.count(), 6);
+  check@eq(nested_groups.text(), "abc");
+  check@eq(nested_groups.at(1), "a");
+  check@eq(nested_groups.at(2), "a");
+  check@eq(nested_groups.at(3), "");
+  check@eq(nested_groups.at(4), "bc");
+  check@eq(nested_groups.at(5), "");
+  check@eq(nested_groups.at(6), "bc");
+  check@eq(nested_groups.start(), 0);
+}
+
+test fun lookaround_and_backrefs_rejected() {
+  -- No lookaround: these patterns fail to compile (handle 0).
+  imu lookahead: Regex = /a(?=bcd)b/;
+  check(!lookahead.is_valid());
+
+  imu negative_lookahead: Regex = /a(?!bcd)b/;
+  check(!negative_lookahead.is_valid());
+
+  -- No backreferences either.
+  imu backreference: Regex = /a(b)c\1/;
+  check(!backreference.is_valid());
 }

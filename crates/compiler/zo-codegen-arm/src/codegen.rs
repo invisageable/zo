@@ -1,5 +1,7 @@
 pub(crate) mod template;
 
+use crate::promotion::Promotion;
+
 use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, MachoLinkObject};
 use zo_emitter_arm::{
@@ -119,6 +121,36 @@ pub const TEMPLATE_SYMBOL_OFFSET: u32 = 0x1000;
 /// the stack.
 const AAPCS_ARG_REGS: [Register; 8] = [X0, X1, X2, X3, X4, X5, X6, X7];
 
+/// The variable-size areas of a function's stack frame, in
+/// the fixed order the prologue lays them out. The prologue
+/// and epilogue both feed this to `aligned_frame_size` so the
+/// two `sub sp` / `add sp` amounts can never drift apart.
+struct FrameAreas {
+  /// Register-spill slots (`FunctionInfo::spill_size`).
+  spill_size: u32,
+  /// `mut` variable slots (`FunctionInfo::mutable_size`).
+  mut_size: u32,
+  /// One word per parameter for the home-slot stores.
+  param_reserve: u32,
+  /// Blanket caller-save + overflow-arg staging — dynamic
+  /// per `compute_caller_save_reserve`.
+  caller_save: u32,
+  /// Struct / enum / array literal scratch.
+  struct_size: u32,
+  /// Channel-op scratch (`FunctionInfo::chan_scratch_size`).
+  chan_scratch_size: u32,
+  /// `SelectWait` scratch (`FunctionInfo::select_scratch_size`).
+  select_scratch_size: u32,
+  /// `StringFormat` pointer-array scratch.
+  string_format_scratch_size: u32,
+  /// Save area for promoted callee-saved registers (x19..x28
+  /// claimed by register promotion). One 8-byte slot per
+  /// register, padded to keep the frame 16-aligned. Lives at
+  /// the top of the frame so no other area's base offset
+  /// shifts when promotion is active.
+  promo_save_size: u32,
+}
+
 /// One enum variant's layout snapshot for the
 /// post-call deep-copy. `discriminant` selects the
 /// variant at runtime; `field_tys` mirrors the
@@ -164,10 +196,21 @@ struct VtableSlotFixup {
 }
 
 // Runtime dylib symbols: every `#dom` program emits calls
-// into `libzo_runtime_native.dylib`. Names match the
-// `#[no_mangle]` exports in `zo-runtime-native::ffi`
-// (Mach-O leading-underscore convention).
-const RUNTIME_DYLIB_FILE: &str = "libzo_runtime_native.dylib";
+// into the UI surface of `libzo_runtime.dylib`. Names match
+// the `#[no_mangle]` exports of `zo-runtime-native::ffi`
+// (the crate the runtime's `ui` feature re-exports;
+// Mach-O leading-underscore convention).
+//
+// These symbols route to the same staged runtime dylib as
+// every other `_zo_*` import (`@executable_path/` rewrites
+// to `@loader_path/deps/libzo_runtime.dylib` in the
+// linker). Folding them into the one runtime entry — rather
+// than a parallel absolute-path `libzo_runtime_native`
+// reference — lets the compiler stage a single relocatable
+// dylib and makes the lean-vs-full choice authoritative:
+// importing any of these is exactly what flips the linker
+// to `RuntimeKind::Full`.
+const RUNTIME_DYLIB_FILE: &str = "@executable_path/libzo_runtime.dylib";
 const SYM_RUN: &str = "_zo_run_native";
 const SYM_STATE_INIT: &str = "_zo_state_init";
 const SYM_STATE_GET: &str = "_zo_state_get";
@@ -178,49 +221,6 @@ const SYM_STATE_SET: &str = "_zo_state_set";
 const SYM_STATE_GET_STR: &str = "_zo_state_get_str";
 const SYM_STATE_SET_STR: &str = "_zo_state_set_str";
 
-/// Locate `libzo_runtime_native.dylib` next to the running
-/// `zo` binary, falling back to the sibling cargo profile
-/// when only one of `target/debug` / `target/release` has
-/// been built. `cargo run --bin zo --release` produces
-/// `target/release/zo` but doesn't compile the cdylib
-/// (it's not a rlib dep), so the dylib only exists under
-/// `target/debug/` — without the fallback the compiled
-/// program's `LC_LOAD_DYLIB` would be a bare basename
-/// that dyld can't resolve at run time.
-///
-/// Candidate order:
-///   1. `<exe-dir>/<dylib>` — same profile.
-///   2. `<exe-dir>/../debug/<dylib>` — release-zo + debug-dylib.
-///   3. `<exe-dir>/../release/<dylib>` — debug-zo + release-dylib.
-///   4. `<exe-dir>/../lib/<dylib>` — installed layout
-///      (`tasks/zo-install.sh` will write here).
-///
-/// Returns `None` when none of the candidates exist; the
-/// caller falls back to a bare basename so the linker
-/// still records something and dyld surfaces a clean
-/// "image not found" diagnostic at runtime.
-fn resolve_runtime_dylib_path() -> Option<String> {
-  let exe = std::env::current_exe().ok()?;
-  let exe_dir = exe.parent()?;
-  let candidates = [
-    exe_dir.join(RUNTIME_DYLIB_FILE),
-    exe_dir.join("..").join("debug").join(RUNTIME_DYLIB_FILE),
-    exe_dir.join("..").join("release").join(RUNTIME_DYLIB_FILE),
-    exe_dir.join("..").join("lib").join(RUNTIME_DYLIB_FILE),
-  ];
-
-  for candidate in &candidates {
-    if candidate.exists() {
-      let canon = candidate
-        .canonicalize()
-        .unwrap_or_else(|_| candidate.clone());
-
-      return Some(canon.to_string_lossy().into_owned());
-    }
-  }
-
-  None
-}
 /// Synthetic-symbol base for the per-template event
 /// dispatcher (`_zo_dispatch_N`). Paired 1:1 with
 /// `TEMPLATE_SYMBOL_OFFSET` — given template
@@ -385,15 +385,6 @@ pub struct ARM64Gen<'a> {
   /// promotes those functions to non-leaf so the
   /// prologue/epilogue reserve the right area.
   fns_needing_calls: HashSet<InsnIdx>,
-  /// Cached `libzo_runtime_native.dylib` path used for
-  /// the `LC_LOAD_DYLIB` entry. `ensure_runtime_dylib_
-  /// registered` resolves it once via `current_exe()` +
-  /// `parent()` + `join()` + `exists()` (a syscall on
-  /// Apple) and reuses the result across every subsequent
-  /// call site (`emit_state_init_prologue`,
-  /// `emit_state_load`, `emit_state_store`,
-  /// `emit_render_call`).
-  runtime_dylib_path: Option<String>,
   /// Whether we have templates that need the entry point.
   pub has_templates: bool,
   /// The label offsets: label_id → byte offset in code.
@@ -423,6 +414,31 @@ pub struct ARM64Gen<'a> {
   current_emit_idx: usize,
   /// Mutable variable stack slots: name → offset from SP.
   mutable_slots: HashMap<u32, u32>,
+  /// Register-promotion plan for the current function:
+  /// scalar locals lifted from stack slots into dedicated
+  /// callee-saved registers (x19..x28). Rebuilt per FunDef
+  /// in `enter_function`. Consulted at every `Insn::Store`
+  /// and `Insn::Load { LoadSource::Local }` so a promoted
+  /// local's read/write is a register move instead of stack
+  /// memory traffic. See `promotion.rs`.
+  promotion: Promotion,
+  /// SSA values whose register IS a promotion register: a
+  /// `Load { LoadSource::Local(promoted) }` binds its `dst`
+  /// here instead of emitting a memory load, so downstream
+  /// `BinOp` / `Call` operands read the callee-saved register
+  /// directly. Cleared per FunDef. Keyed by `ValueId.0`.
+  promo_value_reg: HashMap<u32, Register>,
+  /// Parameter index → promotion register, for `mut`
+  /// parameters whose symbol was promoted. The executor
+  /// lowers a parameter read as either `LoadSource::Local`
+  /// (handled via `promotion`) or `LoadSource::Param(idx)`,
+  /// and BOTH forms appear for a `mut` param that is also
+  /// reassigned (`while n > 1 { n = n / 2 }`). Without this,
+  /// the `Param(idx)` reads would still come from the stale
+  /// home slot while the `Store` writes the register — the
+  /// loop would never see the update and spin forever.
+  /// Cleared per FunDef.
+  param_promo_reg: HashMap<u32, Register>,
   /// Inline-storage `[N]T` variables: name → SP-relative
   /// offset of the array block's first byte. The block
   /// holds `[len:8][cap:8][e0:8]...[eN:8]`. `Insn::Store`
@@ -447,6 +463,14 @@ pub struct ARM64Gen<'a> {
   param_sym_slots: HashMap<u32, (u32, bool)>,
   /// Base offset for caller-save spill area.
   caller_save_base: u32,
+  /// Bytes reserved in the current frame for blanket
+  /// caller-save spills and overflow-arg staging. Computed
+  /// once per function in `enter_function`. Zero for leaf-ish
+  /// functions whose only calls are pure zo→zo user calls
+  /// (those rely on the register allocator's precise per-call
+  /// spill, so the flat X1..X15 blanket is pure waste). See
+  /// `compute_caller_save_reserve`.
+  caller_save_reserve: u32,
   /// Next mutable variable slot.
   next_mut_slot: u32,
   /// Base offset for struct allocations in the frame.
@@ -463,6 +487,12 @@ pub struct ARM64Gen<'a> {
   /// the struct's bytes.
   array_push_scratch_base: u32,
   string_format_scratch_base: u32,
+  /// Offset from SP of the promoted-register save area —
+  /// the top-of-frame region holding the caller's x19..x28
+  /// while this function uses them for promoted locals. The
+  /// prologue stores each claimed register here; every
+  /// return path restores from here before the `add sp`.
+  promo_save_base: u32,
   /// Offset from SP of the select-wait scratch area.
   /// Layout: `nchans * 8` bytes of `*mut ZoChan`
   /// pointers immediately followed by an `elem_sz`
@@ -792,7 +822,6 @@ impl<'a> ARM64Gen<'a> {
       reactive_slots: HashMap::default(),
       template_text_bindings: HashMap::default(),
       fns_needing_calls: HashSet::default(),
-      runtime_dylib_path: None,
       has_templates: false,
       labels: HashMap::default(),
       branch_fixups: Vec::new(),
@@ -803,16 +832,21 @@ impl<'a> ARM64Gen<'a> {
       current_fn_start: None,
       current_emit_idx: 0,
       mutable_slots: HashMap::default(),
+      promotion: Promotion::default(),
+      promo_value_reg: HashMap::default(),
+      param_promo_reg: HashMap::default(),
       array_var_blocks: HashMap::default(),
       param_slots: HashMap::default(),
       param_sym_slots: HashMap::default(),
       caller_save_base: 0,
+      caller_save_reserve: 0,
       next_mut_slot: 0,
       struct_base: 0,
       chan_scratch_base: 0,
       select_scratch_base: 0,
       array_push_scratch_base: 0,
       string_format_scratch_base: 0,
+      promo_save_base: 0,
       next_struct_slot: 0,
       io_shared_buf_offset: None,
       struct_return_fns: HashMap::default(),
@@ -881,6 +915,13 @@ impl<'a> ARM64Gen<'a> {
 
   /// Look up the allocated register for a ValueId.
   fn alloc_reg(&self, vid: ValueId) -> Option<Register> {
+    // A value loaded from a promoted local lives in its
+    // callee-saved register — return it directly so consumers
+    // read the register with no intervening memory load.
+    if let Some(&reg) = self.promo_value_reg.get(&vid.0) {
+      return Some(reg);
+    }
+
     self
       .reg_alloc
       .as_ref()
@@ -957,6 +998,166 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
+  /// Whether an `Insn::Call` to `name` lowers to a pure
+  /// zo→zo user-function `BL` — the only call path that
+  /// relies entirely on the register allocator's precise
+  /// per-call spill and therefore needs NO blanket caller-
+  /// save reserve.
+  ///
+  /// @note — mirrors the `Insn::Call` dispatch: every builtin
+  /// / runtime / libm / FFI arm wraps its `BL` in
+  /// `emit_extern_call` (or the libm inline blanket), so those
+  /// keep the reserve. `flush` / `exit` and the hardware-math
+  /// intrinsics emit no `BL` at all, but classifying them as
+  /// "needs reserve = false" is safe (and they never co-exist
+  /// with a reason to grow the frame). The conservative
+  /// default for an unrecognized name is `false` only when it
+  /// is also absent from `ffi_sigs`; an FFI signature forces
+  /// the reserve.
+  fn call_is_pure_zo(&self, name: Symbol) -> bool {
+    if self.ffi_sigs.contains_key(&name) {
+      return false;
+    }
+
+    match self.interner.get(name) {
+      // No-`BL` intrinsics — no caller-save needed.
+      "flush" | "exit" | "sqrt" | "floor" | "ceil" | "trunc" | "round"
+      | "is_nan" | "is_finite" => true,
+      // Everything that wraps a runtime `BL` in
+      // `emit_extern_call` keeps the blanket reserve.
+      "show" | "showln" | "eshow" | "eshowln" | "check" | "exists"
+      | "read_file" | "write_file" | "append_file" | "readln" | "read"
+      | "args" | "remove_file" | "read_dir" | "pow" | "sin" | "cos" | "tan"
+      | "log" | "log2" | "log10" | "exp" | "zo_str_replace"
+      | "arr_int::sort" | "zo_map_len_raw" | "zo_map_free_raw"
+      | "zo_vec_len_raw" | "zo_vec_free_raw" | "zo_set_len_raw"
+      | "zo_set_free_raw" => false,
+      // `Type::method` runtime dispatch (HashMap / Vec /
+      // HashSet) and any other `::`-mangled builtin lowers
+      // through a marshaling `emit_extern_call`.
+      other => !other.contains("::"),
+    }
+  }
+
+  /// Whether a non-`Call` SIR instruction lowers to a runtime
+  /// `BL` that the register allocator does NOT model with
+  /// precise per-call spills — so its blanket `emit_extern_call`
+  /// caller-save is load-bearing and forces the reserve.
+  fn insn_needs_blanket_caller_save(insn: &Insn) -> bool {
+    matches!(
+      insn,
+      Insn::ArrayLiteral { .. }
+        | Insn::ArrayPush { .. }
+        | Insn::ChannelCreate { .. }
+        | Insn::ChannelSend { .. }
+        | Insn::ChannelRecv { .. }
+        | Insn::ChannelClose { .. }
+        | Insn::TaskSpawn { .. }
+        | Insn::TaskAwait { .. }
+        | Insn::TaskCancelled { .. }
+        | Insn::TaskCancel { .. }
+        | Insn::NurseryEnd { .. }
+        | Insn::SelectWait { .. }
+        | Insn::SelectRecv { .. }
+        | Insn::StrSlice { .. }
+        | Insn::ToStr { .. }
+        | Insn::StringFormat { .. }
+        | Insn::CoerceToDyn { .. }
+        | Insn::DynDispatch { .. }
+        | Insn::TestBegin { .. }
+        | Insn::TestRun { .. }
+        | Insn::TestSummary
+    ) || matches!(
+      insn,
+      Insn::BinOp { ty_id, op, .. }
+        if ty_id.0 == STR_TYPE_ID
+          && matches!(
+            op,
+            zo_sir::BinOp::Eq | zo_sir::BinOp::Neq | zo_sir::BinOp::Concat
+          )
+    )
+  }
+
+  /// Total stack frame size in bytes, 16-byte aligned. The
+  /// single source of truth shared by the prologue's `sub sp`
+  /// and the epilogue's `add sp`.
+  fn aligned_frame_size(areas: FrameAreas) -> u32 {
+    (areas.spill_size
+      + areas.mut_size
+      + areas.param_reserve
+      + areas.caller_save
+      + areas.struct_size
+      + areas.chan_scratch_size
+      + areas.select_scratch_size
+      + ARRAY_PUSH_SCRATCH_SIZE
+      + areas.string_format_scratch_size
+      + areas.promo_save_size
+      + FRAME_ALIGN_MASK)
+      & !FRAME_ALIGN_MASK
+  }
+
+  /// Bytes the promoted-register save area occupies in the
+  /// current frame: one 8-byte slot per claimed callee-saved
+  /// register, rounded up to 16 so the frame stays aligned.
+  /// Single source of truth for the prologue's save loop and
+  /// the epilogue's restore loop.
+  fn promo_save_size(&self) -> u32 {
+    let n = self.promotion.used_count() as u32;
+
+    (n * STACK_SLOT_SIZE + FRAME_ALIGN_MASK) & !FRAME_ALIGN_MASK
+  }
+
+  /// Bytes the current function must reserve for blanket
+  /// caller-save spills and overflow-arg staging, replacing
+  /// the flat `CALLER_SAVE_RESERVE` that every call-having
+  /// function paid regardless of need.
+  ///
+  /// @note — A function needs the full `CALLER_SAVE_RESERVE`
+  /// only when it still emits a blanket spill: any runtime-
+  /// lowered non-`Call` instruction, or any builtin / libm /
+  /// FFI `Call`. Pure zo→zo user calls are covered by the
+  /// allocator's precise spills, so they need zero blanket —
+  /// only enough staging for their own >8-arg overflow.
+  fn compute_caller_save_reserve(&self, body: &[Insn]) -> u32 {
+    let mut needs_blanket = false;
+    let mut max_overflow_args: u32 = 0;
+
+    for insn in body {
+      if Self::insn_needs_blanket_caller_save(insn) {
+        needs_blanket = true;
+      }
+
+      if let Insn::Call { name, args, .. } = insn {
+        if !self.call_is_pure_zo(*name) {
+          needs_blanket = true;
+        }
+
+        let overflow = args.len().saturating_sub(MAX_REG_ARGS) as u32;
+
+        if overflow > max_overflow_args {
+          max_overflow_args = overflow;
+        }
+      }
+    }
+
+    // Overflow args stage past the X1..X15 blanket region at
+    // `caller_save_base + (CALLER_SAVE_COUNT + 1) * 8`, so the
+    // staging reserve always includes that prefix. The offset
+    // formula at the call site is unchanged — only the SIZE
+    // reserved here adapts.
+    let staging = if max_overflow_args > 0 {
+      (CALLER_SAVE_COUNT as u32 + 1 + max_overflow_args) * STACK_SLOT_SIZE
+    } else {
+      0
+    };
+
+    if needs_blanket {
+      CALLER_SAVE_RESERVE.max(staging)
+    } else {
+      staging
+    }
+  }
+
   fn enter_function(&mut self, name: Symbol, idx: usize, all_insns: &[Insn]) {
     self.current_function = Some(name);
     self.current_fn_start = Some(idx);
@@ -966,6 +1167,8 @@ impl<'a> ARM64Gen<'a> {
     self.reload_overrides.clear();
     self.fp_reload_overrides.clear();
     self.mutable_slots.clear();
+    self.promo_value_reg.clear();
+    self.param_promo_reg.clear();
     self.array_var_blocks.clear();
     self.next_mut_slot = 0;
     self.next_struct_slot = 0;
@@ -982,6 +1185,11 @@ impl<'a> ARM64Gen<'a> {
       .map(|p| idx + 1 + p)
       .unwrap_or(all_insns.len());
 
+    self.caller_save_reserve =
+      self.compute_caller_save_reserve(&all_insns[idx..fn_end]);
+
+    self.promotion = self.build_promotion(&all_insns[idx..fn_end]);
+
     for (offset, ins) in all_insns[idx..fn_end].iter().enumerate() {
       let widx = InsnIdx((idx + offset) as u32);
 
@@ -996,6 +1204,142 @@ impl<'a> ARM64Gen<'a> {
         _ => {}
       }
     }
+  }
+
+  /// Build the register-promotion plan for the function body
+  /// `body`. A scalar local store/load type is promotable
+  /// when it resolves to a register-sized GP scalar (`int`,
+  /// `s8..s64`, `u8..u64`, `bool`, `char`, or a pointer).
+  /// Without a type view the classifier promotes nothing —
+  /// correctness over reach. The native build path always
+  /// supplies a type view, so promotion is active there.
+  ///
+  /// Promotion is disabled outright for any function whose
+  /// body clobbers x19..x28 (see
+  /// `body_clobbers_promotion_regs`).
+  fn build_promotion(&self, body: &[Insn]) -> Promotion {
+    let view = self.type_view;
+    let regs_safe = !self.body_clobbers_promotion_regs(body);
+
+    Promotion::analyze(
+      body,
+      |ty_id| match view {
+        Some(view) => {
+          matches!(
+            resolve_ty(view.tys, TyId(ty_id)),
+            Ty::Int { .. } | Ty::Bool | Ty::Char | Ty::Ref(_)
+          )
+        }
+        None => false,
+      },
+      regs_safe,
+    )
+  }
+
+  /// Whether `body` contains an instruction whose codegen
+  /// uses x19..x28 as ad-hoc scratch. Those registers double
+  /// as the promotion pool, so any such instruction would
+  /// stomp a promoted local — the function must promote
+  /// nothing.
+  ///
+  /// This is a WHITELIST: a function is safe only when every
+  /// instruction is one we have verified never touches
+  /// x19..x28 (scalar arithmetic, control flow, plain calls,
+  /// scalar prints). Anything else — arrays, strings, enums,
+  /// tuples, structs, channels, tasks, IO, dynamic dispatch —
+  /// disqualifies the whole function. Correct-by-
+  /// construction: an instruction we don't recognize as safe
+  /// is assumed to clobber. The hot kernels this optimization
+  /// targets (tight numeric loops) consist entirely of the
+  /// safe set, so they still promote; aggregate-heavy code
+  /// keeps its memory locals.
+  fn body_clobbers_promotion_regs(&self, body: &[Insn]) -> bool {
+    // Value id → producing type, scoped to this body. Lets a
+    // `show*` call recover whether its argument is an
+    // aggregate; the per-emit `value_types` map isn't
+    // populated yet at promotion-analysis time.
+    let mut value_ty: HashMap<u32, TyId> = HashMap::default();
+
+    body.iter().any(|insn| {
+      match insn {
+        Insn::Load { dst, ty_id, .. }
+        | Insn::Call { dst, ty_id, .. }
+        | Insn::StructConstruct { dst, ty_id, .. }
+        | Insn::EnumConstruct { dst, ty_id, .. }
+        | Insn::TupleLiteral { dst, ty_id, .. }
+        | Insn::ArrayLiteral { dst, ty_id, .. } => {
+          value_ty.insert(dst.0, *ty_id);
+        }
+        _ => {}
+      }
+
+      !self.insn_is_promotion_safe(insn, &value_ty)
+    })
+  }
+
+  /// Whether one instruction's codegen is known to leave
+  /// x19..x28 untouched. See `body_clobbers_promotion_regs`.
+  fn insn_is_promotion_safe(
+    &self,
+    insn: &Insn,
+    value_ty: &HashMap<u32, TyId>,
+  ) -> bool {
+    match insn {
+      // Scalar value production, arithmetic, control flow,
+      // and frame markers — all verified to stay clear of
+      // x19..x28.
+      Insn::FunDef { .. }
+      | Insn::ConstInt { .. }
+      | Insn::ConstBool { .. }
+      | Insn::ConstFloat { .. }
+      | Insn::ConstString { .. }
+      | Insn::Load { .. }
+      | Insn::Store { .. }
+      | Insn::BinOp { .. }
+      | Insn::UnOp { .. }
+      | Insn::Cast { .. }
+      | Insn::ToStr { .. }
+      | Insn::StringFormat { .. }
+      | Insn::Label { .. }
+      | Insn::Jump { .. }
+      | Insn::BranchIfNot { .. }
+      | Insn::Return { .. }
+      | Insn::VarDef { .. }
+      | Insn::Drop { .. } => true,
+      // A plain call is safe; a `show*` of an aggregate routes
+      // into the x19..x28 pretty-printer and is not.
+      Insn::Call { name, args, .. } => {
+        let is_print = matches!(
+          self.interner.get(*name),
+          "show" | "showln" | "eshow" | "eshowln"
+        );
+
+        !(is_print
+          && args
+            .first()
+            .and_then(|arg| value_ty.get(&arg.0).copied())
+            .is_some_and(|ty| self.is_aggregate_print_ty(ty)))
+      }
+      // Everything else (arrays, channels, tasks, dynamic
+      // dispatch, templates, IO scratch, …) may use x19..x28.
+      _ => false,
+    }
+  }
+
+  /// Whether printing a value of type `ty_id` routes through
+  /// the x19..x28 aggregate pretty-printer rather than the
+  /// scalar / string / float itoa path.
+  fn is_aggregate_print_ty(&self, ty_id: TyId) -> bool {
+    let Some(view) = self.type_view else {
+      // No type view: be conservative and treat it as an
+      // aggregate so promotion stays off when in doubt.
+      return true;
+    };
+
+    matches!(
+      resolve_ty(view.tys, ty_id),
+      Ty::Struct(_) | Ty::Enum(_) | Ty::Tuple(_) | Ty::Array(_)
+    )
   }
 
   /// Look up the allocated FP register for the value
@@ -2284,18 +2628,19 @@ impl<'a> ARM64Gen<'a> {
           }
 
           let param_reserve = params.len() as u32 * STACK_SLOT_SIZE;
-          let caller_save = if has_calls { CALLER_SAVE_RESERVE } else { 0 };
-          let frame = (spill_size
-            + mut_size
-            + param_reserve
-            + caller_save
-            + struct_size
-            + chan_scratch_size
-            + select_scratch_size
-            + ARRAY_PUSH_SCRATCH_SIZE
-            + string_format_scratch_size
-            + FRAME_ALIGN_MASK)
-            & !FRAME_ALIGN_MASK;
+          let caller_save = self.caller_save_reserve;
+          let promo_save_size = self.promo_save_size();
+          let frame = Self::aligned_frame_size(FrameAreas {
+            spill_size,
+            mut_size,
+            param_reserve,
+            caller_save,
+            struct_size,
+            chan_scratch_size,
+            select_scratch_size,
+            string_format_scratch_size,
+            promo_save_size,
+          });
 
           if frame > 0 {
             if frame <= 4095 {
@@ -2338,12 +2683,39 @@ impl<'a> ARM64Gen<'a> {
           self.string_format_scratch_base =
             self.array_push_scratch_base + ARRAY_PUSH_SCRATCH_SIZE;
 
+          // Promoted-register save area sits at the top of the
+          // frame, above every scratch region. Save each
+          // claimed callee-saved register so the caller's
+          // value is restored on return — the ABI requires it.
+          self.promo_save_base =
+            self.string_format_scratch_base + string_format_scratch_size;
+
+          for i in 0..self.promotion.used_count() {
+            let reg = self.promotion.used_reg_at(i);
+            let off = self.promo_save_base + i as u32 * STACK_SLOT_SIZE;
+
+            self.emit_str_sp(reg, off);
+          }
+
           let param_base = spill_size + mut_size;
 
           for (i, (sym, ty_id)) in params.iter().enumerate() {
             let off = param_base + i as u32 * STACK_SLOT_SIZE;
             let is_fp =
               ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
+
+            // A promoted local that is also a parameter must
+            // receive its incoming arg value: copy the arg
+            // register into the promotion register before any
+            // body code reads it. Without this the promotion
+            // register holds the caller's saved x19.. value,
+            // not the argument. Only GP scalars are promoted,
+            // so `is_fp` params never hit this path.
+            let promo = (!is_fp).then(|| self.promotion.reg_of(*sym)).flatten();
+
+            if let Some(reg) = promo {
+              self.param_promo_reg.insert(i as u32, reg);
+            }
 
             if i < MAX_REG_ARGS {
               if is_fp {
@@ -2354,6 +2726,10 @@ impl<'a> ARM64Gen<'a> {
                 let src = Register::new(i as u8);
 
                 self.emit_str_sp(src, off);
+
+                if let Some(dst) = promo {
+                  self.emitter.emit_mov_reg(dst, src);
+                }
               }
             } else {
               // Overflow param: on the caller's stack, above
@@ -2363,6 +2739,10 @@ impl<'a> ARM64Gen<'a> {
 
               self.emit_ldr_sp(X16, caller_off);
               self.emit_str_sp(X16, off);
+
+              if let Some(dst) = promo {
+                self.emitter.emit_mov_reg(dst, X16);
+              }
             }
 
             self.param_slots.insert(i as u32, off);
@@ -2450,6 +2830,18 @@ impl<'a> ARM64Gen<'a> {
             return;
           }
 
+          // Register promotion: the local already lives in a
+          // callee-saved register. Bind this load's `dst` to
+          // that register so consumers read it directly — no
+          // memory load, no `mov`. Promoted locals are GP
+          // scalars, so none of the enum/tuple/array-block
+          // metadata paths below apply.
+          if let Some(reg) = self.promotion.reg_of(*sym) {
+            self.promo_value_reg.insert(dst.0, reg);
+
+            return;
+          }
+
           // Recover the construction-site enum payload types
           // (if any) so a later `showln(local)` can dispatch
           // on the concrete payload type. Without this, only
@@ -2505,6 +2897,16 @@ impl<'a> ARM64Gen<'a> {
           }
         }
         LoadSource::Param(idx) => {
+          // Promoted `mut` parameter: its live value is in the
+          // callee-saved register the `Store` writes, not the
+          // home slot. Bind this read to that register so the
+          // loop observes every update.
+          if let Some(&reg) = self.param_promo_reg.get(idx) {
+            self.promo_value_reg.insert(dst.0, reg);
+
+            return;
+          }
+
           // Load from parameter spill slot (saved in
           // prologue). This is safe even after registers
           // have been reused for other values.
@@ -3275,17 +3677,14 @@ impl<'a> ARM64Gen<'a> {
               self.emitter.emit_mov_reg(*dst, actual_src);
             }
 
-            // Save caller-saved temp regs (X9-X17) before BL.
-            // These may hold live values that the callee
-            // will clobber (ARM64: X0-X17 are caller-saved).
-            let base = self.caller_save_base;
-
-            for i in 0..CALLER_SAVE_COUNT {
-              let reg = Register::new(CALLER_SAVE_START + i as u8);
-              let off = base + i as u32 * STACK_SLOT_SIZE;
-
-              self.emit_str_sp(reg, off);
-            }
+            // No blanket caller-save here. The register
+            // allocator already spilled every value live
+            // across this `Insn::Call` into its own slot via
+            // `spill_ops` (emitted by `emit_spills(Before)`)
+            // and reloads them after, so the flat X1..X15
+            // store/reload that used to bracket the `BL` only
+            // ever saved dead registers — pure frame bloat
+            // that overflowed the stack on deep zo→zo chains.
 
             // Adjust SP and copy overflow args from staging
             // slots to the stack arg region.
@@ -3327,17 +3726,10 @@ impl<'a> ARM64Gen<'a> {
               self.call_fixups.push((fixup_pos, key));
             }
 
-            // Restore SP before caller-save reload so
-            // SP-relative offsets match the spill sites.
+            // Restore SP so SP-relative offsets after the call
+            // match the frame the rest of the body expects.
             if stack_arg_bytes > 0 {
               self.emitter.emit_add_imm(SP, SP, stack_arg_bytes as u16);
-            }
-
-            for i in 0..CALLER_SAVE_COUNT {
-              let reg = Register::new(CALLER_SAVE_START + i as u8);
-              let off = base + i as u32 * STACK_SLOT_SIZE;
-
-              self.emit_ldr_sp(reg, off);
             }
 
             // If callee returns a struct, x0 holds a
@@ -3591,18 +3983,30 @@ impl<'a> ARM64Gen<'a> {
             .map(|s| self.promoted_has_calls(s as u32, has_calls))
             .unwrap_or(has_calls);
           let param_reserve = self.param_slots.len() as u32 * STACK_SLOT_SIZE;
-          let caller_save = if has_calls { CALLER_SAVE_RESERVE } else { 0 };
-          let frame = (spill_size
-            + mut_size
-            + param_reserve
-            + caller_save
-            + struct_size
-            + chan_scratch_size
-            + select_scratch_size
-            + ARRAY_PUSH_SCRATCH_SIZE
-            + string_format_scratch_size
-            + FRAME_ALIGN_MASK)
-            & !FRAME_ALIGN_MASK;
+          let caller_save = self.caller_save_reserve;
+          let promo_save_size = self.promo_save_size();
+          let frame = Self::aligned_frame_size(FrameAreas {
+            spill_size,
+            mut_size,
+            param_reserve,
+            caller_save,
+            struct_size,
+            chan_scratch_size,
+            select_scratch_size,
+            string_format_scratch_size,
+            promo_save_size,
+          });
+
+          // Restore the caller's callee-saved registers from
+          // the top-of-frame save area before tearing the
+          // frame down — `promo_save_base` is still valid (the
+          // SP hasn't moved since the prologue saved them).
+          for index in 0..self.promotion.used_count() {
+            let reg = self.promotion.used_reg_at(index);
+            let off = self.promo_save_base + index as u32 * STACK_SLOT_SIZE;
+
+            self.emit_ldr_sp(reg, off);
+          }
 
           if frame > 0 {
             if frame <= 4095 {
@@ -3650,6 +4054,24 @@ impl<'a> ARM64Gen<'a> {
           };
 
           self.emit_state_store(slot, value_reg, ty_id.0 == STR_TYPE_ID);
+
+          return;
+        }
+
+        // Register promotion: the local lives in a dedicated
+        // callee-saved register, so the write is a register
+        // move with no memory store and no slot minting. The
+        // value is already materialized in a GP register by
+        // its producing instruction (we only promote GP
+        // scalars). A `mov dst, dst` no-op is skipped.
+        if let Some(dst) = self.promotion.reg_of(*name) {
+          if let Some(src) = self.alloc_reg(*value) {
+            if src != dst {
+              self.emitter.emit_mov_reg(dst, src);
+            }
+          } else if self.materialize_value_into_x16(*value, all_insns) {
+            self.emitter.emit_mov_reg(dst, X16);
+          }
 
           return;
         }
@@ -4528,6 +4950,25 @@ impl<'a> ARM64Gen<'a> {
 
         self.emit_extern_call("_zo_chan_close");
       }
+      Insn::FnAddr {
+        dst,
+        callee,
+        callee_pack,
+      } => {
+        // Materialize the callee's code address into `dst`'s
+        // register via an ADR placeholder, then record the
+        // same user-function-address fixup `TaskSpawn` uses.
+        // The fixup reads `rd` back from the emitted ADR, so
+        // any destination register is preserved when patched.
+        if let Some(dst_reg) = self.alloc_reg(*dst) {
+          let adr_pos = self.emitter.current_offset();
+
+          self.emitter.emit_adr(dst_reg, 0);
+          self
+            .function_addr_fixups
+            .push((adr_pos, (*callee, *callee_pack)));
+        }
+      }
       Insn::TaskSpawn {
         dst,
         kind,
@@ -5053,13 +5494,21 @@ impl<'a> ARM64Gen<'a> {
     self.last_was_math_intrinsic = false;
 
     if is_flt {
+      // FP regs are uniformly 64-bit internally (see
+      // `ConstFloat` / `Cast`), so D0 already holds the f64
+      // bit pattern even for an `f32`-typed value — no FCVT
+      // is needed before the call. `_zo_float_to_str` takes
+      // its f64 argument in D0 (AAPCS64) and returns a zo
+      // `str` pointer in X0; `emit_extern_call` reloads only
+      // X1..X15, leaving that return value intact.
       if let Some(fp_src) = arg_vid.and_then(|v| self.alloc_fp_reg(v))
         && fp_src != D0
       {
         self.emitter.emit_fmov_fp(D0, fp_src);
       }
 
-      self.emit_ftoa_and_write(fd);
+      self.emit_extern_call("_zo_float_to_str");
+      self.emit_zo_str_write(X0, fd);
     } else if is_bool && arg_vid.is_some() {
       if let Some(src) = arg_vid.and_then(|v| self.alloc_reg(v))
         && src != X0
@@ -5145,22 +5594,9 @@ impl<'a> ARM64Gen<'a> {
       self.emit_itoa_and_write(fd);
     } else if is_str {
       // String: single pointer to [len: u64][bytes][null].
-      // Read length and data pointer from the struct.
-      // Move to X16 first to avoid clobbering if ptr is
-      // X1 or X2 (used by syscall args).
       let ptr = arg_vid.and_then(|v| self.alloc_reg(v)).unwrap_or(X1);
 
-      if ptr != X16 {
-        self.emitter.emit_mov_reg(X16, ptr);
-      }
-
-      // LDR X2, [X16, #0] — load length from struct.
-      self.emitter.emit_ldr(X2, X16, 0);
-      // ADD X1, X16, #8 — data starts at offset 8.
-      self.emitter.emit_add_imm(X1, X16, 8);
-      self.emitter.emit_mov_imm(X16, SYS_WRITE);
-      self.emitter.emit_mov_imm(X0, fd);
-      self.emitter.emit_svc(0);
+      self.emit_zo_str_write(ptr, fd);
     } else {
       // No argument — emit empty write.
       self.emitter.emit_mov_imm(X16, SYS_WRITE);
@@ -5450,8 +5886,14 @@ impl<'a> ARM64Gen<'a> {
         self.emit_synthetic_str_write(STR_DQUOTE_SYM, fd);
       }
     } else if is_float {
+      // The field's raw 64-bit slot arrives in X0 as an f64
+      // bit pattern; move it to D0 and hand off to the
+      // shortest-round-trip formatter. `_zo_float_to_str`
+      // returns a zo `str` pointer in X0 — same write shape
+      // as the `is_str` arm above.
       self.emitter.emit_fmov_gp_to_fp(D0, X0);
-      self.emit_ftoa_and_write(fd);
+      self.emit_extern_call("_zo_float_to_str");
+      self.emit_zo_str_write(X0, fd);
     } else if is_bool {
       self.emit_bool_and_write(fd);
     } else if is_char {
@@ -5925,62 +6367,24 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_strb(X16, buf_reg, buf_off);
   }
 
-  /// Convert D0 (double) to decimal string and write to fd.
+  /// Write a zo `str` whose pointer lives in `ptr_reg` to
+  /// file descriptor `fd`.
   ///
-  /// Strategy: print integer part, ".", then 6 fractional
-  /// digits. Handles negative by printing "-" prefix.
-  fn emit_ftoa_and_write(&mut self, fd: u16) {
-    // FCVTZS X0, D0 — integer part (truncated).
-    self.emitter.emit_fcvtzs(X0, D0);
+  /// @note — a zo `str` is a pointer to `[len: u64][bytes]
+  /// [null]`. The pointer moves to X16 first so reusing X1 /
+  /// X2 for the `write` syscall args cannot clobber it.
+  fn emit_zo_str_write(&mut self, ptr_reg: Register, fd: u16) {
+    if ptr_reg != X16 {
+      self.emitter.emit_mov_reg(X16, ptr_reg);
+    }
 
-    // Print the integer part via itoa.
-    self.emit_itoa_and_write(fd);
-
-    // Print "."
-    self.emitter.emit_sub_imm(SP, SP, NEWLINE_BUFFER_OFFSET);
-    self.emitter.emit_mov_imm(X1, b'.' as u16);
-    self.emitter.emit_strb(X1, SP, 0);
-    // ADD X1, SP, #0 (can't use MOV for SP — XZR alias).
-    self.emitter.emit_add_imm(X1, SP, 0);
-    self.emitter.emit_mov_imm(X2, 1);
+    // LDR X2, [X16, #0] — length header at offset 0.
+    self.emitter.emit_ldr(X2, X16, 0);
+    // ADD X1, X16, #8 — payload starts at offset 8.
+    self.emitter.emit_add_imm(X1, X16, 8);
     self.emitter.emit_mov_imm(X16, SYS_WRITE);
     self.emitter.emit_mov_imm(X0, fd);
     self.emitter.emit_svc(0);
-    self.emitter.emit_add_imm(SP, SP, NEWLINE_BUFFER_OFFSET);
-
-    // Compute fractional part: frac = (D0 - int_part) * 1e6.
-    // Reload D0's integer part into X0, convert back to D1.
-    self.emitter.emit_fcvtzs(X0, D0);
-    self.emitter.emit_scvtf(D1, X0);
-    // D0 = D0 - D1 (fractional part, 0.0 to 0.999...)
-    self.emitter.emit_fsub(D0, D0, D1);
-
-    // Multiply by 1000000 to get 6 decimal digits.
-    // Load 1000000.0 into D1 via GP.
-    let million_bits = 1_000_000.0f64.to_bits();
-
-    self
-      .emitter
-      .emit_mov_imm(X0, (million_bits & 0xFFFF) as u16);
-    self
-      .emitter
-      .emit_movk(X0, ((million_bits >> 16) & 0xFFFF) as u16, 16);
-    self
-      .emitter
-      .emit_movk(X0, ((million_bits >> 32) & 0xFFFF) as u16, 32);
-    self
-      .emitter
-      .emit_movk(X0, ((million_bits >> 48) & 0xFFFF) as u16, 48);
-
-    self.emitter.emit_fmov_gp_to_fp(D1, X0);
-
-    // D0 = frac * 1000000.0
-    self.emitter.emit_fmul(D0, D0, D1);
-    // X0 = int(D0)
-    self.emitter.emit_fcvtzs(X0, D0);
-
-    // Print 6 digits via itoa.
-    self.emit_itoa_and_write(fd);
   }
 
   /// Emit bool-to-string write: prints "true" or "false".
@@ -7756,6 +8160,14 @@ impl<'a> ARM64Gen<'a> {
         LoadSource::Local(sym) => {
           let slot = sym.as_u32();
 
+          // Promoted local: its value lives in a callee-saved
+          // register, not on the stack. Copy it into X16.
+          if let Some(reg) = self.promotion.reg_of(*sym) {
+            self.emitter.emit_mov_reg(X16, reg);
+
+            return true;
+          }
+
           if let Some(&offset) = self.mutable_slots.get(&slot) {
             self.emit_ldr_sp(X16, offset);
 
@@ -7771,6 +8183,14 @@ impl<'a> ARM64Gen<'a> {
           false
         }
         LoadSource::Param(pidx) => {
+          // Promoted `mut` param: value lives in its
+          // callee-saved register, not the home slot.
+          if let Some(&reg) = self.param_promo_reg.get(pidx) {
+            self.emitter.emit_mov_reg(X16, reg);
+
+            return true;
+          }
+
           if let Some(&offset) = self.param_slots.get(pidx) {
             self.emit_ldr_sp(X16, offset);
 
@@ -8182,8 +8602,9 @@ impl<'a> ARM64Gen<'a> {
   /// at the directive site; the call blocks anyway).
   ///
   /// Side effect: registers `_zo_run_native` in
-  /// `extern_dylib_paths` so the linker emits an
-  /// `LC_LOAD_DYLIB` for `libzo_runtime_native.dylib`.
+  /// `extern_dylib_paths` so the linker routes it through
+  /// the runtime `LC_LOAD_DYLIB` and selects the full UI
+  /// dylib for staging.
   fn emit_render_call(&mut self, value: ValueId) {
     self.ensure_runtime_dylib_registered();
 
@@ -8326,35 +8747,20 @@ impl<'a> ARM64Gen<'a> {
     base || self.fns_needing_calls.contains(&InsnIdx(idx))
   }
 
-  /// Idempotently insert every runtime-dylib symbol into
-  /// `extern_dylib_paths` so the Mach-O writer emits an
-  /// `LC_LOAD_DYLIB` for `libzo_runtime_native.dylib`. Path
-  /// resolution mirrors the `<exe-dir>/libzo_*.dylib`
-  /// pattern that cargo's `cdylib` target produces — for
-  /// dev workflow `target/debug/libzo_runtime_native.dylib`
-  /// is right next to `target/debug/zo`. Falls back to a
-  /// bare basename so the linker still records SOMETHING
-  /// rather than failing silently when `current_exe()`
-  /// can't be resolved (sandboxed test runners, etc.); dyld
-  /// will then surface a clean "image not found" error at
-  /// runtime instead of a malformed Mach-O.
+  /// Idempotently route every UI runtime symbol to the
+  /// canonical runtime dylib (`RUNTIME_DYLIB_FILE`,
+  /// `@executable_path/libzo_runtime.dylib`). The linker
+  /// rewrites that to `@loader_path/deps/libzo_runtime.dylib`
+  /// and folds it into the single runtime `LC_LOAD_DYLIB`,
+  /// so a `#dom` program loads one staged dylib rather than
+  /// a parallel absolute-path native reference. Importing
+  /// any of these symbols is what flips the linker's
+  /// `RuntimeKind` to `Full`.
   ///
-  /// The on-disk lookup (a syscall on Apple) runs at most
-  /// once per `ARM64Gen`: subsequent calls reuse the
-  /// `runtime_dylib_path` cache and only check / insert
-  /// into the `extern_dylib_paths` map.
+  /// The registered path is a compile-time literal, so this
+  /// only checks / inserts into the `extern_dylib_paths`
+  /// map — no syscall.
   fn ensure_runtime_dylib_registered(&mut self) {
-    let path = match &self.runtime_dylib_path {
-      Some(p) => p.clone(),
-      None => {
-        let resolved = resolve_runtime_dylib_path()
-          .unwrap_or_else(|| RUNTIME_DYLIB_FILE.to_string());
-
-        self.runtime_dylib_path = Some(resolved.clone());
-        resolved
-      }
-    };
-
     for sym in [
       SYM_RUN,
       SYM_STATE_INIT,
@@ -8366,7 +8772,7 @@ impl<'a> ARM64Gen<'a> {
       self
         .extern_dylib_paths
         .entry(sym.to_string())
-        .or_insert_with(|| path.clone());
+        .or_insert_with(|| RUNTIME_DYLIB_FILE.to_string());
     }
   }
 

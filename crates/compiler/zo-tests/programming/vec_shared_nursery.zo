@@ -1,0 +1,45 @@
+-- tests-run-pass: one `Vec<int>` shared across tasks in a nursery —
+-- each spawned worker writes a disjoint region, the nursery joins, and
+-- every write is visible afterwards. This is the exact shape Game of
+-- Life wants: dispatch N quadrant tasks over one shared grid.
+--
+-- Each worker takes 3 args (vec + 2 bounds), the green-task spawn
+-- ceiling; a `Vec` rides as a single pointer-sized arg.
+-- @cmd — zo run vec_shared_nursery.zo
+
+fun fill_ones(mut values: Vec<int>, start: int, end: int) {
+  for i := start..end {
+    values.set(i, 1);
+  }
+}
+
+fun fill_twos(mut values: Vec<int>, start: int, end: int) {
+  for i := start..end {
+    values.set(i, 2);
+  }
+}
+
+fun main() {
+  mut values: Vec<int> = Vec::new();
+  for i := 0..4 { values.push(0); }
+
+  nursery {
+    spawn fill_ones(values, 0, 2);
+    spawn fill_twos(values, 2, 4);
+  }
+
+  for i := 0..4 {
+    match values.get(i) {
+      Option::Some(value) => { showln(value); }
+      Option::None => {}
+    }
+  }
+
+  values.free();
+}
+
+-- EXPECTED OUTPUT:
+-- 1
+-- 1
+-- 2
+-- 2

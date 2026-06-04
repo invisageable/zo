@@ -1,3 +1,5 @@
+load core::math::pow_i;
+
 val MAX: int = 440_000_000;
 
 fun is_munchhausen(n: int, pwr: []int) -> bool {

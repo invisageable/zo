@@ -79,7 +79,7 @@ fun main() {
 }
 
 -- EXPECTED OUTPUT:
--- price: 99.989999
+-- price: 99.99
 -- qty: 3
 -- missing: 0
 -- len: 3

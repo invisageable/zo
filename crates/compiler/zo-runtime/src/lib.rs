@@ -1,3 +1,7 @@
+// The graphical / webview dispatcher pulls in the entire GPU +
+// webview dependency tree; gate it behind `ui` so lean builds
+// (`--no-default-features`) compile the core runtime alone.
+#[cfg(feature = "ui")]
 mod runtime;
 
 pub mod arr;
@@ -29,4 +33,5 @@ pub mod time;
 pub mod tls;
 pub mod vec;
 
+#[cfg(feature = "ui")]
 pub use runtime::Runtime;
