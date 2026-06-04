@@ -3,7 +3,6 @@ extend-exclude = [
   "target/",
   "*.lock",
   "**/*.md",
-  "docs/",
   "notes/",
   "apps/site/messages/",
 ]

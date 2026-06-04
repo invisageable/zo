@@ -202,18 +202,7 @@ eazy_test:
 # Run `eazy` bench
 [group('eazy')]
 eazy_run_bench:
-  cargo bench -p eazy 
-
-# Sync eazy benchmark reports to docs/ for GitHub Pages
-[group('eazy')]
-eazy_build_bench_reports:
-  uv run sources/tweener/eazy-tasks/build_bench_reports.py
-
-# Run benchmarks and sync to docs (for GitHub Pages deployment)
-[parallel]
-[group('eazy')]
-eazy_publish_bench_reports: eazy_run_bench eazy_build_bench_reports
-  @echo "Benchmarks published to docs/"
+  cargo bench -p eazy
 
 # Bump all eazy-* crates together
 [group('eazy')]
