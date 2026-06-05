@@ -6,5 +6,5 @@ fun main() {
     <img src="https://httpbin.org/image/png" width="256" height="128" />
   </>;
 
-  #dom banner;
+  #render banner;
 }

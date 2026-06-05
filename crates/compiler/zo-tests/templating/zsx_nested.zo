@@ -18,5 +18,5 @@ fun main() {
     </section>
   </>;
 
-  #dom layout;
+  #render layout;
 }

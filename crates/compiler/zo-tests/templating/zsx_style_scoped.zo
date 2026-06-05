@@ -10,5 +10,5 @@ $: {
 fun main() {
   imu view: </> ::= <p>JOiN THE DEVOLUTiON</p>;
 
-  #dom view;
+  #render view;
 }

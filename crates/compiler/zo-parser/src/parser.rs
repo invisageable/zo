@@ -1078,10 +1078,10 @@ impl<'a> Parser<'a> {
     // interp there is no `;` — the ternary ends at the
     // matching `}`. Without this close, the When introducer
     // stays open and adopts every following sibling
-    // (TemplateText, TemplateFragmentEnd, even `#dom`) as a
+    // (TemplateText, TemplateFragmentEnd, even `#render`) as a
     // child of the ternary, which then propagates into the
     // fragment's `children_end` and silently skips
-    // `#dom view;` in the executor.
+    // `#render view;` in the executor.
     if let Some(top) = self.introducer_stack.last()
       && top.token == Token::When
     {
@@ -2157,7 +2157,7 @@ impl<'a> Parser<'a> {
 
   fn handle_directive(&mut self) {
     // Directives follow pattern: #identifier expression
-    // Examples: #run foobar(), #dom <>, #inline
+    // Examples: #run foobar(), #render <>, #inline
 
     // Flush any pending expression
     self.flush_expr();

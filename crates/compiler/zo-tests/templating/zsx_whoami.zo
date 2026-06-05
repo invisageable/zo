@@ -6,5 +6,5 @@ fun main() {
     x.1.0 Em-ssi Escher dans le Hackerspace <a {href}>@{base}</a>.
   </h1>;
 
-  #dom view;
+  #render view;
 }

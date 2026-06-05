@@ -23099,7 +23099,7 @@ impl<'a> Executor<'a> {
 
     let dir_name = self.interner.get(sym).to_owned();
 
-    // `#dom <ident>`: resolve the identifier directly to
+    // `#render <ident>`: resolve the identifier directly to
     // its local's `value_id`. For a template local, that
     // value IS the `Insn::Template { id, .. }` id, which
     // both codegen (`emit_render_call`) and the driver
@@ -23111,7 +23111,7 @@ impl<'a> Executor<'a> {
     // match the directive to a template, and would render
     // nothing (or, before this fix, silently fell back to
     // rendering every template in the SIR).
-    if dir_name == "dom" {
+    if zo_ui_protocol::is_render_directive(&dir_name) {
       let target_idx = ((dir_idx + 1)..end_idx)
         .find(|&i| self.tree.nodes[i].token == Token::Ident);
 
@@ -24980,7 +24980,7 @@ impl<'a> Executor<'a> {
       });
 
       // Register in locals so later references
-      // (e.g., `#dom view`) can find the variable.
+      // (e.g., `#render view`) can find the variable.
       let template_ty = self.ty_checker.template_ty();
 
       self.push_local(Local {

@@ -326,7 +326,7 @@ export function tokenize(src: string): Token[] {
       continue;
     }
 
-    // Attributes / directives: `#dom`, `#run`, `#asm`, etc. Matched
+    // Attributes / directives: `#render`, `#run`, `#asm`, etc. Matched
     // before the generic punctuation walker so `#` + ident lump as one
     // Attribute token instead of splitting into Punctuation + Ident.
     if (ch === "#" && pos + 1 < src.length && isIdentStart(src[pos + 1])) {

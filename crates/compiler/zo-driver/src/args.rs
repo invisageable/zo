@@ -83,6 +83,12 @@ pub enum ArgsTarget {
   X8664UnknownLinuxGnu,
   #[value(name = "wasm32-unknown-unknown")]
   Wasm32UnknownUnknown,
+  #[value(name = "ios", alias = "arm64-apple-ios")]
+  Ios,
+  #[value(name = "ios-sim", alias = "arm64-apple-ios-sim")]
+  IosSim,
+  #[value(name = "android", alias = "aarch64-linux-android")]
+  Android,
 }
 impl From<ArgsTarget> for Target {
   fn from(target: ArgsTarget) -> Self {
@@ -94,6 +100,9 @@ impl From<ArgsTarget> for Target {
       ArgsTarget::X8664PcWindowsMsvc => Self::X8664PcWindowsMsvc,
       ArgsTarget::X8664UnknownLinuxGnu => Self::X8664UnknownLinuxGnu,
       ArgsTarget::Wasm32UnknownUnknown => Self::Wasm32UnknownUnknown,
+      ArgsTarget::Ios => Self::Arm64AppleIos,
+      ArgsTarget::IosSim => Self::Arm64AppleIosSim,
+      ArgsTarget::Android => Self::Aarch64LinuxAndroid,
     }
   }
 }

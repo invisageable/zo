@@ -202,7 +202,7 @@ struct VtableSlotFixup {
   method_key: (Symbol, Option<Symbol>),
 }
 
-// Runtime dylib symbols: every `#dom` program emits calls
+// Runtime dylib symbols: every `#render` program emits calls
 // into the UI surface of `libzo_runtime.dylib`. Names match
 // the `#[no_mangle]` exports of `zo-runtime-native::ffi`
 // (the crate the runtime's `ui` feature re-exports;
@@ -376,7 +376,7 @@ pub struct ARM64Gen<'a> {
   reactive_slots: HashMap<Symbol, u32>,
   /// Per-template list of `(cmd_idx, slot_id, is_str)`
   /// triples to pass into the `text_bindings` array of
-  /// the `ZoRuntimeContext` at `#dom` time. Built by the
+  /// the `ZoRuntimeContext` at `#render` time. Built by the
   /// same pre-pass that populates `reactive_slots`.
   template_text_bindings: HashMap<ValueId, Vec<(u32, u32, bool)>>,
   /// Set of `FunDef` indices whose body touches a
@@ -4169,7 +4169,7 @@ impl<'a> ARM64Gen<'a> {
       Insn::Directive { name, value, .. } => {
         let n = self.interner.get(*name);
 
-        if n == "dom" {
+        if zo_ui_protocol::is_render_directive(n) {
           self.emit_render_call(*value);
         }
       }
@@ -8707,7 +8707,7 @@ impl<'a> ARM64Gen<'a> {
   /// We don't go through `emit_extern_call` here because
   /// the `sub sp` invalidates its `caller_save_base`
   /// offsets — programs with caller-save liveness across
-  /// `#dom` are unsupported (the directive is positioned
+  /// `#render` are unsupported (the directive is positioned
   /// at the directive site; the call blocks anyway).
   ///
   /// Side effect: registers `_zo_run_native` in
@@ -8861,7 +8861,7 @@ impl<'a> ARM64Gen<'a> {
   /// `@executable_path/libzo_runtime.dylib`). The linker
   /// rewrites that to `@loader_path/deps/libzo_runtime.dylib`
   /// and folds it into the single runtime `LC_LOAD_DYLIB`,
-  /// so a `#dom` program loads one staged dylib rather than
+  /// so a `#render` program loads one staged dylib rather than
   /// a parallel absolute-path native reference. Importing
   /// any of these symbols is what flips the linker's
   /// `RuntimeKind` to `Full`.

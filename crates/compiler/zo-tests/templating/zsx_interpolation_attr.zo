@@ -4,5 +4,5 @@ fun main() {
   imu src: str = "../../../../apps/site/src/assets/previews/preview-zo-templating-counter.png";
   imu view: </> ::= <img src={src} width="800" />;
 
-  #dom view;
+  #render view;
 }

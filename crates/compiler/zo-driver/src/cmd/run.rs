@@ -75,7 +75,7 @@ impl Run {
     let (semantic, tokenization, parsing, session, file_table) =
       compiler.analyze_source(&source, input_path);
 
-    // Collect the set of template ValueIds targeted by `#dom`
+    // Collect the set of template ValueIds targeted by `#render`
     // directives. Templates are component definitions —
     // rendering every `Insn::Template` indiscriminately would
     // also render intermediate components that are only meant
@@ -85,7 +85,7 @@ impl Run {
 
     for insn in &semantic.sir.instructions {
       if let Insn::Directive { name, value, .. } = insn
-        && session.interner.get(*name) == "dom"
+        && zo_ui_protocol::is_render_directive(session.interner.get(*name))
       {
         has_dom_directive = true;
         dom_targets.push(*value);
@@ -93,7 +93,7 @@ impl Run {
     }
 
     // Extract UI commands and bindings only from templates
-    // that are actually targeted by a `#dom` directive.
+    // that are actually targeted by a `#render` directive.
     let mut ui_commands = Vec::new();
     let mut text_bindings: Vec<(usize, Symbol)> = Vec::new();
     let mut attr_bindings: Vec<(usize, zo_ui_protocol::Attr)> = Vec::new();

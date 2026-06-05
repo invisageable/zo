@@ -28,10 +28,10 @@ fun main() {
   -- Template can also been checked. The compiler understand how to treats them.
   check@eq(hello, "<h1>hello, johndoe!</h1>");
 
-  -- `#dom` is the directive that activates the template engine.
+  -- `#render` is the directive that activates the template engine.
   -- on native, it renders to a GPU-accelerated window.
   -- on web, it compiles to optimized JavaScript.
-  #dom hello;
+  #render hello;
 }
 
 -! ## what is zsx?

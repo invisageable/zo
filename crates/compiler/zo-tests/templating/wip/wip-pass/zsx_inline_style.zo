@@ -3,5 +3,5 @@ fun main() {
     <div[ta:center; pt:20]><h1>Hey!</h1></div>
   </>;
 
-  #dom app;
+  #render app;
 }

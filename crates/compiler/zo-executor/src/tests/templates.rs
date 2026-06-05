@@ -44,7 +44,7 @@ fn test_template_named_tag_emits_template_sir() {
 fn test_template_var_registered() {
   let source = r#"fun main() {
   imu view: </> ::= <>hello</>;
-  #dom view;
+  #render view;
 }"#;
 
   let mut interner = Interner::new();
@@ -79,7 +79,7 @@ fn test_template_interp_str_variable() {
   let source = r#"fun main() {
   imu name: str = "world";
   imu view: </> ::= <>hello, {name}!</>;
-  #dom view;
+  #render view;
 }"#;
 
   let mut interner = Interner::new();
@@ -112,7 +112,7 @@ fn test_template_interp_int_variable() {
   let source = r#"fun main() {
   imu count: int = 42;
   imu view: </> ::= <>count: {count}</>;
-  #dom view;
+  #render view;
 }"#;
 
   let mut interner = Interner::new();
@@ -146,7 +146,7 @@ fn test_template_interp_multiple_vars() {
   imu a: str = "hello";
   imu b: str = "world";
   imu view: </> ::= <>{a}, {b}!</>;
-  #dom view;
+  #render view;
 }"#;
 
   let mut interner = Interner::new();
@@ -179,7 +179,7 @@ fn test_template_interp_named_tag() {
   let source = r#"fun main() {
   imu name: str = "world";
   imu view: </> ::= <h1>hello, {name}!</h1>;
-  #dom view;
+  #render view;
 }"#;
 
   let mut interner = Interner::new();
@@ -214,7 +214,7 @@ fn test_template_interp_undefined_variable() {
   assert_execution_error(
     r#"fun main() {
   imu view: </> ::= <>{unknown}</>;
-  #dom view;
+  #render view;
 }"#,
     ErrorKind::UndefinedVariable,
   );
@@ -225,7 +225,7 @@ fn test_template_interp_empty_braces() {
   assert_execution_error(
     r#"fun main() {
   imu view: </> ::= <>{}</>;
-  #dom view;
+  #render view;
 }"#,
     ErrorKind::ExpectedExpression,
   );
@@ -238,7 +238,7 @@ fn test_template_attr_interpolation() {
   let source = r#"fun main() {
   imu src: str = "logo.png";
   imu view: </> ::= <img src={src} />;
-  #dom view;
+  #render view;
 }"#;
 
   let mut interner = Interner::new();
@@ -306,7 +306,7 @@ fn test_template_attr_shorthand_string() {
     r#"fun main() {
   imu src: str = "logo.png";
   imu view: </> ::= <img {src} />;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let attrs = first_element_attrs(sir);
@@ -326,7 +326,7 @@ fn test_template_attr_shorthand_numeric() {
     r#"fun main() {
   imu width: int = 128;
   imu view: </> ::= <img src="a.png" {width} />;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let attrs = first_element_attrs(sir);
@@ -348,7 +348,7 @@ fn test_template_attr_shorthand_undefined_is_empty() {
   assert_sir_structure(
     r#"fun main() {
   imu view: </> ::= <img {ghost} />;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let attrs = first_element_attrs(sir);
@@ -368,7 +368,7 @@ fn test_template_attr_interp_string_single_var() {
     r#"fun main() {
   imu name: str = "kayode";
   imu view: </> ::= <img src="a.png" alt="a picture of {name}" />;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let attrs = first_element_attrs(sir);
@@ -389,7 +389,7 @@ fn test_template_attr_interp_string_multi_vars() {
   imu first: str = "johnny";
   imu last: str = "appleseed";
   imu view: </> ::= <img src="a.png" alt="{first} {last}" />;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let attrs = first_element_attrs(sir);
@@ -424,7 +424,7 @@ fn test_template_attr_binding_emitted_for_mut_shorthand() {
     r#"fun main() {
   mut src: str = "/a.png";
   imu view: </> ::= <img {src} />;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let bindings = first_template_bindings(sir);
@@ -459,7 +459,7 @@ fn test_template_attr_binding_emitted_for_mut_equal_form() {
     r#"fun main() {
   mut src: str = "/a.png";
   imu view: </> ::= <img src={src} />;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let bindings = first_template_bindings(sir);
@@ -486,7 +486,7 @@ fn test_template_attr_no_binding_for_imu_source() {
     r#"fun main() {
   imu src: str = "/a.png";
   imu view: </> ::= <img src={src} />;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let bindings = first_template_bindings(sir);
@@ -518,7 +518,7 @@ fn test_template_attr_binding_cmd_idx_points_at_element() {
     r#"fun main() {
   mut src: str = "/a.png";
   imu view: </> ::= <img {src} />;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let bindings = first_template_bindings(sir);
@@ -556,7 +556,7 @@ fn test_template_attr_eager_expr_form_regression() {
     r#"fun main() {
   imu src: str = "logo.png";
   imu view: </> ::= <img src={src} />;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let attrs = first_element_attrs(sir);
@@ -581,7 +581,7 @@ fn test_event_attribute_with_inline_closure() {
   imu app: </> ::= <>
     <button @click={fn() => showln("clicked")}>click</button>
   </>;
-  #dom app;
+  #render app;
 }"#,
     |sir| {
       // Find the Template instruction and check its Event command.
@@ -619,13 +619,13 @@ fn test_dom_directive_emits_insn() {
   assert_sir_structure(
     r#"fun main() {
   imu view: </> ::= <>hello</>;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let has_directive =
         sir.iter().any(|i| matches!(i, Insn::Directive { .. }));
 
-      assert!(has_directive, "#dom should emit Insn::Directive: {sir:#?}");
+      assert!(has_directive, "#render should emit Insn::Directive: {sir:#?}");
     },
   );
 }
@@ -723,7 +723,7 @@ fn test_html_directive_smoke() {
   let source = r#"fun main() {
   imu strong: str = "here's some <strong>html!!!</strong>";
   imu paragraph: </> ::= <p>{#html strong}</p>;
-  #dom paragraph;
+  #render paragraph;
 }"#;
 
   let mut interner = Interner::new();
@@ -825,7 +825,7 @@ fn test_html_directive_rejects_mut_source() {
   let source = r#"fun main() {
   mut strong: str = "<strong>html</strong>";
   imu paragraph: </> ::= <p>{#html strong}</p>;
-  #dom paragraph;
+  #render paragraph;
 }"#;
 
   let mut interner = Interner::new();
@@ -865,7 +865,7 @@ fn test_compound_interp_emits_computed_binding() {
   let source = r#"fun main() {
   mut count: int = 0;
   imu view: </> ::= <p>{when count == 1 ? "x" : "y"}</p>;
-  #dom view;
+  #render view;
 }"#;
 
   let mut interner = Interner::new();
@@ -935,7 +935,7 @@ fn test_compound_interp_emits_text_placeholder() {
   let source = r#"fun main() {
   mut count: int = 0;
   imu view: </> ::= <p>before {when count == 1 ? "x" : "y"} after</p>;
-  #dom view;
+  #render view;
 }"#;
 
   let mut interner = Interner::new();
@@ -988,7 +988,7 @@ fn test_simple_ident_interp_uses_text_binding_not_computed() {
   let source = r#"fun main() {
   mut count: int = 0;
   imu view: </> ::= <p>{count}</p>;
-  #dom view;
+  #render view;
 }"#;
 
   let mut interner = Interner::new();
@@ -1031,7 +1031,7 @@ fn test_template_list_binding_extracted_from_map_call() {
     r#"fun main() {
   imu items: []str = ["a", "b"];
   imu view: </> ::= <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let bindings = first_template_bindings(sir);
@@ -1087,7 +1087,7 @@ fn test_template_list_binding_emits_template_insn() {
     r#"fun main() {
   imu items: []str = ["a", "b"];
   imu view: </> ::= <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>;
-  #dom view;
+  #render view;
 }"#,
     |sir| {
       let template = sir

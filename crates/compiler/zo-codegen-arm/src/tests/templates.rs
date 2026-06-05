@@ -179,8 +179,8 @@ fn test_template_with_dom_directive() {
     bindings: zo_sir::TemplateBindings::default(),
   });
 
-  // Add #dom directive
-  let dom_name = interner.intern("dom");
+  // Add #render directive
+  let dom_name = interner.intern("render");
 
   sir.emit(Insn::Directive {
     name: dom_name,
@@ -195,11 +195,11 @@ fn test_template_with_dom_directive() {
   assert!(codegen.has_templates, "Should have templates");
 
   println!(
-    "Generated {} bytes with #dom directive",
+    "Generated {} bytes with #render directive",
     artifact.code.len()
   );
 
-  // `#dom` imports `_zo_run_native` — a UI-exclusive
+  // `#render` imports `_zo_run_native` — a UI-exclusive
   // symbol — so the linker must select the full runtime,
   // and its `LC_LOAD_DYLIB` must resolve through the one
   // canonical runtime path (no parallel absolute-path
@@ -210,7 +210,7 @@ fn test_template_with_dom_directive() {
   assert_eq!(
     output.runtime,
     zo_linker::RuntimeKind::Full,
-    "a #dom program must select the full UI runtime"
+    "a #render program must select the full UI runtime"
   );
 
   // All six UI symbols route to the same canonical runtime

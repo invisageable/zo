@@ -5,5 +5,5 @@ fun main() {
     <button @click={fn() => showln("clicked")}>click</button>
   </>;
 
-  #dom app;
+  #render app;
 }

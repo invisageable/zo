@@ -469,7 +469,7 @@ pub unsafe extern "C" fn zo_run_native(ctx: *const ZoRuntimeContext) {
   // alive — the user has to Ctrl+C the terminal. Exit
   // immediately on the user's behalf; nothing
   // user-observable depends on running `main`'s tail
-  // after `#dom`.
+  // after `#render`.
   std::process::exit(if status.is_ok() { 0 } else { 1 });
 }
 

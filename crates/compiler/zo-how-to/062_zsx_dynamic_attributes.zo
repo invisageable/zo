@@ -10,5 +10,5 @@ fun main() {
 
   check@eq(image, "<img src=\"../zo-notes/public/assets/roll-safe-meme-1.jpg\" alt=\"a picture of 'Kayode Ewumi'\" />");
 
-  #dom image;
+  #render image;
 }

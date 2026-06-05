@@ -1942,7 +1942,7 @@ impl Compiler {
     // the program imports and reports `RuntimeKind` — lean
     // core when every import resolves in the 1.3 MB core,
     // the full 9.9 MB UI build when any UI-exclusive
-    // symbol (`#dom` / render) is referenced. Vendored
+    // symbol (`#render` / render) is referenced. Vendored
     // `#link` dylibs (raylib, …) are staged separately by
     // basename from the SIR.
     stage_runtime_artifacts(

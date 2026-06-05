@@ -32,8 +32,8 @@ fun main() {
   -- verify the splice landed correctly in the command stream.
   check@eq(paragraph, "<p>here's some <strong>html!!!</strong></p>");
 
-  -- `#dom` renders to native egui / web DOM as usual.
-  #dom paragraph;
+  -- `#render` renders to native egui / web DOM as usual.
+  #render paragraph;
 }
 
 -! ## caveats

@@ -18,7 +18,7 @@ fn test_style_scoped_emits_stylesheet_in_template() {
 
       fun main() {
         imu view: </> ::= <p>styled text</p>;
-        #dom view;
+        #render view;
       }
     "#,
     |sir| {
@@ -87,7 +87,7 @@ fn test_style_global_no_scope_hash() {
 
       fun main() {
         imu view: </> ::= <p>full width</p>;
-        #dom view;
+        #render view;
       }
     "#,
     |sir| {
@@ -145,7 +145,7 @@ fn test_style_shorthand_resolution() {
 
       fun main() {
         imu view: </> ::= <div>content</div>;
-        #dom view;
+        #render view;
       }
     "#,
     |sir| {
@@ -198,7 +198,7 @@ fn test_style_multiple_rules() {
 
       fun main() {
         imu view: </> ::= <p>hello</p>;
-        #dom view;
+        #render view;
       }
     "#,
     |sir| {
@@ -246,7 +246,7 @@ fn test_style_block_no_errors() {
 
       fun main() {
         imu view: </> ::= <p>hello</p>;
-        #dom view;
+        #render view;
       }
     "#,
   );
@@ -265,7 +265,7 @@ fn test_style_grouped_selector() {
 
       fun main() {
         imu view: </> ::= <p>hello</p>;
-        #dom view;
+        #render view;
       }
     "#,
     |sir| {

@@ -15,6 +15,13 @@ pub enum Target {
   X8664UnknownLinuxGnu,
   /// Wasm target (wasm32-unknown-unknown).
   Wasm32UnknownUnknown,
+  /// arm64 iOS device (Mach-O, PLATFORM_IOS).
+  Arm64AppleIos,
+  /// arm64 iOS Simulator on Apple Silicon
+  /// (Mach-O, PLATFORM_IOSSIMULATOR).
+  Arm64AppleIosSim,
+  /// arm64 Android (ELF, bionic libc).
+  Aarch64LinuxAndroid,
 }
 
 impl Target {
@@ -52,6 +59,9 @@ impl Target {
       Self::X8664PcWindowsMsvc => "x86_64-pc-windows-msvc",
       Self::X8664UnknownLinuxGnu => "x86_64-unknown-linux-gnu",
       Self::Wasm32UnknownUnknown => "wasm32-unknown-unknown",
+      Self::Arm64AppleIos => "arm64-apple-ios",
+      Self::Arm64AppleIosSim => "arm64-apple-ios-sim",
+      Self::Aarch64LinuxAndroid => "aarch64-linux-android",
     }
   }
 
@@ -64,6 +74,35 @@ impl Target {
       | Self::X8664PcWindowsMsvc => "exe",
       Self::Arm64UnknownLinuxGnu | Self::X8664UnknownLinuxGnu => "",
       Self::Wasm32UnknownUnknown => "wasm",
+      Self::Arm64AppleIos | Self::Arm64AppleIosSim => "app",
+      Self::Aarch64LinuxAndroid => "apk",
     }
+  }
+
+  /// Whether the target is an Apple platform — Mach-O object
+  /// format and ad-hoc code signing apply.
+  pub fn is_apple(self) -> bool {
+    matches!(
+      self,
+      Self::Arm64AppleDarwin
+        | Self::X8664AppleDarwin
+        | Self::Arm64AppleIos
+        | Self::Arm64AppleIosSim
+    )
+  }
+
+  /// Whether the target's object format is Mach-O.
+  pub fn is_macho(self) -> bool {
+    self.is_apple()
+  }
+
+  /// Whether the target is a mobile platform (iOS or Android).
+  pub fn is_mobile(self) -> bool {
+    matches!(
+      self,
+      Self::Arm64AppleIos
+        | Self::Arm64AppleIosSim
+        | Self::Aarch64LinuxAndroid
+    )
   }
 }

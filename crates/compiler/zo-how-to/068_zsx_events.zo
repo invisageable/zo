@@ -20,7 +20,7 @@ fun main() {
     <input type="text" placeholder="Focus me" @focus={handle_focus} />
   </>;
 
-  #dom app;
+  #render app;
 }
 
 -!   - try to attach an `@change` event.

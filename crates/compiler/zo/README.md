@@ -38,7 +38,7 @@ iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.
   - statically, strongly typed — *total control over your program from A to Z.*
   - meticulous `type system` — *type inference, monomorphization, `typestate`.*
   - safe concurrency — *robust erlang-like actor model.*
-  - meta-language — *`run code at compile-time via #asm`, `#dom`, `#run` (directives).*
+  - meta-language — *`run code at compile-time via #asm`, `#render`, `#run` (directives).*
 
   __-performance-and-compilation__
   - high-speed `compilation-time` — *insanely faster, Usain Bolt would be jealous.*
@@ -57,7 +57,7 @@ iN SHORT, zo iS THE FAVOURiTE LANGUAGE OF YOUR FAVOURiTE LANGUAGE.
       <button @click={fn() => count += 1}>+</button>
     </>;
 
-    #dom counter;
+    #render counter;
   }
   ```
 

@@ -7,5 +7,5 @@ fun main() {
     <counter />
   </>;
 
-  #dom app;
+  #render app;
 }

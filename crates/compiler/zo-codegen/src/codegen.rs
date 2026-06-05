@@ -56,7 +56,10 @@ impl Codegen {
     abstract_state: Option<AbstractState>,
   ) -> Concrete<'a> {
     match self.target {
-      Target::Arm64AppleDarwin | Target::Arm64UnknownLinuxGnu => {
+      Target::Arm64AppleDarwin
+      | Target::Arm64UnknownLinuxGnu
+      | Target::Arm64AppleIos
+      | Target::Arm64AppleIosSim => {
         let mut arm = ARM64Gen::new(interner);
         if let Some((tys, ty_table)) = type_view {
           arm = arm.with_type_view(tys, ty_table);
@@ -69,7 +72,8 @@ impl Codegen {
       Target::X8664AppleDarwin
       | Target::X8664UnknownLinuxGnu
       | Target::X8664PcWindowsMsvc
-      | Target::Arm64PcWindowsMsvc => {
+      | Target::Arm64PcWindowsMsvc
+      | Target::Aarch64LinuxAndroid => {
         Concrete::Clift(CliftGen::new(interner, self.target))
       }
       Target::Wasm32UnknownUnknown => todo!("wasm backend not yet wired"),

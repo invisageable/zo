@@ -71,7 +71,7 @@ fn test_directive_dom_with_template() {
     r#"
       fun main() {
         imu view: </> ::= <>hello world</>;
-        #dom view;
+        #render view;
       }
     "#,
     &[
@@ -92,7 +92,7 @@ fn test_directive_dom_with_template() {
                                     * mode) */
       (Semicolon, None),
       (Hash, None),
-      (Ident, Some(NodeValue::Symbol(Symbol(28)))), // "dom"
+      (Ident, Some(NodeValue::Symbol(Symbol(28)))), // "render"
       (Ident, Some(NodeValue::Symbol(Symbol(26)))), // "view" (reused symbol)
       (Semicolon, None),
       (RBrace, None),

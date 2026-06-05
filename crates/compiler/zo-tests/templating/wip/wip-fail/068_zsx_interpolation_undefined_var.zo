@@ -16,7 +16,7 @@ fun main() {
   -- Mistake: Calling `user_id` which has not been declared.
   imu view: </> ::= <p>Welcome, {user_id}</p>;
 
-  #dom view;
+  #render view;
 }
 
 -! ## the diagnostic.

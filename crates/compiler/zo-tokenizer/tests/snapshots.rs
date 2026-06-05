@@ -58,7 +58,7 @@ fn snapshot_template() {
         <button onclick={fn() => count += 1}>+</button>
       </>;
       
-      #dom counter;
+      #render counter;
     }
   "#,
   );
@@ -79,7 +79,7 @@ fn snapshot_nested_templates() {
         )}
       </div>;
 
-      #dom view;
+      #render view;
     }
   "#,
   );
@@ -295,7 +295,7 @@ fn zo_line_comment_inside_style_block() {
 
     fun main() {
       imu view: </> ::= <p>hi</p>;
-      #dom view;
+      #render view;
     }
   "#;
 
