@@ -15790,10 +15790,27 @@ impl<'a> Executor<'a> {
       _ => return,
     };
 
+    // Carry the ELEMENT type, not the array type. Codegen's
+    // float/width selection keys on a `Ty::Float`-range TyId;
+    // handing it the array type (whose id sits far above the
+    // float range) made a `[]float` push take the integer
+    // store path and write a GPR over a slot that should hold
+    // the FP register's bits — every read back came out as
+    // denormal garbage. `ArrayIndex` / `ArrayStore` /
+    // `ArrayPop` already pass the element type; this matches
+    // them.
+    let elem_ty = if let Ty::Array(aid) = self.ty_checker.kind_of(arr_ty)
+      && let Some(at) = self.ty_checker.ty_table.array(aid)
+    {
+      at.elem_ty
+    } else {
+      arr_ty
+    };
+
     self.sir.emit(Insn::ArrayPush {
       array: arr_sir,
       value: val_sir,
-      ty_id: arr_ty,
+      ty_id: elem_ty,
       owner,
     });
   }

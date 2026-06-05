@@ -1,0 +1,39 @@
+-- tests-run-pass: pushing onto a dynamic `[]float` and reading
+-- it back — directly and through an immutable `[]float`
+-- parameter — must preserve the full f64 width. The vec-push
+-- codegen used to key its float/width selection on the ARRAY
+-- type id instead of the ELEMENT type id, so a `[]float` push
+-- took the integer store path and wrote a GPR over the slot
+-- that should have held the FP register's bits. Every read back
+-- came out as denormal garbage. Integer-valued floats keep the
+-- shortest-round-trip print deterministic.
+-- @cmd — zo run array_param_float.zo
+
+-- Reads each element of an immutable `[]float` parameter and
+-- returns their sum.
+fun sum_floats(xs: []float, n: int) -> float {
+  mut total: float = 0.0;
+  for i := 0..n {
+    total += xs[i];
+  }
+
+  total
+}
+
+fun main() {
+  mut values: []float = [];
+
+  values.push(1.5);
+  values.push(2.5);
+  values.push(4.0);
+
+  -- Direct read of a pushed element must round-trip exactly.
+  showln(values[0]);
+
+  -- Read through an immutable `[]float` parameter.
+  showln(sum_floats(values, 3));
+}
+
+-- EXPECTED OUTPUT:
+-- 1.5
+-- 8
