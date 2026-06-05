@@ -1,0 +1,34 @@
+-- tests-build-pass: compound assignment to an array element,
+-- `a[i] op= rhs`, for both literal and variable indices. The
+-- executor used to recognize only `x op=` and `obj.f op=`, so an
+-- indexed target stored nothing (silent no-op for a variable
+-- index, a type error for a literal one).
+
+fun main() {
+  mut a: []int = [];
+
+  for i := 0..5 {
+    a.push(i);
+  }
+
+  -- literal index, every operator.
+  a[0] += 10;
+  a[1] -= 1;
+  a[2] *= 3;
+  a[3] += 7;
+
+  -- variable index.
+  mut i: int = 4;
+  a[i] += 100;
+
+  for j := 0..5 {
+    showln(a[j]);
+  }
+}
+
+-- EXPECTED OUTPUT:
+-- 10
+-- 0
+-- 6
+-- 10
+-- 104

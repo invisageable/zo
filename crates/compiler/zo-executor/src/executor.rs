@@ -324,6 +324,18 @@ pub struct Executor<'a> {
   /// Pending array element assignment (deferred to Semicolon).
   /// (array_sir, index_sir, array_name, span)
   pending_array_assign: Option<(ValueId, ValueId, Symbol, Span)>,
+  /// Pending compound assignment to an array element
+  /// (`a[i] op= rhs`), deferred to Semicolon. Carries the
+  /// array + index SIR, the already-read old value (`a[i]`),
+  /// the operator, the root array name for the mutability
+  /// check, the element type, and the span. Finalized as a
+  /// `BinOp` + `ArrayStore` — without it the element store was
+  /// dropped (silent no-op) and the stale read leaked a stray
+  /// value onto the stack.
+  ///
+  /// (array, index, old_val, op, root, elem_ty, span)
+  pending_compound_array:
+    Option<(ValueId, ValueId, ValueId, BinOp, Symbol, TyId, Span)>,
   /// Pending struct field assignment `p.field = expr`,
   /// deferred to Semicolon. Without this, the assignment was
   /// a silent no-op outside `apply` methods — the LHS was
@@ -897,6 +909,7 @@ impl<'a> Executor<'a> {
       array_ctx: Vec::new(),
       last_index_root: None,
       pending_array_assign: None,
+      pending_compound_array: None,
       pending_field_assign: None,
       tuple_ctx: Vec::new(),
       deferred_binops: Vec::new(),
@@ -19387,6 +19400,38 @@ impl<'a> Executor<'a> {
       return;
     }
 
+    // Indexed compound assign: `a[i] op= rhs`. The index
+    // handler emitted `ArrayIndex` (the read of `a[i]`); reuse
+    // its result as the old value and store the `op` result
+    // back to the same slot at the Semicolon.
+    if self.tree.nodes[target_idx].token == Token::RBracket {
+      if let Some(Insn::ArrayIndex {
+        dst,
+        array,
+        index,
+        ty_id,
+      }) = self.sir.instructions.last()
+      {
+        let old_val = *dst;
+        let array_sir = *array;
+        let index_sir = *index;
+        let elem_ty = *ty_id;
+
+        if let Some(root) = self.last_index_root {
+          self.value_stack.pop();
+          self.ty_stack.pop();
+          self.sir_values.pop();
+
+          let span = self.tree.spans[target_idx];
+
+          self.pending_compound_array =
+            Some((array_sir, index_sir, old_val, op, root, elem_ty, span));
+        }
+      }
+
+      return;
+    }
+
     // Direct variable compound assign: `x +=`.
     if let Token::Ident = self.tree.nodes[target_idx].token
       && let Some(NodeValue::Symbol(name)) = self.node_value(target_idx)
@@ -19443,6 +19488,55 @@ impl<'a> Executor<'a> {
 
   /// Finalize a pending compound assignment at Semicolon.
   fn finalize_pending_compound(&mut self) {
+    // Indexed compound assign (`a[i] op= rhs`): combine the
+    // already-read old value with the RHS and store the result
+    // back to the same element.
+    if let Some((array, index, old_val, op, root, elem_ty, span)) =
+      self.pending_compound_array.take()
+    {
+      let (Some(_rhs_value), Some(_rhs_ty)) =
+        (self.value_stack.pop(), self.ty_stack.pop())
+      else {
+        return;
+      };
+      let rhs_sir = self.sir_values.pop();
+
+      let is_mutable = self
+        .locals
+        .iter()
+        .rev()
+        .find(|l| l.name == root)
+        .is_some_and(|l| l.mutability == Mutability::Yes);
+
+      if !is_mutable {
+        self.report(ErrorKind::ImmutableVariable, span);
+
+        return;
+      }
+
+      if let Some(rhs_s) = rhs_sir {
+        let new_val = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        self.sir.emit(Insn::BinOp {
+          dst: new_val,
+          op,
+          lhs: old_val,
+          rhs: rhs_s,
+          ty_id: elem_ty,
+        });
+
+        self.sir.emit(Insn::ArrayStore {
+          array,
+          index,
+          value: new_val,
+          ty_id: elem_ty,
+        });
+      }
+
+      return;
+    }
+
     // Nested field compound assign recovered its field read
     // up front; combine with the RHS and store through the
     // base pointer directly.
