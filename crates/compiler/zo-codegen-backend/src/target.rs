@@ -100,9 +100,7 @@ impl Target {
   pub fn is_mobile(self) -> bool {
     matches!(
       self,
-      Self::Arm64AppleIos
-        | Self::Arm64AppleIosSim
-        | Self::Aarch64LinuxAndroid
+      Self::Arm64AppleIos | Self::Arm64AppleIosSim | Self::Aarch64LinuxAndroid
     )
   }
 }

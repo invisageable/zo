@@ -51,7 +51,7 @@ pub fn link(
 ) -> Result<RuntimeKind, LinkError> {
   match link_obj {
     LinkObject::Macho(m) => {
-      let output = link_macho(*m);
+      let output = link_macho(*m, target);
 
       write_executable(&output.executable, output_path)
         .map_err(LinkError::Io)?;

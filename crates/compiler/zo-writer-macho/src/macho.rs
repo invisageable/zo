@@ -392,6 +392,20 @@ pub(crate) const N_NO_DEAD_STRIP: u16 = 0x0020; // Don't dead strip symbol
 
 // Build platform
 pub(crate) const PLATFORM_MACOS: u32 = 1;
+pub(crate) const PLATFORM_IOS: u32 = 2;
+pub(crate) const PLATFORM_IOSSIMULATOR: u32 = 7;
+// iOS 15.0 — the LC_BUILD_VERSION minimum for mobile binaries.
+pub(crate) const IOS_VERSION_15_0: u32 = 0x000F0000;
+
+/// Whether an iOS Mach-O targets the Simulator or a physical
+/// device. The two are distinct `LC_BUILD_VERSION` platforms
+/// (`PLATFORM_IOSSIMULATOR` vs `PLATFORM_IOS`), so the caller must
+/// state which — a bare `bool` would be ambiguous at the call site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Simulator {
+  Yes,
+  No,
+}
 
 // DWARF constants
 pub(crate) const DW_TAG_COMPILE_UNIT: u16 = 0x11;
@@ -2117,12 +2131,29 @@ impl MachO {
   /// Adds build version information (specifies minimum OS version)
   #[inline(always)]
   pub fn add_build_version(&mut self) {
+    self.add_build_version_for(PLATFORM_MACOS, MACOS_VERSION_14_0);
+  }
+
+  /// Emits `LC_BUILD_VERSION` for iOS. `simulator` selects
+  /// `PLATFORM_IOSSIMULATOR` (Apple-Silicon sim) vs `PLATFORM_IOS`
+  /// (device) — dyld rejects a binary whose platform doesn't match
+  /// the host it's loaded on.
+  pub fn add_build_version_ios(&mut self, simulator: Simulator) {
+    let platform = match simulator {
+      Simulator::Yes => PLATFORM_IOSSIMULATOR,
+      Simulator::No => PLATFORM_IOS,
+    };
+
+    self.add_build_version_for(platform, IOS_VERSION_15_0);
+  }
+
+  fn add_build_version_for(&mut self, platform: u32, minos: u32) {
     let cmd = BuildVersionCommand {
       cmd: LC_BUILD_VERSION,
       cmdsize: std::mem::size_of::<BuildVersionCommand>() as u32,
-      platform: PLATFORM_MACOS,
-      minos: MACOS_VERSION_14_0,
-      sdk: MACOS_VERSION_14_0,
+      platform,
+      minos,
+      sdk: minos,
       ntools: 0,
     };
 

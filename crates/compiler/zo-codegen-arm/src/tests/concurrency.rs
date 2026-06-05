@@ -80,7 +80,11 @@ fn compile_macho_and_inspect<F: FnOnce(&[u8])>(source: &str, check: F) {
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
   let link_obj = codegen.into_link_object(artifact);
-  let binary = zo_linker::link_macho(link_obj).executable;
+  let binary = zo_linker::link_macho(
+    link_obj,
+    zo_codegen_backend::Target::Arm64AppleDarwin,
+  )
+  .executable;
 
   check(&binary);
 }
@@ -117,7 +121,10 @@ fn compile_link_output_and_inspect<F: FnOnce(&zo_linker::LinkOutput)>(
   let artifact = codegen.generate(&sir);
   let link_obj = codegen.into_link_object(artifact);
 
-  check(&zo_linker::link_macho(link_obj));
+  check(&zo_linker::link_macho(
+    link_obj,
+    zo_codegen_backend::Target::Arm64AppleDarwin,
+  ));
 }
 
 fn contains_bytes(binary: &[u8], needle: &[u8]) -> bool {

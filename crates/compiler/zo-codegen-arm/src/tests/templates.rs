@@ -133,7 +133,11 @@ fn test_template_entry_point_export() {
   let link_obj = codegen.into_link_object(artifact);
 
   // Generate Mach-O and verify it has the entry point
-  let macho = zo_linker::link_macho(link_obj).executable;
+  let macho = zo_linker::link_macho(
+    link_obj,
+    zo_codegen_backend::Target::Arm64AppleDarwin,
+  )
+  .executable;
 
   assert!(!macho.is_empty(), "Should generate Mach-O binary");
 
@@ -205,7 +209,10 @@ fn test_template_with_dom_directive() {
   // canonical runtime path (no parallel absolute-path
   // `libzo_runtime_native` reference).
   let link_obj = codegen.into_link_object(artifact);
-  let output = zo_linker::link_macho(link_obj);
+  let output = zo_linker::link_macho(
+    link_obj,
+    zo_codegen_backend::Target::Arm64AppleDarwin,
+  );
 
   assert_eq!(
     output.runtime,

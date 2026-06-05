@@ -625,7 +625,10 @@ fn test_dom_directive_emits_insn() {
       let has_directive =
         sir.iter().any(|i| matches!(i, Insn::Directive { .. }));
 
-      assert!(has_directive, "#render should emit Insn::Directive: {sir:#?}");
+      assert!(
+        has_directive,
+        "#render should emit Insn::Directive: {sir:#?}"
+      );
     },
   );
 }

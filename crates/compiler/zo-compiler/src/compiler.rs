@@ -1,7 +1,3 @@
-//! ```sh
-//! cargo run --release --bin zon -- build zo-samples/tests/test_1000000_funcs.zo --target arm64-apple-darwin
-//! ```
-
 use crate::constants::{
   ANALYZER_NAME, CODEGEN_NAME, LINKER_NAME, PARSER_NAME, TOKENIZER_NAME,
 };

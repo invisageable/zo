@@ -59,7 +59,11 @@ fn test_complete_template_binary() {
   assert!(codegen.has_templates, "Should have templates");
 
   let link_obj = codegen.into_link_object(artifact);
-  let macho_binary = zo_linker::link_macho(link_obj).executable;
+  let macho_binary = zo_linker::link_macho(
+    link_obj,
+    zo_codegen_backend::Target::Arm64AppleDarwin,
+  )
+  .executable;
 
   assert!(!macho_binary.is_empty(), "Should generate Mach-O binary");
 
@@ -225,7 +229,11 @@ fn test_multiple_templates() {
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
   let link_obj = codegen.into_link_object(artifact);
-  let macho = zo_linker::link_macho(link_obj).executable;
+  let macho = zo_linker::link_macho(
+    link_obj,
+    zo_codegen_backend::Target::Arm64AppleDarwin,
+  )
+  .executable;
 
   assert!(!macho.is_empty(), "Should generate Mach-O binary");
 

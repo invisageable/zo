@@ -39,9 +39,7 @@ impl<'a> CliftGen<'a> {
       }
       Target::X8664PcWindowsMsvc => "x86_64-pc-windows-msvc".parse().unwrap(),
       Target::Arm64PcWindowsMsvc => "aarch64-pc-windows-msvc".parse().unwrap(),
-      Target::Aarch64LinuxAndroid => {
-        "aarch64-linux-android".parse().unwrap()
-      }
+      Target::Aarch64LinuxAndroid => "aarch64-linux-android".parse().unwrap(),
       Target::Arm64AppleDarwin
       | Target::Arm64UnknownLinuxGnu
       | Target::Arm64AppleIos
