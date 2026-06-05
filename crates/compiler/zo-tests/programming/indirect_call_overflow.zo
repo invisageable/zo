@@ -1,0 +1,35 @@
+-- tests-run-pass: indirect call with 9 args (one stack overflow arg).
+-- @cmd — zo run indirect_call_overflow.zo
+--
+-- Exercises the AArch64 `call_indirect` path when the callee takes
+-- MORE than 8 args: arg 9 overflows onto the stack, so SP is lowered
+-- before the callee pointer is materialized into X16. The X16 load
+-- must add that SP bias or it reads the wrong frame slot.
+
+fun add9(
+  a: int,
+  b: int,
+  c: int,
+  d: int,
+  e: int,
+  f: int,
+  g: int,
+  h: int,
+  i: int,
+) -> int {
+  return a + b + c + d + e + f + g + h + i;
+}
+
+fun pick() -> Fn(int, int, int, int, int, int, int, int, int) -> int {
+  return add9;
+}
+
+fun main() {
+  imu fp := pick();
+  imu r: int = fp(1, 2, 3, 4, 5, 6, 7, 8, 9);
+
+  showln(r);
+}
+
+-- EXPECTED OUTPUT:
+-- 45

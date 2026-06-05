@@ -1949,7 +1949,9 @@ impl Compiler {
     );
 
     self.profiler.end_phase(LINKER_NAME);
-    self.profiler.set_output(lowering.path.display().to_string());
+    self
+      .profiler
+      .set_output(lowering.path.display().to_string());
   }
 
   /// Renders every accumulated diagnostic in the selected

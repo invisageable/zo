@@ -57,6 +57,13 @@ const ASCII_ZERO: u16 = 48;
 const STACK_SLOT_SIZE: u32 = 8;
 const FP_LR_SAVE_OFFSET: i16 = -16;
 const FP_LR_LOAD_OFFSET: i16 = 16;
+/// Bytes the pre-indexed `stp x29, x30, [sp, #-16]!` frame
+/// record adds to the prologue's SP drop. Only non-leaf
+/// functions push it (`has_calls`), so a callee's incoming
+/// stack args sit `frame + FRAME_RECORD_SIZE` above its
+/// working SP for non-leaf callees, and `frame` above it for
+/// leaf callees with no record.
+const FRAME_RECORD_SIZE: u32 = 16;
 // 15 caller-saved temp regs (X1-X15) * 8 bytes each.
 // Includes X1..X8 because the register allocator may
 // place live values there — element ConstInt slots in
@@ -1132,6 +1139,18 @@ impl<'a> ARM64Gen<'a> {
           needs_blanket = true;
         }
 
+        let overflow = args.len().saturating_sub(MAX_REG_ARGS) as u32;
+
+        if overflow > max_overflow_args {
+          max_overflow_args = overflow;
+        }
+      }
+
+      // Indirect calls marshal overflow args through the same
+      // staging area, so they must reserve it too. Missing this
+      // left the staging slots un-reserved when a frame's only
+      // overflow call was indirect.
+      if let Insn::CallIndirect { args, .. } = insn {
         let overflow = args.len().saturating_sub(MAX_REG_ARGS) as u32;
 
         if overflow > max_overflow_args {
@@ -2738,9 +2757,16 @@ impl<'a> ARM64Gen<'a> {
               }
             } else {
               // Overflow param: on the caller's stack, above
-              // our frame + the saved FP/LR pair (16 bytes).
-              let caller_off =
-                frame + 16 + (i as u32 - MAX_REG_ARGS as u32) * STACK_SLOT_SIZE;
+              // our working SP. The displacement is `frame`
+              // plus the FP/LR frame record — but the record
+              // is pushed ONLY by non-leaf functions, so a
+              // leaf callee (no `has_calls`) reads at `frame`
+              // alone. Adding it unconditionally read 16 bytes
+              // past the real arg → uninitialized-stack garbage.
+              let record = if has_calls { FRAME_RECORD_SIZE } else { 0 };
+              let caller_off = frame
+                + record
+                + (i as u32 - MAX_REG_ARGS as u32) * STACK_SLOT_SIZE;
 
               self.emit_ldr_sp(X16, caller_off);
               self.emit_str_sp(X16, off);
@@ -3817,7 +3843,16 @@ impl<'a> ARM64Gen<'a> {
         // (the same path const/local args use); fall back to
         // the allocator's register when the callee is a
         // computed value the materializer can't replay.
-        if !self.materialize_value_into_x16(*callee, all_insns)
+        //
+        // `marshal_user_call_args` already lowered SP by
+        // `stack_arg_bytes` for the overflow args, so any
+        // SP-relative callee load must add that bias to reach
+        // the real frame slot. The fallback `alloc_reg` path is
+        // bias-free: it's a pure register lookup (no memory
+        // load emitted here) — the allocator's spill reload for
+        // a value live across this call was emitted by
+        // `emit_spills(Before)` while SP was still at rest.
+        if !self.materialize_value_into_x16(*callee, all_insns, stack_arg_bytes)
           && let Some(reg) = self.alloc_reg(*callee)
           && reg != X16
         {
@@ -4004,7 +4039,7 @@ impl<'a> ARM64Gen<'a> {
             if src != dst {
               self.emitter.emit_mov_reg(dst, src);
             }
-          } else if self.materialize_value_into_x16(*value, all_insns) {
+          } else if self.materialize_value_into_x16(*value, all_insns, 0) {
             self.emitter.emit_mov_reg(dst, X16);
           }
 
@@ -8195,10 +8230,20 @@ impl<'a> ARM64Gen<'a> {
   /// Used by `ArrayLiteral`, `StructConstruct`,
   /// `TupleLiteral`, and `EnumConstruct` — all four hit the
   /// same regalloc bug at high arity.
+  ///
+  /// `sp_bias` is added to every SP-relative load this emits.
+  /// The frame slot offsets are computed against the function's
+  /// resting SP, but `Insn::CallIndirect` with 9+ args lowers
+  /// SP by `stack_arg_bytes` (overflow args) BEFORE loading the
+  /// callee pointer. Without the bias the load reads
+  /// `[lowered_sp + offset]` — the wrong address. Callers whose
+  /// SP is at its resting position (array/struct/tuple/enum
+  /// element stores) pass `0`.
   fn materialize_value_into_x16(
     &mut self,
     elem: ValueId,
     all_insns: &[Insn],
+    sp_bias: u32,
   ) -> bool {
     let Some(InsnIdx(def_pos)) = self.value_def_idx.get(elem) else {
       return false;
@@ -8233,13 +8278,13 @@ impl<'a> ARM64Gen<'a> {
           }
 
           if let Some(&offset) = self.mutable_slots.get(&slot) {
-            self.emit_ldr_sp(X16, offset);
+            self.emit_ldr_sp(X16, offset + sp_bias);
 
             return true;
           }
 
           if let Some(&(offset, _)) = self.param_sym_slots.get(&slot) {
-            self.emit_ldr_sp(X16, offset);
+            self.emit_ldr_sp(X16, offset + sp_bias);
 
             return true;
           }
@@ -8256,7 +8301,7 @@ impl<'a> ARM64Gen<'a> {
           }
 
           if let Some(&offset) = self.param_slots.get(pidx) {
-            self.emit_ldr_sp(X16, offset);
+            self.emit_ldr_sp(X16, offset + sp_bias);
 
             return true;
           }
@@ -8368,7 +8413,7 @@ impl<'a> ARM64Gen<'a> {
     r_buf: Register,
     off: u16,
   ) {
-    if self.materialize_value_into_x16(elem, all_insns) {
+    if self.materialize_value_into_x16(elem, all_insns, 0) {
       self.emitter.emit_str(X16, r_buf, off as i16);
 
       return;
@@ -8622,7 +8667,7 @@ impl<'a> ARM64Gen<'a> {
     all_insns: &[Insn],
     off: u32,
   ) {
-    if self.materialize_value_into_x16(elem, all_insns) {
+    if self.materialize_value_into_x16(elem, all_insns, 0) {
       self.emit_str_sp(X16, off);
 
       return;
