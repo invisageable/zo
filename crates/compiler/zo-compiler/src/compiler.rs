@@ -1806,7 +1806,11 @@ impl Compiler {
       if should_emit_sir {
         let sir_path = resolve_emit_path(path, "sir");
         let mut pp = PrettyPrinter::new();
-        pp.format_sir(&semantic.sir, &session.interner);
+        pp.format_sir(
+          &semantic.sir,
+          &session.interner,
+          session.ty_checker.tys(),
+        );
         let sir_output = pp.finish();
 
         if let Err(error) = fs::write(&sir_path, sir_output) {

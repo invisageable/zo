@@ -6,7 +6,7 @@ use zo_interner::Interner;
 use zo_sir::{BinOp, Insn, LoadSource, NurseryKind, Sir, SpawnKind, UnOp};
 use zo_token::{Token, TokenBuffer};
 use zo_tree::Tree;
-use zo_ty::Mutability;
+use zo_ty::{Mutability, Ty, type_name};
 use zo_value::Pubness;
 
 /// Represents a [`PrettyPrinter`] instance.
@@ -131,7 +131,7 @@ impl PrettyPrinter {
     self.buffer.newline();
   }
 
-  pub fn format_sir(&mut self, sir: &Sir, interner: &Interner) {
+  pub fn format_sir(&mut self, sir: &Sir, interner: &Interner, tys: &[Ty]) {
     self.sir_header();
 
     // Track function definitions and bodies
@@ -166,24 +166,30 @@ impl PrettyPrinter {
             self.sir_instruction("ret void");
           }
         }
-        Insn::ConstInt { dst, value, .. } => {
-          let int = format!("%{dst} = const {value} : i32");
+        Insn::ConstInt { dst, value, ty_id } => {
+          let int =
+            format!("%{dst} = const {value} : {}", type_name(tys, *ty_id));
 
           self.sir_instruction(&int);
         }
-        Insn::ConstFloat { dst, value, .. } => {
-          let int = format!("%{dst} = const {value} : f32");
+        Insn::ConstFloat { dst, value, ty_id } => {
+          let float =
+            format!("%{dst} = const {value} : {}", type_name(tys, *ty_id));
 
-          self.sir_instruction(&int);
+          self.sir_instruction(&float);
         }
-        Insn::ConstBool { dst, value, .. } => {
-          let boolean = format!("%{dst} = const {value} : bool");
+        Insn::ConstBool { dst, value, ty_id } => {
+          let boolean =
+            format!("%{dst} = const {value} : {}", type_name(tys, *ty_id));
 
           self.sir_instruction(&boolean);
         }
-        Insn::ConstString { dst, symbol, .. } => {
+        Insn::ConstString { dst, symbol, ty_id } => {
           let content = interner.get(*symbol);
-          let string = format!("%{dst} = const \"{content}\" : str");
+          let string = format!(
+            "%{dst} = const \"{content}\" : {}",
+            type_name(tys, *ty_id)
+          );
 
           self.sir_instruction(&string);
         }
