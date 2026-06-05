@@ -164,7 +164,7 @@ impl StackArena {
         );
       }
 
-      #[cfg(target_os = "macos")]
+      #[cfg(target_vendor = "apple")]
       unsafe {
         libc::madvise(
           base_ptr.cast::<libc::c_void>(),

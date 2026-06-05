@@ -1,0 +1,12 @@
+[package]
+name = "zo-bundler"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+# M1 is pure-std file layout + plist generation; signing and the
+# `_CodeSignature` seal (which will pull in `zo-writer-macho`'s SHA-256
+# + signer) arrive when the Simulator demands them.
+[dependencies]

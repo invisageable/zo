@@ -230,7 +230,7 @@ unsafe extern "C" {
 // Linux does not. The Rust-side `extern "C"` binding
 // resolves the right form at link time.
 
-#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+#[cfg(all(target_arch = "aarch64", target_vendor = "apple"))]
 global_asm!(
   ".global _ctx_switch",
   ".p2align 2",
@@ -345,7 +345,7 @@ global_asm!(
   "    call abort",
 );
 
-#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
+#[cfg(all(target_arch = "x86_64", target_vendor = "apple"))]
 global_asm!(
   ".global _ctx_switch",
   ".p2align 4",
@@ -374,10 +374,10 @@ global_asm!(
 );
 
 #[cfg(not(any(
-  all(target_arch = "aarch64", target_os = "macos"),
+  all(target_arch = "aarch64", target_vendor = "apple"),
   all(target_arch = "aarch64", target_os = "linux"),
   all(target_arch = "x86_64", target_os = "linux"),
-  all(target_arch = "x86_64", target_os = "macos"),
+  all(target_arch = "x86_64", target_vendor = "apple"),
 )))]
 compile_error!(
   "zo-runtime::ctxsw supports aarch64-apple-darwin, \

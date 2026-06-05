@@ -16,10 +16,15 @@ crate-type = ["lib", "staticlib", "cdylib"]
 # it behind `ui` so lean CLI / CI builds skip the whole GPU +
 # webview dependency tree with `--no-default-features`.
 default = ["ui"]
+# `dep:` references resolve per target: on iOS only `zo-runtime-ios`
+# + `zo-runtime-render` exist (native/web are `cfg(not(ios))` — eframe
+# does not build for iOS), so the feature activates exactly the
+# backend present on the target.
 ui = [
-  "dep:zo-runtime-native",
   "dep:zo-runtime-render",
+  "dep:zo-runtime-native",
   "dep:zo-runtime-web",
+  "dep:zo-runtime-ios",
 ]
 
 [dependencies]
@@ -30,9 +35,7 @@ zo-c-abi = { workspace = true }
 zo-error = { workspace = true }
 zo-reporter = { workspace = true }
 zo-ui-protocol = { workspace = true }
-zo-runtime-native = { workspace = true, optional = true }
 zo-runtime-render = { workspace = true, optional = true }
-zo-runtime-web = { workspace = true, optional = true }
 
 # external:crates.
 base64 = { workspace = true }
@@ -41,6 +44,15 @@ regex = { workspace = true }
 rustc-hash = { workspace = true }
 sha1 = { workspace = true }
 sysinfo = { workspace = true }
+
+# eframe (native) + wry (web) do not build for iOS, so the desktop
+# backends are gated off iOS; the UIKit backend takes their place.
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+zo-runtime-native = { workspace = true, optional = true }
+zo-runtime-web = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+zo-runtime-ios = { workspace = true, optional = true }
 
 # `sha2-asm` (pulled in by `sha2/asm`) ships GNU-syntax `.S`
 # files that MSVC's `cl.exe` can't assemble — Windows CI

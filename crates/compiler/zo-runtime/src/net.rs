@@ -178,14 +178,14 @@ enum Interest {
 
 // ===== macOS — kqueue backend =====
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 fn create_mux() -> RawFd {
   // SAFETY: kqueue() takes no args and returns either
   // a new fd or -1; both are safe to inspect.
   unsafe { libc::kqueue() }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 fn register(mux_fd: RawFd, fd: RawFd, interest: Interest) {
   let filter = match interest {
     Interest::Read => libc::EVFILT_READ,
@@ -218,7 +218,7 @@ fn register(mux_fd: RawFd, fd: RawFd, interest: Interest) {
   }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 fn poll_ready<F: FnMut(RawFd)>(
   mux_fd: RawFd,
   timeout_ms: c_int,
@@ -443,7 +443,7 @@ pub(crate) fn last_errno() -> c_int {
   unsafe { *errno_location() }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 unsafe fn errno_location() -> *mut c_int {
   unsafe extern "C" {
     fn __error() -> *mut c_int;
@@ -941,7 +941,7 @@ fn create_stream_socket(family: i32) -> RawFd {
       )
     }
   }
-  #[cfg(target_os = "macos")]
+  #[cfg(target_vendor = "apple")]
   {
     // SAFETY: socket() with documented args.
     let fd = unsafe { libc::socket(family, libc::SOCK_STREAM, 0) };
@@ -983,7 +983,7 @@ pub(crate) fn set_nonblocking(fd: RawFd) {
   fcntl_or(fd, libc::F_GETFL, libc::F_SETFL, libc::O_NONBLOCK);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 fn set_cloexec(fd: RawFd) {
   fcntl_or(fd, libc::F_GETFD, libc::F_SETFD, libc::FD_CLOEXEC);
 }
@@ -1003,7 +1003,7 @@ fn do_accept(fd: RawFd) -> RawFd {
       )
     }
   }
-  #[cfg(target_os = "macos")]
+  #[cfg(target_vendor = "apple")]
   {
     // SAFETY: accept with documented args.
     let new_fd =
@@ -1060,7 +1060,7 @@ fn sockaddr_storage(
           as *mut libc::sockaddr_in)
       };
 
-      #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+      #[cfg(any(target_vendor = "apple", target_os = "freebsd"))]
       {
         sin.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
       }
@@ -1077,7 +1077,7 @@ fn sockaddr_storage(
           as *mut libc::sockaddr_in6)
       };
 
-      #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+      #[cfg(any(target_vendor = "apple", target_os = "freebsd"))]
       {
         sin6.sin6_len = std::mem::size_of::<libc::sockaddr_in6>() as u8;
       }

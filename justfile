@@ -134,6 +134,53 @@ zo_build program:
 zo_run program:
   cargo run --bin zo -- run {{program}}
 
+# zo: Build and launch a zo program in the iOS Simulator
+[group("zo")]
+zo_run_ios program device="iPhone 15":
+  #!/usr/bin/env sh
+  set -eu
+  triple="aarch64-apple-ios-sim"
+  name="$(basename "{{program}}" .zo)"
+  app="target/ios-sim/${name}.app"
+  id="house.compilords.${name}"
+  # Cross-build the iOS UIKit runtime + the compiler.
+  cargo build -q -p zo-runtime --target "$triple"
+  cargo build -q --bin zo
+  # Compile the program to an iOS-sim Mach-O inside the .app, and
+  # embed the runtime dylib (the binary loads it from Frameworks/).
+  rm -rf "$app"; mkdir -p "$app/Frameworks"
+  ./target/debug/zo build "{{program}}" --target=ios-sim -o "$app/$name"
+  # `zo build` stages a desktop-style `deps/` runtime; the iOS binary
+  # loads from `Frameworks/` instead, so drop the unused leftover.
+  rm -rf "$app/deps"
+  cp "target/$triple/debug/libzo_runtime.dylib" "$app/Frameworks/libzo_runtime.dylib"
+  printf 'APPL????' > "$app/PkgInfo"
+  printf '%s' \
+    '<?xml version="1.0" encoding="UTF-8"?>' \
+    '<plist version="1.0"><dict>' \
+    "<key>CFBundleExecutable</key><string>${name}</string>" \
+    "<key>CFBundleIdentifier</key><string>${id}</string>" \
+    "<key>CFBundleName</key><string>${name}</string>" \
+    '<key>CFBundlePackageType</key><string>APPL</string>' \
+    '<key>CFBundleVersion</key><string>1</string>' \
+    '<key>CFBundleShortVersionString</key><string>1.0</string>' \
+    '<key>CFBundleSupportedPlatforms</key><array><string>iPhoneSimulator</string></array>' \
+    '<key>DTPlatformName</key><string>iphonesimulator</string>' \
+    '<key>MinimumOSVersion</key><string>15.0</string>' \
+    '<key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>' \
+    '<key>UILaunchScreen</key><dict/>' \
+    '</dict></plist>' > "$app/Info.plist"
+  # Boot the device (headless is fine), install, launch.
+  xcrun simctl bootstatus "{{device}}" -b
+  xcrun simctl install "{{device}}" "$app"
+  xcrun simctl launch "{{device}}" "$id"
+  # The Simulator GUI may be broken on this machine, so capture the
+  # screen to a PNG and open it for inspection.
+  sleep 2
+  xcrun simctl io "{{device}}" screenshot "target/ios-sim/${name}.png"
+  echo "app: ${app}  |  screenshot: target/ios-sim/${name}.png"
+  open "target/ios-sim/${name}.png"
+
 # Run all zo crates tests
 [group('zo')]
 [group('test')]

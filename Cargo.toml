@@ -92,6 +92,7 @@ zo-profiler = { path = "crates/compiler/zo-profiler", version = "0.4.0" }
 zo-register-allocation = { path = "crates/compiler/zo-register-allocation", version = "0.4.0" }
 zo-reporter = { path = "crates/compiler/zo-reporter", version = "0.4.0" }
 zo-runtime = { path = "crates/compiler/zo-runtime", version = "0.4.0" }
+zo-runtime-ios = { path = "crates/compiler/zo-runtime-ios", version = "0.4.0" }
 zo-runtime-native = { path = "crates/compiler/zo-runtime-native", version = "0.4.0" }
 zo-runtime-render = { path = "crates/compiler/zo-runtime-render", version = "0.4.0" }
 zo-runtime-web = { path = "crates/compiler/zo-runtime-web", version = "0.4.0" }
@@ -192,6 +193,28 @@ log = "0.4.29"
 noise = "0.9.0"
 notify = "8.2.0"
 notify-debouncer-mini = "0.7.0"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+  "NSString",
+  "NSArray",
+  "NSObject",
+  "NSDictionary",
+  "NSGeometry",
+] }
+objc2-ui-kit = { version = "0.3", features = [
+  "UIApplication",
+  "UIResponder",
+  "UIWindow",
+  "UIView",
+  "UIViewController",
+  "UIControl",
+  "UIButton",
+  "UILabel",
+  "UIStackView",
+  "UIScreen",
+  "UIColor",
+  "UIGeometry",
+] }
 num_cpus = "1.17.0"
 parking_lot = { version = "0.12.5", features = ["nightly"] }
 pdfium-render = "0.9.0"
