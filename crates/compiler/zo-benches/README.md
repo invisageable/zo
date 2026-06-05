@@ -72,6 +72,29 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | rustc    | 456.3 KB  |
 | go       | 2434.0 KB |
 
+#### fannkuch-redux.
+
+@RUN: `just zo_bench fannkuch-redux`
+
+| Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      | Speed vs zo      |
+| :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
+| **zo**   | 20.76ms  | 6.11ms   | 5.61ms   | 5.92ms   | 6.63ms   | **9.00ms**   | **1.0x**         |
+| clang    | 198.26ms | 43.91ms  | 43.16ms  | 42.13ms  | 42.63ms  | **74.02ms**  | **8.2x slower**  |
+| go       | 338.87ms | 89.28ms  | 112.25ms | 92.47ms  | 89.40ms  | **144.46ms** | **16.0x slower** |
+| rustc    | 190.97ms | 85.23ms  | 85.02ms  | 83.93ms  | 83.91ms  | **105.81ms** | **11.8x slower** |
+| odin     | 334.21ms | 158.38ms | 180.47ms | 163.95ms | 159.07ms | **199.22ms** | **22.1x slower** |
+| gleam    | 243.75ms | 206.82ms | 212.79ms | 212.39ms | 217.76ms | **218.70ms** | **24.3x slower** |
+
+**-AWTY—are-we-tiny-yet?**
+
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.9 KB   |
+| clang    | 32.8 KB   |
+| odin     | 321.1 KB  |
+| rustc    | 487.4 KB  |
+| go       | 2434.7 KB |
+
 #### fibonacci.
 
 @RUN: `just zo_bench fibonacci`
@@ -286,6 +309,7 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :--------------- | :-------------- | :--------------- | :--------------- | :--------------- | :--------------- |
 | `ackermann`      | __7.1x__ faster | __16.7x__ faster | __10.8x__ faster | __11.3x__ faster | —                |
 | `arithmetic`     | __7.0x__ faster | __14.9x__ faster | __9.5x__ faster  | __23.6x__ faster | —                |
+| `fannkuch-redux` | __8.2x__ faster | __16.0x__ faster | __11.8x__ faster | __22.1x__ faster | __24.3x__ faster |
 | `fibonacci`      | __7.9x__ faster | __15.6x__ faster | __11.9x__ faster | __28.0x__ faster | —                |
 | `hello`          | __8.0x__ faster | __16.5x__ faster | __12.1x__ faster | __28.2x__ faster | —                |
 | `mandelbrot`     | __6.5x__ faster | __9.5x__ faster  | __7.8x__ faster  | __20.4x__ faster | __23.9x__ faster |
@@ -304,6 +328,7 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **EXECUTE** AN EXECUTABLE FiLE.
 | :---------------- | :-------- | :-------- | :-------- | :-------- | :-------- | :-------- |
 | `ackermann`       | **1.3ms** | 2.0ms     | 1.7ms     | 1.8ms     | 5.2ms     | —         |
 | `arithmetic`      | **1.5ms** | 2.3ms     | 1.5ms     | 1.6ms     | 4.9ms     | —         |
+| `fannkuch-redux`  | 239.9ms   | **146.3ms**| 965.8ms  | 624.1ms   | 306.9ms   | —         |
 | `fibonacci`       | **1.4ms** | 2.5ms     | 1.4ms     | 1.9ms     | 3.2ms     | —         |
 | `hello`           | 1.6ms     | 2.7ms     | 1.8ms     | **1.4ms** | 5.8ms     | —         |
 | `mandelbrot`      | 70.5ms    | **30.7ms**| 71.9ms    | 86.3ms    | 75.3ms    | 368.1ms   |
