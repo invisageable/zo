@@ -1,4 +1,4 @@
--- core::arr inherent methods on `[]int`.
+-- core::array inherent methods on `[]int`.
 
 fun main() {
   imu xs: []int = [1, 2, 3, 4, 5];

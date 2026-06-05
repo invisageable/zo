@@ -1,0 +1,134 @@
+-- fannkuch-redux (benchmarksgame): for every permutation of n
+-- elements, repeatedly flip the prefix whose length is the first
+-- element until that element is 0, counting the flips. Reports the
+-- maximum flip count and a sign-alternating checksum.
+--
+-- Serial port — iterates all n! permutations through the
+-- factorial-radix next-permutation. Reads n from argv (default 7).
+-- Output matches the reference:
+--   <checksum>
+--   Pfannkuchen(<n>) = <maxflips>
+-- @cmd — zo run fannkuch-redux.zo 7
+
+fun main() {
+  imu argv: []str = args();
+  imu n: int = if argv.len > 0 {
+    match argv[0].parse_int() {
+      Option::Some(value) => value,
+      Option::None => 7,
+    }
+  } else {
+    7
+  };
+
+  -- n! — the permutation count and the loop's terminating index.
+  mut perm_max: int = 1;
+
+  for i := 1..n + 1 {
+    perm_max *= i;
+  }
+
+  -- The working permutation, its scratch copy for flipping, and the
+  -- factorial-radix odometer that drives next-permutation. Each gets
+  -- one padding slot so the carry on the way to the final permutation
+  -- never indexes past the end.
+  mut current: []int = [];
+  mut temp: []int = [];
+  mut count: []int = [];
+
+  for i := 0..n {
+    current.push(i);
+    temp.push(0);
+    count.push(0);
+  }
+
+  current.push(0);
+  temp.push(0);
+  count.push(0);
+
+  mut checksum: int = 0;
+  mut maxflips: int = 0;
+  mut perm_index: int = 0;
+
+  loop {
+    -- A leading 0 needs no flips, so only count when current[0] > 0.
+    if current[0] > 0 {
+      for i := 0..n {
+        temp[i] = current[i];
+      }
+
+      mut flip_count: int = 1;
+      mut first_value: int = current[0];
+
+      while temp[first_value] != 0 {
+        imu new_first := temp[first_value];
+
+        temp[first_value] = first_value;
+
+        -- Flipping a prefix of four or more also reverses the
+        -- elements between the ends.
+        if first_value > 2 {
+          mut lo: int = 1;
+          mut hi: int = first_value - 1;
+
+          while lo < hi {
+            imu swap := temp[lo];
+
+            temp[lo] = temp[hi];
+            temp[hi] = swap;
+            lo += 1;
+            hi -= 1;
+          }
+        }
+
+        first_value = new_first;
+        flip_count += 1;
+      }
+
+      if perm_index % 2 == 0 {
+        checksum += flip_count;
+      } else {
+        checksum -= flip_count;
+      }
+
+      if flip_count > maxflips {
+        maxflips = flip_count;
+      }
+    }
+
+    if perm_index >= perm_max - 1 {
+      break;
+    }
+
+    perm_index += 1;
+
+    -- next permutation — a factorial-radix increment of `count`.
+    mut first_value: int = current[1];
+
+    current[1] = current[0];
+    current[0] = first_value;
+
+    mut i: int = 1;
+
+    while count[i] >= i {
+      count[i] = 0;
+      i += 1;
+
+      imu new_first := current[1];
+
+      current[0] = new_first;
+
+      for j := 1..i {
+        current[j] = current[j + 1];
+      }
+
+      current[i] = first_value;
+      first_value = new_first;
+    }
+
+    count[i] += 1;
+  }
+
+  showln(checksum);
+  showln("Pfannkuchen({n}) = {maxflips}");
+}

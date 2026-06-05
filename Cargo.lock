@@ -8285,6 +8285,7 @@ dependencies = [
  "criterion",
  "insta",
  "serde_json",
+ "zo-buffer",
  "zo-error",
  "zo-span",
 ]

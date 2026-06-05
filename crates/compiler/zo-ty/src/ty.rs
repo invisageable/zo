@@ -666,3 +666,37 @@ pub fn struct_leaf_words(ty_id: TyId, tys: &[Ty], ty_table: &TyTable) -> u32 {
     _ => 1,
   }
 }
+
+/// The name of `ty_id` resolved from `tys` — `i32`, `u64`,
+/// `f64`, `bool`, `str`, … — rather than hardcoded at the use
+/// site. The width is load-bearing: an `f64` value must read
+/// `f64`, never a guessed `f32`. Composite and unresolved types
+/// fall back to their `Debug` form (a `Const*` literal only
+/// ever carries a primitive, so the fallback is for callers
+/// that name arbitrary `TyId`s).
+pub fn type_name(tys: &[Ty], ty_id: TyId) -> String {
+  match tys.get(ty_id.0 as usize).copied().unwrap_or(Ty::Error) {
+    Ty::Int { signed, width } => {
+      let bits = match width {
+        IntWidth::S8 | IntWidth::U8 => "8",
+        IntWidth::S16 | IntWidth::U16 => "16",
+        IntWidth::S32 | IntWidth::U32 => "32",
+        IntWidth::S64 | IntWidth::U64 => "64",
+        IntWidth::Arch => "size",
+      };
+
+      format!("{}{bits}", if signed { 'i' } else { 'u' })
+    }
+    Ty::Float(width) => match width {
+      FloatWidth::F32 => "f32".to_string(),
+      FloatWidth::F64 => "f64".to_string(),
+      FloatWidth::Arch => "fsize".to_string(),
+    },
+    Ty::Bool => "bool".to_string(),
+    Ty::Char => "char".to_string(),
+    Ty::Str => "str".to_string(),
+    Ty::Bytes => "bytes".to_string(),
+    Ty::Unit => "unit".to_string(),
+    other => format!("{other:?}"),
+  }
+}

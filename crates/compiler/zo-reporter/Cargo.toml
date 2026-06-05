@@ -10,6 +10,7 @@ doctest = false
 # internal:sources.
 
 # internal:crates.
+zo-buffer = { workspace = true }
 zo-error = { workspace = true }
 zo-span = { workspace = true }
 

@@ -23,8 +23,8 @@ use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
 use zo_reporter::{
-  ErrorAggregator, Reporter, json, rationale, render_errors_to_stderr,
-  report_error,
+  DiagnosticFormat, ErrorAggregator, Reporter, json, rationale,
+  render_errors_to_stderr, report_error, xml,
 };
 use zo_session::Session;
 use zo_sir::{Insn, Sir};
@@ -147,12 +147,13 @@ fn implicit_pack_for(path: &Path, search_paths: &[PathBuf]) -> Option<String> {
 /// [`Compiler::configure_diagnostics`].
 #[derive(Clone, Copy, Debug)]
 pub struct DiagnosticsConfig {
-  /// `true` → stream NDJSON on stdout (instead of ariadne
-  /// snippets on stderr).
-  pub json: bool,
+  /// Which renderer materialises diagnostics — `Human`
+  /// (ariadne snippets on stderr) or a machine format
+  /// (`Json` / `Xml` on stdout).
+  pub format: DiagnosticFormat,
   /// Number of source lines of context to inline in each
-  /// JSON diagnostic's `snippet`. Ignored when `json` is
-  /// false. `0` disables context.
+  /// machine diagnostic's `snippet`. Ignored for the human
+  /// format. `0` disables context.
   pub snippet_context: usize,
   /// `true` → emit `severity: "note"` rationale entries
   /// explaining compiler decisions (DCE'd functions, …).
@@ -162,11 +163,51 @@ pub struct DiagnosticsConfig {
 impl Default for DiagnosticsConfig {
   fn default() -> Self {
     Self {
-      json: false,
+      format: DiagnosticFormat::Human,
       snippet_context: 2,
       explain_decisions: false,
     }
   }
+}
+
+/// A program already taken through the front end — tokenize,
+/// parse, analyze. Holds everything the back half of the
+/// pipeline (codegen, link, report) consumes. `run` builds one
+/// from [`Compiler::analyze_source`] and hands it to
+/// [`Compiler::compile_analyzed`], so a program is analyzed
+/// once and lowered from that single analysis — not analyzed a
+/// second time through `compile`.
+pub struct Analyzed {
+  /// Typed SIR plus the abstract-method tables codegen reads.
+  pub semantic: SemanticResult,
+  /// Token buffer — kept for the profiler's token count.
+  pub tokenization: TokenizationResult,
+  /// Parse tree — kept for the profiler's node count.
+  pub parsing: ParsingResult,
+  /// Interner and type checker the back half borrows.
+  pub session: Session,
+  /// Every source file touched (main plus transitive modules)
+  /// — the table diagnostics resolve their spans against.
+  pub file_table: Vec<(PathBuf, String)>,
+}
+
+/// Inputs for lowering one analyzed program to a linked
+/// binary. Bundled into a struct because the operation needs
+/// more than three values, and the back half is shared by
+/// `compile`'s file loop and the single-analysis `run` path.
+struct Lowering<'a> {
+  /// The typed SIR and abstract tables to generate.
+  semantic: &'a SemanticResult,
+  /// Interner and type checker for codegen.
+  session: &'a Session,
+  /// Source path, for the profiler's output label.
+  path: &'a Path,
+  /// Resolved binary destination.
+  output_path: &'a Path,
+  /// Assembly-dump destination, `Some` only under `--emit asm`.
+  emit_asm: Option<&'a Path>,
+  /// The compilation target.
+  target: Target,
 }
 
 /// Represents a [`Compiler`] instance.
@@ -180,16 +221,16 @@ pub struct Compiler {
   /// Modules declared via `pub pack` in lib.zo.
   /// Populated during pack compilation, queried by `load`.
   module_table: HashMap<Symbol, ModuleExports>,
-  /// When `true`, diagnostics stream as NDJSON on stdout
-  /// instead of ariadne-styled snippets on stderr. Driver
-  /// flips this from the `--format=json` CLI flag; library
-  /// callers (fret build pipeline, tests) leave it `false`.
-  emit_json: bool,
-  /// Lines of source context inlined in each NDJSON
+  /// Which renderer materialises diagnostics. The driver
+  /// sets this from the `--format` CLI flag; library callers
+  /// (fret build pipeline, tests) leave it `Human`. The
+  /// machine formats (`Json` / `Xml`) stream structured
+  /// output on stdout instead of ariadne snippets on stderr.
+  emit_format: DiagnosticFormat,
+  /// Lines of source context inlined in each machine
   /// diagnostic's `snippet.before` / `snippet.after`. Only
-  /// consulted when `emit_json` is `true`. Defaults to the
-  /// driver's `--snippet-context` flag value (2 unless
-  /// overridden).
+  /// consulted for a machine format. Defaults to the driver's
+  /// `--snippet-context` flag value (2 unless overridden).
   snippet_context: usize,
   /// When `true`, `test fun` functions are pinned as DCE
   /// roots so the synthesized test harness can call them.
@@ -561,7 +602,7 @@ impl Compiler {
       module_resolver: ModuleResolver::new(default_core_search_paths()),
       compiling: HashSet::default(),
       module_table: HashMap::default(),
-      emit_json: false,
+      emit_format: DiagnosticFormat::Human,
       snippet_context: 2,
       test_mode: false,
     }
@@ -577,7 +618,7 @@ impl Compiler {
       module_resolver: ModuleResolver::new(search_paths),
       compiling: HashSet::default(),
       module_table: HashMap::default(),
-      emit_json: false,
+      emit_format: DiagnosticFormat::Human,
       snippet_context: 2,
       test_mode: false,
     }
@@ -593,15 +634,15 @@ impl Compiler {
   }
 
   /// Applies a [`DiagnosticsConfig`] to this compiler. Bound
-  /// from the driver's `--format=json` / `--snippet-context`
-  /// / `--explain-decisions` flags in lockstep. State lands
-  /// in two places — local fields for `json` / `snippet_context`
+  /// from the driver's `--format` / `--snippet-context` /
+  /// `--explain-decisions` flags in lockstep. State lands in
+  /// two places — local fields for `format` / `snippet_context`
   /// and a process-wide atomic for `explain_decisions` (the
   /// rationale channel needs cheap reads from passes in many
   /// crates). The asymmetry is internal; callers see one
   /// uniform setter.
   pub fn configure_diagnostics(&mut self, cfg: DiagnosticsConfig) {
-    self.emit_json = cfg.json;
+    self.emit_format = cfg.format;
     self.snippet_context = cfg.snippet_context;
     rationale::enable_rationale(cfg.explain_decisions);
   }
@@ -1765,7 +1806,11 @@ impl Compiler {
       if should_emit_sir {
         let sir_path = resolve_emit_path(path, "sir");
         let mut pp = PrettyPrinter::new();
-        pp.format_sir(&semantic.sir, &session.interner);
+        pp.format_sir(
+          &semantic.sir,
+          &session.interner,
+          session.ty_checker.tys(),
+        );
         let sir_output = pp.finish();
 
         if let Err(error) = fs::write(&sir_path, sir_output) {
@@ -1773,65 +1818,11 @@ impl Compiler {
         }
       }
 
-      // A program with semantic errors must never reach
-      // codegen — its SIR can be malformed (an invalid
-      // top-level `imu` leaves a `cast` of the no-value
-      // sentinel, for one), which panics the backend. Skip
-      // codegen/link; the post-loop handler renders the
-      // diagnostics and fails the build.
-      let has_hard_error = self
-        .reporter
-        .errors()
-        .iter()
-        .any(|error| matches!(error.severity(), Severity::Error));
-
-      if has_hard_error {
-        continue;
-      }
-
-      self.profiler.start_phase(CODEGEN_NAME);
-      let codegen = Codegen::new(target);
-
-      // ARM64Gen consults this view to drive the generic
-      // AAPCS FFI path; CLIF ignores it.
-      let type_view =
-        Some((session.ty_checker.tys(), &session.ty_checker.ty_table));
-
-      // ARM consumes `abstract_defs` + `abstract_impls`
-      // in `emit_vtables`; CLIF ignores them. Build the
-      // state lazily — `generate_artifact` (asm dump)
-      // and the real `generate` (link object) each get
-      // their own snapshot.
-      let make_abstract_state = || {
-        Some(zo_codegen::AbstractState {
-          defs: semantic.abstract_defs.clone(),
-          impls: semantic.abstract_impls.clone(),
-        })
-      };
-
-      if should_emit_asm {
-        let artifact = codegen.generate_artifact(
-          &session.interner,
-          &semantic.sir,
-          type_view,
-          make_abstract_state(),
-        );
-        let asm_path = resolve_emit_path(path, "asm");
-
-        let mut pp = PrettyPrinter::new();
-        pp.format_asm(&artifact, target);
-        let asm_output = pp.finish();
-
-        if let Err(error) = fs::write(&asm_path, asm_output) {
-          eprintln!("Failed to write assembly to {asm_path:?}: {error}");
-        }
-      }
-
       // Binary destination:
       // 1. explicit `-o <file>` wins, always.
       // 2. else if `--out-dir <dir>` is set, `<dir>/<stem>`.
       // 3. else next to the source, like `rustc foo.rs`.
-      let output_path = match (&output_path, out_dir) {
+      let binary_path = match (&output_path, out_dir) {
         (Some(p), _) => p.clone(),
         (None, Some(dir)) => {
           let stem = path.file_stem().unwrap_or(path.as_os_str());
@@ -1840,56 +1831,143 @@ impl Compiler {
         (None, None) => path.with_extension(""),
       };
 
-      let link_obj = codegen.generate(
-        &session.interner,
-        &semantic.sir,
+      let asm_path = should_emit_asm.then(|| resolve_emit_path(path, "asm"));
+
+      self.lower_one(&Lowering {
+        semantic: &semantic,
+        session: &session,
+        path: path.as_path(),
+        output_path: binary_path.as_path(),
+        emit_asm: asm_path.as_deref(),
+        target,
+      });
+    }
+
+    self.render_and_finish(&file_table, target)
+  }
+
+  /// Lowers one analyzed program to a linked binary: codegen,
+  /// the optional assembly dump, link, and runtime-dylib
+  /// staging.
+  ///
+  /// A program with a hard error never reaches codegen — its
+  /// SIR can be malformed (an invalid top-level `imu` leaves a
+  /// `cast` of the no-value sentinel, for one), which panics
+  /// the backend. So this returns early when the reporter
+  /// already holds a hard error; the caller's final report
+  /// renders the diagnostics and fails the build.
+  fn lower_one(&mut self, lowering: &Lowering) {
+    let has_hard_error = self
+      .reporter
+      .errors()
+      .iter()
+      .any(|error| matches!(error.severity(), Severity::Error));
+
+    if has_hard_error {
+      return;
+    }
+
+    self.profiler.start_phase(CODEGEN_NAME);
+    let codegen = Codegen::new(lowering.target);
+
+    // ARM64Gen consults this view to drive the generic
+    // AAPCS FFI path; CLIF ignores it.
+    let type_view = Some((
+      lowering.session.ty_checker.tys(),
+      &lowering.session.ty_checker.ty_table,
+    ));
+
+    // ARM consumes `abstract_defs` + `abstract_impls`
+    // in `emit_vtables`; CLIF ignores them. Build the
+    // state lazily — `generate_artifact` (asm dump)
+    // and the real `generate` (link object) each get
+    // their own snapshot.
+    let make_abstract_state = || {
+      Some(zo_codegen::AbstractState {
+        defs: lowering.semantic.abstract_defs.clone(),
+        impls: lowering.semantic.abstract_impls.clone(),
+      })
+    };
+
+    if let Some(asm_path) = lowering.emit_asm {
+      let artifact = codegen.generate_artifact(
+        &lowering.session.interner,
+        &lowering.semantic.sir,
         type_view,
         make_abstract_state(),
       );
 
-      self.stats.numartifacts += 1;
-      self.profiler.end_phase(CODEGEN_NAME);
+      let mut pp = PrettyPrinter::new();
+      pp.format_asm(&artifact, lowering.target);
+      let asm_output = pp.finish();
 
-      // --- Linker phase ---
-      // Pure data transformation: `LinkObject` → executable
-      // file. ARM runs the in-process mach-o assembler;
-      // CLIF shells out to `cc`. Either way, no codegen
-      // state crosses this boundary — every fixup, symbol
-      // table, and entry-point offset already lives on
-      // `link_obj`.
-      self.profiler.start_phase(LINKER_NAME);
-
-      let mut runtime = zo_linker::RuntimeKind::None;
-
-      match zo_linker::link(link_obj, &output_path, target) {
-        Ok(kind) => {
-          runtime = kind;
-          self.stats.numlinked += 1;
-        }
-        Err(err) => eprintln!("zo: link failed: {err}"),
+      if let Err(error) = fs::write(asm_path, asm_output) {
+        eprintln!("Failed to write assembly to {asm_path:?}: {error}");
       }
-
-      // Colocate the runtime dylibs the compiled binary
-      // references at `@loader_path/deps/`. The linker is
-      // the authority on which `libzo_runtime.dylib` flavor
-      // to stage: it sees the exact set of `_zo_*` symbols
-      // the program imports and reports `RuntimeKind` — lean
-      // core when every import resolves in the 1.3 MB core,
-      // the full 9.9 MB UI build when any UI-exclusive
-      // symbol (`#dom` / render) is referenced. Vendored
-      // `#link` dylibs (raylib, …) are staged separately by
-      // basename from the SIR.
-      stage_runtime_artifacts(
-        runtime,
-        &semantic.sir,
-        &session.interner,
-        &output_path,
-      );
-
-      self.profiler.end_phase(LINKER_NAME);
-      self.profiler.set_output(path.display().to_string());
     }
 
+    let link_obj = codegen.generate(
+      &lowering.session.interner,
+      &lowering.semantic.sir,
+      type_view,
+      make_abstract_state(),
+    );
+
+    self.stats.numartifacts += 1;
+    self.profiler.end_phase(CODEGEN_NAME);
+
+    // --- Linker phase ---
+    // Pure data transformation: `LinkObject` → executable
+    // file. ARM runs the in-process mach-o assembler;
+    // CLIF shells out to `cc`. Either way, no codegen
+    // state crosses this boundary — every fixup, symbol
+    // table, and entry-point offset already lives on
+    // `link_obj`.
+    self.profiler.start_phase(LINKER_NAME);
+
+    let mut runtime = zo_linker::RuntimeKind::None;
+
+    match zo_linker::link(link_obj, lowering.output_path, lowering.target) {
+      Ok(kind) => {
+        runtime = kind;
+        self.stats.numlinked += 1;
+      }
+      Err(err) => eprintln!("zo: link failed: {err}"),
+    }
+
+    // Colocate the runtime dylibs the compiled binary
+    // references at `@loader_path/deps/`. The linker is
+    // the authority on which `libzo_runtime.dylib` flavor
+    // to stage: it sees the exact set of `_zo_*` symbols
+    // the program imports and reports `RuntimeKind` — lean
+    // core when every import resolves in the 1.3 MB core,
+    // the full 9.9 MB UI build when any UI-exclusive
+    // symbol (`#dom` / render) is referenced. Vendored
+    // `#link` dylibs (raylib, …) are staged separately by
+    // basename from the SIR.
+    stage_runtime_artifacts(
+      runtime,
+      &lowering.semantic.sir,
+      &lowering.session.interner,
+      lowering.output_path,
+    );
+
+    self.profiler.end_phase(LINKER_NAME);
+    self
+      .profiler
+      .set_output(lowering.path.display().to_string());
+  }
+
+  /// Renders every accumulated diagnostic in the selected
+  /// format and finishes a top-level compile. This is the
+  /// single report after all phases — the one source of truth.
+  /// Returns `Err` when any hard error was reported: the
+  /// signal that the build failed.
+  fn render_and_finish(
+    &mut self,
+    file_table: &[(PathBuf, String)],
+    target: Target,
+  ) -> Result<(), Error> {
     let errors = self.reporter.errors();
 
     if !errors.is_empty() {
@@ -1898,10 +1976,16 @@ impl Compiler {
       aggregator.add_errors(errors);
       aggregator.add_details(self.reporter.details());
 
-      let _ = if self.emit_json {
-        json::to_stdout(&aggregator, &file_table, self.snippet_context)
-      } else {
-        render_errors_to_stderr(&aggregator, &file_table)
+      let _ = match self.emit_format {
+        DiagnosticFormat::Json => {
+          json::to_stdout(&aggregator, file_table, self.snippet_context)
+        }
+        DiagnosticFormat::Xml => {
+          xml::to_stdout(&aggregator, file_table, self.snippet_context)
+        }
+        DiagnosticFormat::Human => {
+          render_errors_to_stderr(&aggregator, file_table)
+        }
       };
 
       aggregator.clear();
@@ -1923,15 +2007,54 @@ impl Compiler {
     self.profiler.set_inferences_count(self.stats.numinferences);
     self.profiler.set_artifacts_count(self.stats.numartifacts);
     self.profiler.set_artifacts_linked(self.stats.numlinked);
-    // Profiler text writes to stdout — when `--format=json`
-    // is active, that bleed corrupts the NDJSON stream a
+    // Profiler text writes to stdout — when a machine format
+    // is active, that bleed corrupts the structured stream a
     // consumer is parsing. Suppress; the timing data is
     // human-only.
-    if !self.emit_json {
+    if !self.emit_format.is_machine() {
       self.profiler.summary(target.name());
     }
 
     Ok(())
+  }
+
+  /// Lowers an already-analyzed program to a linked binary,
+  /// then renders diagnostics. Lets `run` reuse the analysis it
+  /// ran for template detection instead of re-analyzing through
+  /// `compile` — one analysis per program, one report. No
+  /// `--emit` dumps: that path stays in `compile`.
+  pub fn compile_analyzed(
+    &mut self,
+    analyzed: &Analyzed,
+    target: Target,
+    output_path: &Path,
+  ) -> Result<(), Error> {
+    let source_path = analyzed
+      .file_table
+      .first()
+      .map(|(path, _)| path.as_path())
+      .unwrap_or(output_path);
+
+    self.stats.numlines += analyzed
+      .file_table
+      .first()
+      .map(|(_, code)| code.lines().count())
+      .unwrap_or(0);
+    self.stats.numtokens += analyzed.tokenization.tokens.len();
+    self.stats.numnodes += analyzed.parsing.tree.nodes.len();
+    self.stats.numinferences += analyzed.semantic.annotations.len();
+    self.profiler.set_total_lines(self.stats.numlines);
+
+    self.lower_one(&Lowering {
+      semantic: &analyzed.semantic,
+      session: &analyzed.session,
+      path: source_path,
+      output_path,
+      emit_asm: None,
+      target,
+    });
+
+    self.render_and_finish(&analyzed.file_table, target)
   }
 
   /// Compile in test mode: analyze, collect `test fun`

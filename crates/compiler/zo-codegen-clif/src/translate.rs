@@ -549,6 +549,7 @@ fn record_value_type(ctx: &mut FunCtx, insn: &Insn) {
     | Insn::ConstString { dst, ty_id, .. }
     | Insn::Load { dst, ty_id, .. }
     | Insn::Call { dst, ty_id, .. }
+    | Insn::CallIndirect { dst, ty_id, .. }
     | Insn::BinOp { dst, ty_id, .. }
     | Insn::UnOp { dst, ty_id, .. }
     | Insn::ArrayLiteral { dst, ty_id, .. }
@@ -1141,6 +1142,68 @@ fn translate_body(
         // I8 0 sentinel — matches Appendix B row 1 of the
         // plan. Downstream refs for unit values are a
         // semantic bug and will never be read.
+        let results = builder.inst_results(call);
+        let v = if results.is_empty() {
+          builder.ins().iconst(ir::types::I8, 0)
+        } else {
+          results[0]
+        };
+
+        ctx.values.insert(*dst, v);
+      }
+      Insn::CallIndirect {
+        dst,
+        callee,
+        args,
+        ty_id,
+      } => {
+        // Indirect call through a function-pointer value: the
+        // callee is a runtime code address (from a returned
+        // `Fn` value), so branch through it with
+        // `call_indirect` rather than a named `FuncId` import.
+        let Some(callee_val) = ctx.values.get(callee).copied() else {
+          emit_exit_1(tctx, builder);
+
+          ctx.terminated = true;
+
+          return;
+        };
+
+        let mut arg_vals: Vec<ir::Value> = Vec::with_capacity(args.len());
+
+        for arg in args {
+          let Some(v) = ctx.values.get(arg).copied() else {
+            emit_exit_1(tctx, builder);
+
+            ctx.terminated = true;
+
+            return;
+          };
+
+          arg_vals.push(v);
+        }
+
+        // Reconstruct the callee signature from the marshalled
+        // CLIF arg types and the SIR return type. zo's unit
+        // (`TyId(1)`) yields a void return.
+        let call_conv = tctx.module.target_config().default_call_conv;
+        let mut sig = ir::Signature::new(call_conv);
+
+        for &v in &arg_vals {
+          let ty = builder.func.dfg.value_type(v);
+
+          sig.params.push(AbiParam::new(ty));
+        }
+
+        if *ty_id != TyId(1) {
+          sig
+            .returns
+            .push(AbiParam::new(ty_id_to_clif(*ty_id, tctx.ptr_ty)));
+        }
+
+        let sigref = builder.import_signature(sig);
+        let call = builder.ins().call_indirect(sigref, callee_val, &arg_vals);
+
         let results = builder.inst_results(call);
         let v = if results.is_empty() {
           builder.ins().iconst(ir::types::I8, 0)

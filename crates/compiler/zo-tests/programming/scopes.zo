@@ -21,15 +21,18 @@ apply Foo {
 		self.foo();
   }
 
-  fun outer(self) -* -> Fn() *- {
+  fun outer(self) -> Fn() {
 
-		-- fun inner1() {}
+		fun inner1() {
+      showln("inner1");
+    }
 
-		-- fun inner2() {
-		-- 	inner1();
-		-- }
+		fun inner2() {
+			inner1();
+      showln("inner2");
+		}
 
-		-- return inner2;
+		return inner2;
 	}
 }
 
@@ -38,10 +41,12 @@ fun main() {
   foo.bar();
 
   imu bar := foo.outer();
-  -- bar();
+  bar();
 
   showln("DONE");
 }
 
 -- EXPECTED OUTPUT:
+-- inner1
+-- inner2
 -- DONE

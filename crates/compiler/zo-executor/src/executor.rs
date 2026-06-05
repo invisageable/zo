@@ -141,6 +141,26 @@ pub(crate) struct Instantiation {
   pub apply_ctx: Option<Symbol>,
 }
 
+/// Inputs for emitting a call through a `Fn`-typed local
+/// (a function-pointer value). Bundled into a struct so
+/// `execute_indirect_call` stays within the argument-count
+/// limit while carrying the callee, its resolved signature,
+/// and the source spans needed for arg diagnostics.
+pub(crate) struct IndirectCall {
+  /// The local binding holding the code pointer.
+  pub callee_local: Symbol,
+  /// Number of call arguments parsed at the call site.
+  pub arg_count: usize,
+  /// Parameter types from the `Fn` signature.
+  pub param_tys: Vec<TyId>,
+  /// Return type from the `Fn` signature.
+  pub return_ty: TyId,
+  /// Parse-node index of the call's opening paren.
+  pub lparen_idx: usize,
+  /// Parse-node index of the call's closing paren.
+  pub rparen_idx: usize,
+}
+
 /// Executor implements compile-time execution of HIR to produce SIR
 ///
 /// Following the manifesto (line 176): "type checking is evaluation"
@@ -304,6 +324,18 @@ pub struct Executor<'a> {
   /// Pending array element assignment (deferred to Semicolon).
   /// (array_sir, index_sir, array_name, span)
   pending_array_assign: Option<(ValueId, ValueId, Symbol, Span)>,
+  /// Pending compound assignment to an array element
+  /// (`a[i] op= rhs`), deferred to Semicolon. Carries the
+  /// array + index SIR, the already-read old value (`a[i]`),
+  /// the operator, the root array name for the mutability
+  /// check, the element type, and the span. Finalized as a
+  /// `BinOp` + `ArrayStore` — without it the element store was
+  /// dropped (silent no-op) and the stale read leaked a stray
+  /// value onto the stack.
+  ///
+  /// (array, index, old_val, op, root, elem_ty, span)
+  pending_compound_array:
+    Option<(ValueId, ValueId, ValueId, BinOp, Symbol, TyId, Span)>,
   /// Pending struct field assignment `p.field = expr`,
   /// deferred to Semicolon. Without this, the assignment was
   /// a silent no-op outside `apply` methods — the LHS was
@@ -877,6 +909,7 @@ impl<'a> Executor<'a> {
       array_ctx: Vec::new(),
       last_index_root: None,
       pending_array_assign: None,
+      pending_compound_array: None,
       pending_field_assign: None,
       tuple_ctx: Vec::new(),
       deferred_binops: Vec::new(),
@@ -1734,6 +1767,26 @@ impl<'a> Executor<'a> {
       self.interner.get(func.name),
       params.join(", "),
       self.ty_display_name(func.return_ty),
+    )
+  }
+
+  /// Render a `Fn(param_tys) -> return_ty` signature for a
+  /// function-pointer value. Used by the indirect-call
+  /// diagnostics where there is no named `FunDef` to render.
+  fn render_fn_ty_signature(
+    &self,
+    param_tys: &[TyId],
+    return_ty: TyId,
+  ) -> String {
+    let params: Vec<String> = param_tys
+      .iter()
+      .map(|ty| self.ty_display_name(*ty))
+      .collect();
+
+    format!(
+      "Fn({}) -> {}",
+      params.join(", "),
+      self.ty_display_name(return_ty),
     )
   }
 
@@ -8589,8 +8642,19 @@ impl<'a> Executor<'a> {
     //   `pack p { fun h }`             → `p::h`
     //   `pack p { pack q { fun h } }`  → `p::q::h`
     //   `apply T { fun m }` inside a pack → `p::T::m`
+    //
+    // A nested function — one declared inside another
+    // function's body, so `current_function` is already set —
+    // is a local helper, not a method or pack member. Call
+    // sites reference it by its bare name, so mangling it to
+    // `Type::inner` would make a sibling's `inner()` fail to
+    // resolve (`has_fun` keys on the bare symbol → E0301).
+    // Keep nested functions bare in every context, matching
+    // how they already behave at top level.
     let raw_name = name.unwrap();
-    let name = if self.apply_context.is_some() || !self.pack_context.is_empty()
+    let is_nested = self.current_function.is_some();
+    let name = if !is_nested
+      && (self.apply_context.is_some() || !self.pack_context.is_empty())
     {
       let mut parts: Vec<String> = self
         .pack_context
@@ -15726,10 +15790,27 @@ impl<'a> Executor<'a> {
       _ => return,
     };
 
+    // Carry the ELEMENT type, not the array type. Codegen's
+    // float/width selection keys on a `Ty::Float`-range TyId;
+    // handing it the array type (whose id sits far above the
+    // float range) made a `[]float` push take the integer
+    // store path and write a GPR over a slot that should hold
+    // the FP register's bits — every read back came out as
+    // denormal garbage. `ArrayIndex` / `ArrayStore` /
+    // `ArrayPop` already pass the element type; this matches
+    // them.
+    let elem_ty = if let Ty::Array(aid) = self.ty_checker.kind_of(arr_ty)
+      && let Some(at) = self.ty_checker.ty_table.array(aid)
+    {
+      at.elem_ty
+    } else {
+      arr_ty
+    };
+
     self.sir.emit(Insn::ArrayPush {
       array: arr_sir,
       value: val_sir,
-      ty_id: arr_ty,
+      ty_id: elem_ty,
       owner,
     });
   }
@@ -19336,6 +19417,38 @@ impl<'a> Executor<'a> {
       return;
     }
 
+    // Indexed compound assign: `a[i] op= rhs`. The index
+    // handler emitted `ArrayIndex` (the read of `a[i]`); reuse
+    // its result as the old value and store the `op` result
+    // back to the same slot at the Semicolon.
+    if self.tree.nodes[target_idx].token == Token::RBracket {
+      if let Some(Insn::ArrayIndex {
+        dst,
+        array,
+        index,
+        ty_id,
+      }) = self.sir.instructions.last()
+      {
+        let old_val = *dst;
+        let array_sir = *array;
+        let index_sir = *index;
+        let elem_ty = *ty_id;
+
+        if let Some(root) = self.last_index_root {
+          self.value_stack.pop();
+          self.ty_stack.pop();
+          self.sir_values.pop();
+
+          let span = self.tree.spans[target_idx];
+
+          self.pending_compound_array =
+            Some((array_sir, index_sir, old_val, op, root, elem_ty, span));
+        }
+      }
+
+      return;
+    }
+
     // Direct variable compound assign: `x +=`.
     if let Token::Ident = self.tree.nodes[target_idx].token
       && let Some(NodeValue::Symbol(name)) = self.node_value(target_idx)
@@ -19392,6 +19505,55 @@ impl<'a> Executor<'a> {
 
   /// Finalize a pending compound assignment at Semicolon.
   fn finalize_pending_compound(&mut self) {
+    // Indexed compound assign (`a[i] op= rhs`): combine the
+    // already-read old value with the RHS and store the result
+    // back to the same element.
+    if let Some((array, index, old_val, op, root, elem_ty, span)) =
+      self.pending_compound_array.take()
+    {
+      let (Some(_rhs_value), Some(_rhs_ty)) =
+        (self.value_stack.pop(), self.ty_stack.pop())
+      else {
+        return;
+      };
+      let rhs_sir = self.sir_values.pop();
+
+      let is_mutable = self
+        .locals
+        .iter()
+        .rev()
+        .find(|l| l.name == root)
+        .is_some_and(|l| l.mutability == Mutability::Yes);
+
+      if !is_mutable {
+        self.report(ErrorKind::ImmutableVariable, span);
+
+        return;
+      }
+
+      if let Some(rhs_s) = rhs_sir {
+        let new_val = ValueId(self.sir.next_value_id);
+        self.sir.next_value_id += 1;
+
+        self.sir.emit(Insn::BinOp {
+          dst: new_val,
+          op,
+          lhs: old_val,
+          rhs: rhs_s,
+          ty_id: elem_ty,
+        });
+
+        self.sir.emit(Insn::ArrayStore {
+          array,
+          index,
+          value: new_val,
+          ty_id: elem_ty,
+        });
+      }
+
+      return;
+    }
+
     // Nested field compound assign recovered its field read
     // up front; combine with the RHS and store through the
     // base pointer directly.
@@ -22296,7 +22458,40 @@ impl<'a> Executor<'a> {
         idx += 1;
       }
 
-      // Pop arguments from stack
+      // A local whose resolved type is `Fn(...)` holds a
+      // function-pointer value, not a function symbol. The
+      // call must branch through the pointer (`CallIndirect`)
+      // — naming the local as a `Call` target resolves to a
+      // bogus symbol at link time. Detected before popping so
+      // the arg types are retained for the signature check.
+      let fn_sig = self.lookup_local(fun_name).and_then(|l| {
+        match self.ty_checker.resolve_ty(l.ty_id) {
+          Ty::Fun(fid) => self.ty_checker.ty_table.fun(&fid).map(|ft| {
+            (
+              self.ty_checker.ty_table.fun_params(ft).to_vec(),
+              ft.return_ty,
+            )
+          }),
+          _ => None,
+        }
+      });
+
+      if let Some((param_tys, return_ty)) = fn_sig {
+        self.execute_indirect_call(IndirectCall {
+          callee_local: fun_name,
+          arg_count,
+          param_tys,
+          return_ty,
+          lparen_idx,
+          rparen_idx,
+        });
+
+        return;
+      }
+
+      // Genuine external / builtin / undefined name: pop the
+      // args (values + types discarded — the callee is opaque)
+      // and emit a direct `Call` to the symbol.
       let mut arg_sirs = Vec::with_capacity(arg_count);
 
       for _ in 0..arg_count {
@@ -22310,21 +22505,7 @@ impl<'a> Executor<'a> {
 
       arg_sirs.reverse();
 
-      // Check if the unresolved function is a Fn-typed
-      // parameter. If so, use its return type and push the
-      // result for monomorphization at call sites.
-      let return_ty = self
-        .lookup_local(fun_name)
-        .and_then(|l| {
-          let ty = self.ty_checker.resolve_ty(l.ty_id);
-
-          if let Ty::Fun(fid) = ty {
-            self.ty_checker.ty_table.fun(&fid).map(|ft| ft.return_ty)
-          } else {
-            None
-          }
-        })
-        .unwrap_or_else(|| self.ty_checker.unit_type());
+      let return_ty = self.ty_checker.unit_type();
 
       let dst = ValueId(self.sir.next_value_id);
       self.sir.next_value_id += 1;
@@ -22345,6 +22526,139 @@ impl<'a> Executor<'a> {
         self.ty_stack.push(return_ty);
         self.sir_values.push(result_sir);
       }
+    }
+  }
+
+  /// Emit an indirect call through a `Fn`-typed local — the
+  /// local holds a code pointer (from `FnAddr` or a returned
+  /// function value), so the call branches through the value
+  /// (`Insn::CallIndirect`) instead of naming a symbol.
+  ///
+  /// Pops and type-checks the call args against the `Fn`
+  /// signature, loads the local to materialize the callee
+  /// pointer as an SSA value, then pushes the result.
+  fn execute_indirect_call(&mut self, call: IndirectCall) {
+    let IndirectCall {
+      callee_local,
+      arg_count,
+      param_tys,
+      return_ty,
+      lparen_idx,
+      rparen_idx,
+    } = call;
+
+    // Arg-count check mirrors the direct-call path.
+    if arg_count != param_tys.len() {
+      let span = self.tree.spans[rparen_idx];
+
+      let error = Error::with_file(
+        ErrorKind::ArgumentCountMismatch,
+        span,
+        self.current_file_id,
+      );
+
+      report_error_with_detail(
+        error,
+        Detail::ArgCount {
+          callee: self.interner.get(callee_local).into(),
+          expected: param_tys.len() as u16,
+          given: arg_count as u16,
+          signature: self.render_fn_ty_signature(&param_tys, return_ty).into(),
+        },
+      );
+
+      return;
+    }
+
+    // Pop args (in reverse order) retaining their types so
+    // they can be checked against the `Fn` param types.
+    let mut arg_sirs = Vec::with_capacity(arg_count);
+    let mut arg_types = Vec::with_capacity(arg_count);
+
+    for _ in 0..arg_count {
+      let ty = self.ty_stack.pop();
+      self.value_stack.pop();
+      let sir = self.sir_values.pop();
+
+      if let (Some(ty), Some(sir)) = (ty, sir) {
+        arg_types.push(ty);
+        arg_sirs.push(sir);
+      }
+    }
+
+    arg_sirs.reverse();
+    arg_types.reverse();
+
+    // Type-check each arg against the matching param type.
+    for (i, param_ty) in param_tys.iter().enumerate() {
+      let Some(&arg_ty) = arg_types.get(i) else {
+        continue;
+      };
+
+      if self.ty_checker.unify_silent(*param_ty, arg_ty).is_none() {
+        let arg_span = arg_sirs
+          .get(i)
+          .and_then(|sir| self.span_of_value(*sir))
+          .unwrap_or_else(|| self.tree.spans[lparen_idx + 1 + i * 2]);
+
+        let error = Error::with_file(
+          ErrorKind::TypeMismatch,
+          arg_span,
+          self.current_file_id,
+        );
+
+        report_error_with_detail(
+          error,
+          Detail::ArgType {
+            callee: self.interner.get(callee_local).into(),
+            found: self.ty_display_name(arg_ty).into(),
+            expected: self.ty_display_name(*param_ty).into(),
+            signature: self
+              .render_fn_ty_signature(&param_tys, return_ty)
+              .into(),
+          },
+        );
+
+        return;
+      }
+    }
+
+    let resolved_ret = self.ty_checker.resolve_id(return_ty);
+
+    // Load the local to bring the fn-pointer into an SSA
+    // value — the same Load every other read of a local
+    // emits, so codegen materializes it from the local's
+    // stack slot.
+    let callee_dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let callee_ty = self
+      .lookup_local(callee_local)
+      .map(|l| l.ty_id)
+      .unwrap_or(return_ty);
+
+    let callee = self.sir.emit(Insn::Load {
+      dst: callee_dst,
+      src: LoadSource::Local(callee_local),
+      ty_id: callee_ty,
+    });
+
+    let dst = ValueId(self.sir.next_value_id);
+    self.sir.next_value_id += 1;
+
+    let result_sir = self.sir.emit(Insn::CallIndirect {
+      dst,
+      callee,
+      args: arg_sirs,
+      ty_id: resolved_ret,
+    });
+
+    if resolved_ret != self.ty_checker.unit_type() {
+      let result_val = self.values.store_runtime(0);
+
+      self.value_stack.push(result_val);
+      self.ty_stack.push(resolved_ret);
+      self.sir_values.push(result_sir);
     }
   }
 

@@ -32,13 +32,13 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 
 @RUN: `just zo_bench ackermann`
 
-| Compiler | Run 1    | Run 2   | Run 3   | Run 4   | Run 5   | Average     | Speed vs zo      |
-| :------- | :------- | :------ | :------ | :------ | :------ | :---------- | :--------------- |
-| **zo**   | 7.59ms   | 6.43ms  | 6.04ms  | 5.89ms  | 5.62ms  | **6.32ms**  | **1.0x**         |
-| clang    | 66.67ms  | 41.95ms | 38.26ms | 40.30ms | 36.71ms | **44.78ms** | **7.1x slower**  |
+| Compiler | Run 1    | Run 2   | Run 3   | Run 4   | Run 5   | Average     | Speed vs zo       |
+| :------- | :------- | :------ | :------ | :------ | :------ | :---------- | :---------------- |
+| **zo**   | 7.59ms   | 6.43ms  | 6.04ms  | 5.89ms  | 5.62ms  | **6.32ms**  | **1.0x**          |
+| clang    | 66.67ms  | 41.95ms | 38.26ms | 40.30ms | 36.71ms | **44.78ms** | **7.1x slower**   |
 | go       | 265.33ms | 63.85ms | 66.68ms | 65.32ms | 65.51ms | **105.34ms** | **16.7x slower** |
-| rustc    | 78.54ms  | 67.90ms | 66.90ms | 62.96ms | 63.91ms | **68.04ms** | **10.8x slower** |
-| odin     | 82.21ms  | 69.02ms | 69.69ms | 68.28ms | 67.13ms | **71.27ms** | **11.3x slower** |
+| rustc    | 78.54ms  | 67.90ms | 66.90ms | 62.96ms | 63.91ms | **68.04ms** | **10.8x slower**  |
+| odin     | 82.21ms  | 69.02ms | 69.69ms | 68.28ms | 67.13ms | **71.27ms** | **11.3x slower**  |
 
 **-AWTY—are-we-tiny-yet?**
 
@@ -71,6 +71,29 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | odin     | 319.7 KB  |
 | rustc    | 456.3 KB  |
 | go       | 2434.0 KB |
+
+#### fannkuch-redux.
+
+@RUN: `just zo_bench fannkuch-redux`
+
+| Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      | Speed vs zo      |
+| :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
+| **zo**   | 20.76ms  | 6.11ms   | 5.61ms   | 5.92ms   | 6.63ms   | **9.00ms**   | **1.0x**         |
+| clang    | 198.26ms | 43.91ms  | 43.16ms  | 42.13ms  | 42.63ms  | **74.02ms**  | **8.2x slower**  |
+| go       | 338.87ms | 89.28ms  | 112.25ms | 92.47ms  | 89.40ms  | **144.46ms** | **16.0x slower** |
+| rustc    | 190.97ms | 85.23ms  | 85.02ms  | 83.93ms  | 83.91ms  | **105.81ms** | **11.8x slower** |
+| odin     | 334.21ms | 158.38ms | 180.47ms | 163.95ms | 159.07ms | **199.22ms** | **22.1x slower** |
+| gleam    | 243.75ms | 206.82ms | 212.79ms | 212.39ms | 217.76ms | **218.70ms** | **24.3x slower** |
+
+**-AWTY—are-we-tiny-yet?**
+
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.9 KB   |
+| clang    | 32.8 KB   |
+| odin     | 321.1 KB  |
+| rustc    | 487.4 KB  |
+| go       | 2434.7 KB |
 
 #### fibonacci.
 
@@ -207,6 +230,29 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | rustc    | 459.0 KB  |
 | go       | 2434.0 KB |
 
+#### spectralnorm.
+
+@RUN: `just zo_bench spectralnorm`
+
+| Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      | Speed vs zo      |
+| :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
+| **zo**   | 23.87ms  | 6.34ms   | 6.64ms   | 7.14ms   | 7.07ms   | **10.21ms**  | **1.0x**         |
+| clang    | 306.58ms | 51.60ms  | 48.45ms  | 50.89ms  | 48.67ms  | **101.24ms** | **9.9x slower**  |
+| go       | 389.98ms | 95.17ms  | 95.90ms  | 91.85ms  | 92.78ms  | **153.13ms** | **15.0x slower** |
+| rustc    | 217.50ms | 86.71ms  | 87.19ms  | 84.08ms  | 86.84ms  | **112.46ms** | **11.0x slower** |
+| odin     | 347.13ms | 167.31ms | 169.26ms | 160.59ms | 163.57ms | **201.57ms** | **19.7x slower** |
+| gleam    | 263.90ms | 212.31ms | 214.01ms | 288.70ms | 214.84ms | **238.75ms** | **23.4x slower** |
+
+**-AWTY—are-we-tiny-yet?**
+
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.8 KB   |
+| clang    | 32.9 KB   |
+| odin     | 321.3 KB  |
+| rustc    | 505.8 KB  |
+| go       | 2434.7 KB |
+
 #### stress_fun_10k.
 
 @RUN: `just zo_bench stress_fun_10k`
@@ -286,12 +332,14 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :--------------- | :-------------- | :--------------- | :--------------- | :--------------- | :--------------- |
 | `ackermann`      | __7.1x__ faster | __16.7x__ faster | __10.8x__ faster | __11.3x__ faster | —                |
 | `arithmetic`     | __7.0x__ faster | __14.9x__ faster | __9.5x__ faster  | __23.6x__ faster | —                |
+| `fannkuch-redux` | __8.2x__ faster | __16.0x__ faster | __11.8x__ faster | __22.1x__ faster | __24.3x__ faster |
 | `fibonacci`      | __7.9x__ faster | __15.6x__ faster | __11.9x__ faster | __28.0x__ faster | —                |
 | `hello`          | __8.0x__ faster | __16.5x__ faster | __12.1x__ faster | __28.2x__ faster | —                |
 | `mandelbrot`     | __6.5x__ faster | __9.5x__ faster  | __7.8x__ faster  | __20.4x__ faster | __23.9x__ faster |
 | `munchhausen`    | __5.8x__ faster | __11.4x__ faster | __9.3x__ faster  | __23.0x__ faster | __27.7x__ faster |
 | `n-body`         | __6.4x__ faster | __13.6x__ faster | __13.0x__ faster | __23.2x__ faster | __29.6x__ faster |
 | `rule_110`       | __6.6x__ faster | __13.5x__ faster | __14.6x__ faster | __28.3x__ faster | —                |
+| `spectralnorm`   | __9.9x__ faster | __15.0x__ faster | __11.0x__ faster | __19.7x__ faster | __23.4x__ faster |
 | `stress_fun_10k` | __3.6x__ faster | __3.7x__ faster  | __7.5x__ faster  | __6.8x__ faster  | —                |
 | `stress_fun_500k`| __1.7x__ faster | __1.9x__ faster  | crash            | __2.1x__ faster  | —                |
 | `threadring`     | __8.2x__ faster | __13.3x__ faster | __13.5x__ faster | __19.3x__ faster | __15.0x__ faster |
@@ -304,12 +352,14 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **EXECUTE** AN EXECUTABLE FiLE.
 | :---------------- | :-------- | :-------- | :-------- | :-------- | :-------- | :-------- |
 | `ackermann`       | **1.3ms** | 2.0ms     | 1.7ms     | 1.8ms     | 5.2ms     | —         |
 | `arithmetic`      | **1.5ms** | 2.3ms     | 1.5ms     | 1.6ms     | 4.9ms     | —         |
+| `fannkuch-redux`  | 239.9ms   | **146.3ms**| 965.8ms  | 624.1ms   | 306.9ms   | —         |
 | `fibonacci`       | **1.4ms** | 2.5ms     | 1.4ms     | 1.9ms     | 3.2ms     | —         |
 | `hello`           | 1.6ms     | 2.7ms     | 1.8ms     | **1.4ms** | 5.8ms     | —         |
 | `mandelbrot`      | 70.5ms    | **30.7ms**| 71.9ms    | 86.3ms    | 75.3ms    | 368.1ms   |
 | `munchhausen`     | 5.79s     | **2.06s** | 14.39s    | 14.88s    | 5.98s     | 23.32s    |
 | `n-body`          | **1.8ms** | 2.2ms     | 2.0ms     | 2.5ms     | 4.7ms     | 97.3ms    |
 | `rule_110`        | 2.8ms     | 2.8ms     | **1.9ms** | 2.1ms     | 5.0ms     | —         |
+| `spectralnorm`    | 117.8ms   | **96.8ms**| 389.3ms   | 197.3ms   | 186.1ms   | —         |
 | `stress_fun_10k`  | 1.6ms     | 2.9ms     | **1.5ms** | 1.8ms     | 5.1ms     | —         |
 | `stress_fun_500k` | **3.6ms** | 13.0ms    | —         | 5.5ms     | 8.2ms     | —         |
 | `threadring`      | 11.3ms    | **3.5ms** | 10.6ms    | 13.5ms    | 7.8ms     | 97.7ms    |

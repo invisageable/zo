@@ -502,6 +502,7 @@ fn is_impure(insn: &Insn) -> bool {
   matches!(
     insn,
     Insn::Call { .. }
+      | Insn::CallIndirect { .. }
       | Insn::Store { .. }
       | Insn::FieldStore { .. }
       | Insn::ArrayStore { .. }

@@ -6,7 +6,7 @@
 
 -* builtins. *-
 
-pub pack arr;
+pub pack array;
 pub pack assert;
 pub pack bool;
 pub pack char;

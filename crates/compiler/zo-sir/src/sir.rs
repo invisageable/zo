@@ -389,6 +389,7 @@ impl Insn {
       | Insn::ConstBool { dst, .. }
       | Insn::ConstString { dst, .. }
       | Insn::Call { dst, .. }
+      | Insn::CallIndirect { dst, .. }
       | Insn::Load { dst, .. }
       | Insn::BinOp { dst, .. }
       | Insn::UnOp { dst, .. }
@@ -460,6 +461,13 @@ impl Insn {
       }
       Insn::Call { dst, args, .. } => {
         f(dst);
+        args.iter_mut().for_each(&mut *f);
+      }
+      Insn::CallIndirect {
+        dst, callee, args, ..
+      } => {
+        f(dst);
+        f(callee);
         args.iter_mut().for_each(&mut *f);
       }
       Insn::BinOp { dst, lhs, rhs, .. } => {
@@ -627,6 +635,7 @@ impl Insn {
       | Insn::Drop { ty_id, .. }
       | Insn::Return { ty_id, .. }
       | Insn::Call { ty_id, .. }
+      | Insn::CallIndirect { ty_id, .. }
       | Insn::BinOp { ty_id, .. }
       | Insn::UnOp { ty_id, .. }
       | Insn::ConstDef { ty_id, .. }
@@ -853,6 +862,21 @@ pub enum Insn {
     callee_pack: Option<Symbol>,
     args: Vec<ValueId>,
     ty_id: TyId, // Return type
+  },
+  /// Indirect call through a function-pointer VALUE (a `Fn`
+  /// stored in a local/param/return), as opposed to `Call`
+  /// which names a function symbol directly. `callee` is the
+  /// SSA value holding the code address (produced by `FnAddr`
+  /// or returned from another call).
+  CallIndirect {
+    /// SSA value receiving the call's return value.
+    dst: ValueId,
+    /// SSA value holding the 64-bit code address to branch to.
+    callee: ValueId,
+    /// Marshalled argument values, in declaration order.
+    args: Vec<ValueId>,
+    /// Return type of the call.
+    ty_id: TyId,
   },
   /// Load a parameter or local into an SSA value.
   Load {
