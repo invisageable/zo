@@ -21,3 +21,10 @@ zo-value = { workspace = true }
 rustc-hash = { workspace = true }
 taffy = { workspace = true }
 thin-vec = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "reactive"
+harness = false

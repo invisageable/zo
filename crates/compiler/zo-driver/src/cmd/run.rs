@@ -6,6 +6,9 @@ use zo_compiler::{Analyzed, Compiler};
 use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
 use zo_runtime::Runtime;
+use zo_runtime_render::reactive::{
+  ResolvedComputedBindings, apply_computed_bindings, apply_list_bindings,
+};
 use zo_runtime_render::render::{EventRegistry, Graphics, RuntimeConfig};
 use zo_runtime_render::render::{StateCell, StateValue};
 use zo_sir::{ComputedBinding, Insn, ListBinding, ListItemCmd};
@@ -13,12 +16,6 @@ use zo_span::Span;
 use zo_ui_protocol::{Ui, UiCommand};
 use zo_value::FunctionKind;
 use zo_value::ValueId;
-
-/// `(cmd_idx, closure_name, capture_map)` triples ready to
-/// feed `apply_computed_bindings`. The capture_map mirrors
-/// the click-handler shape — `(param_index, slot_index)`
-/// pairs into the shared state-cell table.
-type ResolvedComputedBindings = Vec<(usize, Symbol, Vec<(usize, usize)>)>;
 
 /// Parameters for building reactive event handlers.
 struct ReactiveContext<'a> {
@@ -534,7 +531,7 @@ impl Run {
             }
           }
 
-          Self::apply_computed_bindings(
+          apply_computed_bindings(
             &mut new_cmds,
             &computed_binds_clone,
             &cells,
@@ -548,7 +545,7 @@ impl Run {
           // complex layouts appear, the binding-index
           // remap belongs in the executor's
           // `optimize_with_indices`-style pass.
-          Self::apply_list_bindings(&mut new_cmds, &list_binds_clone, &cells);
+          apply_list_bindings(&mut new_cmds, &list_binds_clone, &cells);
 
           *shared.lock().unwrap() = new_cmds;
         }),
@@ -569,7 +566,7 @@ impl Run {
       let computed_binds =
         Self::resolve_computed_bindings(computed_bindings, &state_slots);
 
-      Self::apply_computed_bindings(
+      apply_computed_bindings(
         &mut new_cmds,
         &computed_binds,
         &cells,
@@ -588,67 +585,9 @@ impl Run {
         })
         .collect();
 
-      Self::apply_list_bindings(&mut new_cmds, &list_binds, &cells);
+      apply_list_bindings(&mut new_cmds, &list_binds, &cells);
 
       *shared_cmds.lock().unwrap() = new_cmds;
-    }
-  }
-
-  /// Splat each list binding's per-item recipe into the
-  /// commands buffer. The placeholder `UiCommand::Text(_)`
-  /// at `cmd_idx` is REPLACED with N rendered items —
-  /// `Vec::splice` shifts the tail rightward, so any other
-  /// binding past the anchor would need its `cmd_idx`
-  /// remapped. The wip's layout has no bindings past the
-  /// list anchor, so a single pass front-to-back is safe;
-  /// future layouts that need this should bake the remap
-  /// into the executor's `optimize_with_indices` pass
-  /// (parallel to `binding-aware text merge`).
-  fn apply_list_bindings(
-    new_cmds: &mut Vec<UiCommand>,
-    list_binds: &[(usize, usize, Vec<ListItemCmd>)],
-    cells: &[StateCell],
-  ) {
-    let mut offset: isize = 0;
-
-    for (cmd_idx, slot_idx, recipe) in list_binds {
-      let target = (*cmd_idx as isize + offset) as usize;
-
-      // Borrow the items under the cell's lock — avoids
-      // cloning `Vec<String>` per event just to walk it.
-      // `None` means the cell isn't `Strs(_)`, leave the
-      // placeholder alone.
-      let Some(rendered) = cells[*slot_idx].with_strs(|items| {
-        let mut out: Vec<UiCommand> =
-          Vec::with_capacity(items.len() * recipe.len().max(1));
-
-        for item in items {
-          for step in recipe {
-            match step {
-              ListItemCmd::Element { tag, attrs } => {
-                out.push(UiCommand::Element {
-                  tag: tag.clone(),
-                  attrs: attrs.clone(),
-                  self_closing: false,
-                });
-              }
-              ListItemCmd::EndElement => out.push(UiCommand::EndElement),
-              ListItemCmd::Text(s) => out.push(UiCommand::Text(s.clone())),
-              ListItemCmd::TextFromItem => {
-                out.push(UiCommand::Text(item.clone()));
-              }
-            }
-          }
-        }
-
-        out
-      }) else {
-        continue;
-      };
-
-      let new_len = rendered.len();
-      new_cmds.splice(target..target + 1, rendered);
-      offset += new_len as isize - 1;
     }
   }
 
@@ -678,34 +617,6 @@ impl Run {
         (*cmd_idx, cb.closure_name, cap_map)
       })
       .collect()
-  }
-
-  /// Re-run each computed binding's closure over the
-  /// current state cells and stamp the returned `Val`
-  /// (rendered via `display()`) into its bound
-  /// `UiCommand::Text` slot. Shared by the per-event patch
-  /// loop and the initial-render pass — both paths must
-  /// drive the same evaluator + same string snapshot or
-  /// they'll drift.
-  fn apply_computed_bindings(
-    new_cmds: &mut [UiCommand],
-    computed_binds: &ResolvedComputedBindings,
-    cells: &[StateCell],
-    sir: &[Insn],
-    strings: &[String],
-  ) {
-    for (cmd_idx, closure_name, cap_map) in computed_binds {
-      let mut eval = zo_runtime_render::evaluator::HandlerEvaluator::new();
-
-      let result =
-        eval.execute(sir, *closure_name, cells, cap_map, strings, None);
-
-      if let Some(val) = result
-        && let Some(UiCommand::Text(s)) = new_cmds.get_mut(*cmd_idx)
-      {
-        *s = val.display();
-      }
-    }
   }
 
   /// Find the initial value of a variable from VarDef in SIR.

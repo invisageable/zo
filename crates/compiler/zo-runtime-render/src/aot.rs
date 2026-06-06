@@ -10,6 +10,9 @@
 //! platform-specific, so each backend's `zo_run_native` decodes
 //! and builds the registry through here, then drives its own UI.
 
+use crate::reactive::{
+  BindingGraph, BindingRef, DirtyCommands, DirtySet, refresh_dirty,
+};
 use crate::render::{EventHandler, EventRegistry};
 
 use zo_ui_protocol::UiCommand;
@@ -25,12 +28,29 @@ static STATE: OnceLock<Mutex<Vec<i64>>> = OnceLock::new();
 /// The string-typed reactive state.
 static STR_STATE: OnceLock<Mutex<Vec<Vec<u8>>>> = OnceLock::new();
 
+/// Slots written since the last drain. A state write marks its
+/// slot here; `drain_dirty` empties it after each event so the
+/// runtime refreshes only the bindings that actually changed.
+static DIRTY: OnceLock<Mutex<DirtySet>> = OnceLock::new();
+
 fn state() -> &'static Mutex<Vec<i64>> {
   STATE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 fn str_state() -> &'static Mutex<Vec<Vec<u8>>> {
   STR_STATE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn dirty() -> &'static Mutex<DirtySet> {
+  DIRTY.get_or_init(|| Mutex::new(DirtySet::default()))
+}
+
+/// Append every slot written since the last call to `into`
+/// (ascending), then clear the dirty set. `into` is the
+/// caller's reused scratch buffer — no allocation on the event
+/// path.
+pub fn drain_dirty(into: &mut Vec<u32>) {
+  dirty().lock().unwrap().drain_into(into);
 }
 
 /// Encode `bytes` into `[len: u64][bytes][null]` layout — mirrors
@@ -152,6 +172,10 @@ pub extern "C" fn zo_state_init(count: u32) {
   if str_state.len() < count as usize {
     str_state.resize_with(count as usize, || encode_length_prefixed(b""));
   }
+
+  // Size the dirty set in lockstep (grow-only) so every
+  // declared slot has a bit before the first write.
+  dirty().lock().unwrap().ensure(count as usize);
 }
 
 /// Read state slot `slot`. Returns 0 for out-of-range
@@ -170,11 +194,18 @@ pub extern "C" fn zo_state_get(slot: u32) -> i64 {
 /// as `zo_state_get`).
 #[unsafe(no_mangle)]
 pub extern "C" fn zo_state_set(slot: u32, value: i64) {
-  let mut state = state().lock().unwrap();
+  {
+    let mut state = state().lock().unwrap();
+    let Some(s) = state.get_mut(slot as usize) else {
+      return;
+    };
 
-  if let Some(s) = state.get_mut(slot as usize) {
     *s = value;
   }
+
+  // Mark dirty only after a successful write — a dropped
+  // out-of-range write changes nothing, so it stays clean.
+  dirty().lock().unwrap().mark(slot);
 }
 
 /// Copy the length-prefixed string at `ptr` into the
@@ -198,11 +229,17 @@ pub unsafe extern "C" fn zo_state_set_str(slot: u32, ptr: *const u8) {
   };
 
   let encoded = encode_length_prefixed(bytes);
-  let mut str_state = str_state().lock().unwrap();
 
-  if let Some(slot_buf) = str_state.get_mut(slot as usize) {
+  {
+    let mut str_state = str_state().lock().unwrap();
+    let Some(slot_buf) = str_state.get_mut(slot as usize) else {
+      return;
+    };
+
     *slot_buf = encoded;
   }
+
+  dirty().lock().unwrap().mark(slot);
 }
 
 /// Return a pointer to `slot`'s length-prefixed bytes.
@@ -315,13 +352,90 @@ pub unsafe fn refresh_bindings_from_global(
   };
 }
 
-/// Build an `EventRegistry` whose callbacks dispatch
-/// through `ctx.handle_event` AND, after the dispatcher
-/// returns, refresh reactive bindings from the global
-/// state buffer. Walks `cmds` left-to-right, assigns each
-/// unique handler name a sequential `u32` index — the
-/// codegen-side dispatcher uses the same dedupe-by-first-
-/// seen-name scheme, so the indices line up automatically.
+/// Decode the `TextBinding` array into the reverse index the
+/// per-event refresh walks (state slot → the `Text` commands it
+/// drives) plus the per-slot string-typed flag. Built once at
+/// registry time; an empty / null array yields an empty graph.
+///
+/// # Safety
+///
+/// `bindings_ptr` must be null or point to `bindings_count`
+/// valid `TextBinding` entries that live for the call.
+unsafe fn build_text_binding_graph(
+  bindings_ptr: *const TextBinding,
+  bindings_count: usize,
+) -> (BindingGraph, Vec<bool>) {
+  if bindings_ptr.is_null() {
+    return (BindingGraph::default(), Vec::new());
+  }
+
+  let bindings = unsafe { slice::from_raw_parts(bindings_ptr, bindings_count) };
+  let mut edges = Vec::with_capacity(bindings_count);
+  // `is_str[slot]` selects `STR_STATE` over `STATE` when reading
+  // the slot's text — a slot's type is fixed, so this is keyed
+  // by slot, not by binding.
+  let mut is_str = Vec::new();
+
+  for binding in bindings {
+    edges.push((
+      binding.slot_id,
+      BindingRef::Text {
+        cmd_idx: binding.cmd_idx,
+      },
+    ));
+
+    let slot = binding.slot_id as usize;
+
+    if slot >= is_str.len() {
+      is_str.resize(slot + 1, false);
+    }
+
+    is_str[slot] = binding.is_str != 0;
+  }
+
+  (BindingGraph::from_edges(is_str.len(), &edges), is_str)
+}
+
+/// The display string of state `slot` — the decimal of
+/// `STATE[slot]` for a scalar, or the UTF-8 of `STR_STATE[slot]`
+/// for a string slot. `None` for an out-of-range scalar slot;
+/// a malformed string buffer reads as empty. The value source
+/// the per-event `refresh_dirty` reads.
+fn state_slot_text(slot: u32, is_str: bool) -> Option<String> {
+  if is_str {
+    let str_state = str_state().lock().unwrap();
+    let buf = str_state.get(slot as usize)?;
+
+    if buf.len() < 8 {
+      return Some(String::new());
+    }
+
+    let len = u64::from_le_bytes(buf[..8].try_into().unwrap()) as usize;
+
+    if 8 + len > buf.len() {
+      return Some(String::new());
+    }
+
+    Some(String::from_utf8_lossy(&buf[8..8 + len]).into_owned())
+  } else {
+    let state = state().lock().unwrap();
+
+    Some(state.get(slot as usize)?.to_string())
+  }
+}
+
+/// Build an `EventRegistry` whose callbacks dispatch through
+/// `ctx.handle_event` AND, after the dispatcher returns, refresh
+/// only the reactive bindings whose state slots the handler
+/// actually wrote. Walks `cmds` left-to-right, assigns each
+/// unique handler name a sequential `u32` index — the codegen-
+/// side dispatcher uses the same dedupe-by-first-seen-name
+/// scheme, so the indices line up automatically.
+///
+/// The `TextBinding` array is folded once into a [`BindingGraph`]
+/// reverse index; each handler then drains the dirty set written
+/// by `zo_state_set` and refreshes only those slots' commands —
+/// O(written), not O(all bindings).
 pub fn build_registry(
   cmds: &[UiCommand],
   dispatch: SendPtr<unsafe extern "C" fn(u32, u32, *const u8)>,
@@ -332,6 +446,13 @@ pub fn build_registry(
   let mut registry = EventRegistry::new();
   let mut seen: HashSet<String> = HashSet::new();
   let mut handler_idx: u32 = 0;
+
+  // One reverse index for every handler — the binding array is
+  // immutable for the program's life, so build it once.
+  let (graph, is_str) =
+    unsafe { build_text_binding_graph(bindings_ptr.0, bindings_count) };
+  let graph = Arc::new(graph);
+  let is_str = Arc::new(is_str);
 
   for cmd in cmds {
     let UiCommand::Event {
@@ -349,19 +470,19 @@ pub fn build_registry(
 
     let idx = handler_idx;
     let kind_u32 = *event_kind as u32;
-    // Capture `SendPtr` instances directly into the closure
-    // — the wrapper is Send, the bare raw pointers / fn
-    // pointers aren't.
+    // Capture `SendPtr` directly — the wrapper is Send, the bare
+    // fn pointer isn't. The graph / is_str are plain `Arc`s
+    // (Send + Sync), so they cross into the closure freely.
     let dispatch_send = dispatch;
-    let bindings_send = bindings_ptr;
     let cmds_arc = Arc::clone(&shared_cmds);
+    let graph = Arc::clone(&graph);
+    let is_str = Arc::clone(&is_str);
     let cb: EventHandler = Box::new(move |payload| {
       // RFC 2229 disjoint captures would otherwise pull
-      // `dispatch_send.0` / `bindings_send.0` directly
-      // into the closure type, defeating `SendPtr`'s
-      // wrapper-level `Send`. Reference each binding
-      // whole to force whole-binding captures.
-      let _ = (&dispatch_send, &bindings_send);
+      // `dispatch_send.0` directly into the closure type,
+      // defeating `SendPtr`'s wrapper-level `Send`. Reference
+      // the binding whole to force a whole-binding capture.
+      let _ = &dispatch_send;
 
       // `event_holder` IS the `Event { value: str }` struct
       // — one 8-byte field holding a pointer to the
@@ -382,15 +503,23 @@ pub fn build_registry(
         )
       };
 
-      let mut cmds = cmds_arc.lock().unwrap();
+      // The dispatcher's `zo_state_set` calls marked every
+      // written slot; drain them and refresh only those slots'
+      // commands in place. A no-op write (slot rewritten to the
+      // same value) leaves the command stream byte-identical.
+      let mut written = Vec::new();
 
-      unsafe {
-        refresh_bindings_from_global(
-          bindings_send.0,
-          bindings_count,
-          &mut cmds,
-        );
-      }
+      drain_dirty(&mut written);
+
+      let mut cmds = cmds_arc.lock().unwrap();
+      let mut touched = DirtyCommands::with_capacity(cmds.len());
+
+      refresh_dirty(&graph, &written, &[], &mut cmds, &mut touched, |slot| {
+        state_slot_text(
+          slot,
+          is_str.get(slot as usize).copied().unwrap_or(false),
+        )
+      });
     });
 
     registry.register(handler.clone(), cb);
@@ -614,6 +743,61 @@ mod tests {
     assert_eq!(zo_state_get(100), 99);
     // Out-of-range reads return 0, never panic.
     assert_eq!(zo_state_get(9999), 0);
+  }
+
+  #[test]
+  fn state_set_marks_dirty_and_drain_clears() {
+    // Slot 305 is unique to this test, so no parallel test
+    // marks it: the global DIRTY set is process-wide, but
+    // only this test touches 305 — assertions stay robust.
+    zo_state_init(400);
+
+    let mut drained = Vec::new();
+    // Clear whatever earlier writes in this test process left.
+    drain_dirty(&mut drained);
+    drained.clear();
+
+    zo_state_set(305, 7);
+    zo_state_set_str_slot(306, b"hi");
+
+    drain_dirty(&mut drained);
+
+    assert!(drained.contains(&305), "scalar write marks its slot");
+    assert!(drained.contains(&306), "string write marks its slot");
+
+    // Drain cleared the set: a second drain no longer reports
+    // 305/306 (no test re-marks those slots).
+    let mut again = Vec::new();
+    drain_dirty(&mut again);
+
+    assert!(!again.contains(&305), "drain clears the dirty bit");
+    assert!(!again.contains(&306), "drain clears the dirty bit");
+  }
+
+  #[test]
+  fn out_of_range_write_does_not_mark_dirty() {
+    zo_state_init(8);
+
+    let mut drained = Vec::new();
+    drain_dirty(&mut drained);
+    drained.clear();
+
+    // Way past the initialized range — write is dropped, so
+    // no slot is marked.
+    zo_state_set(900_001, 1);
+
+    drain_dirty(&mut drained);
+
+    assert!(!drained.contains(&900_001), "dropped write stays clean");
+  }
+
+  /// Test helper: write `bytes` into string slot `slot` via the
+  /// public FFI, building the length-prefixed buffer the ABI
+  /// expects.
+  fn zo_state_set_str_slot(slot: u32, bytes: &[u8]) {
+    let payload = encode_length_prefixed(bytes);
+
+    unsafe { zo_state_set_str(slot, payload.as_ptr()) };
   }
 
   // --- dispatcher index assignment ---

@@ -1,7 +1,11 @@
+use crate::reactive::DirtySet;
+
 use zo_ui_protocol::{EventKind, UiCommand};
 
 use rustc_hash::FxHashMap as HashMap;
 use thin_vec::ThinVec;
+
+use std::sync::{Arc, Mutex};
 
 /// Graphics backend selection
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -212,23 +216,54 @@ impl std::fmt::Display for StateValue {
 
 /// A shared mutable state cell. Thread-safe for use across
 /// handler closures and the render loop.
+///
+/// When wired with a dirty channel (`with_dirty`), every write
+/// marks the cell's `slot` in a shared [`DirtySet`] — the
+/// `zo run` mirror of the compiled path's `zo_state_set`. Cells
+/// built with `new` (unit tests, static templates) skip
+/// tracking: their `dirty` channel is `None`.
 #[derive(Clone, Debug)]
-pub struct StateCell(std::sync::Arc<std::sync::Mutex<StateValue>>);
+pub struct StateCell {
+  value: Arc<Mutex<StateValue>>,
+  /// `(shared dirty set, this cell's slot)`. `None` disables
+  /// tracking.
+  dirty: Option<(Arc<Mutex<DirtySet>>, u32)>,
+}
 
 impl StateCell {
-  /// Create a new state cell with an initial value.
+  /// Create a new state cell with an initial value and no dirty
+  /// tracking.
   pub fn new(value: StateValue) -> Self {
-    Self(std::sync::Arc::new(std::sync::Mutex::new(value)))
+    Self {
+      value: Arc::new(Mutex::new(value)),
+      dirty: None,
+    }
+  }
+
+  /// Create a state cell that marks `slot` in `dirty` on every
+  /// write. The driver wires each reactive cell this way so a
+  /// handler's `cell.set(...)` records exactly which slots
+  /// changed.
+  pub fn with_dirty(
+    value: StateValue,
+    dirty: Arc<Mutex<DirtySet>>,
+    slot: u32,
+  ) -> Self {
+    Self {
+      value: Arc::new(Mutex::new(value)),
+      dirty: Some((dirty, slot)),
+    }
   }
 
   /// Read the current value.
   pub fn get(&self) -> StateValue {
-    self.0.lock().unwrap().clone()
+    self.value.lock().unwrap().clone()
   }
 
-  /// Set a new value.
+  /// Set a new value, marking the cell's slot dirty.
   pub fn set(&self, value: StateValue) {
-    *self.0.lock().unwrap() = value;
+    *self.value.lock().unwrap() = value;
+    self.mark_dirty();
   }
 
   /// Borrow the inner string array (read-only) under the
@@ -237,7 +272,7 @@ impl StateCell {
   /// `Vec<String>` per event. Returns `None` when the cell
   /// is some other variant.
   pub fn with_strs<R>(&self, f: impl FnOnce(&[String]) -> R) -> Option<R> {
-    let guard = self.0.lock().unwrap();
+    let guard = self.value.lock().unwrap();
 
     match &*guard {
       StateValue::Strs(v) => Some(f(v)),
@@ -250,12 +285,21 @@ impl StateCell {
   /// param-binding decision (lets us pick `StrArrRef`
   /// without cloning the `Vec`).
   pub fn is_strs(&self) -> bool {
-    matches!(*self.0.lock().unwrap(), StateValue::Strs(_))
+    matches!(*self.value.lock().unwrap(), StateValue::Strs(_))
   }
 
-  /// Apply a mutation function to the value.
+  /// Apply a mutation function to the value, marking the cell's
+  /// slot dirty.
   pub fn mutate(&self, f: impl FnOnce(&mut StateValue)) {
-    f(&mut self.0.lock().unwrap());
+    f(&mut self.value.lock().unwrap());
+    self.mark_dirty();
+  }
+
+  /// Mark this cell's slot in the shared dirty set, when wired.
+  fn mark_dirty(&self) {
+    if let Some((dirty, slot)) = &self.dirty {
+      dirty.lock().unwrap().mark(*slot);
+    }
   }
 }
 
@@ -314,5 +358,35 @@ mod tests {
 
     handle.join().unwrap();
     assert_eq!(cell.get(), StateValue::Int(99));
+  }
+
+  #[test]
+  fn state_cell_with_dirty_marks_slot() {
+    let dirty = Arc::new(Mutex::new(DirtySet::with_capacity(8)));
+    let cell = StateCell::with_dirty(StateValue::Int(0), dirty.clone(), 3);
+
+    cell.set(StateValue::Int(42));
+    cell.mutate(|v| {
+      if let StateValue::Int(n) = v {
+        *n += 1;
+      }
+    });
+
+    let mut drained = Vec::new();
+    dirty.lock().unwrap().drain_into(&mut drained);
+
+    // Both writes mark slot 3; the set de-duplicates.
+    assert_eq!(drained, vec![3]);
+  }
+
+  #[test]
+  fn state_cell_new_skips_tracking() {
+    // A `new` cell has no dirty channel: writes still work, no
+    // panic, nothing to drain.
+    let cell = StateCell::new(StateValue::Int(0));
+
+    cell.set(StateValue::Int(1));
+
+    assert_eq!(cell.get(), StateValue::Int(1));
   }
 }
