@@ -2,6 +2,7 @@
 
 use crate::loader::image::{ImageLoader, ImageState};
 
+use zo_runtime_render::layout::{LayoutTree, collapse_text};
 use zo_runtime_render::render::{EventId, EventPayload, Render, WidgetId};
 use zo_ui_protocol::style::{ComputedStyle, FontFamily, Rgba, cascade};
 use zo_ui_protocol::{Attr, ElementTag, EventKind, UiCommand};
@@ -61,268 +62,167 @@ impl Renderer {
     }
   }
 
-  /// Render commands with an egui UI context
+  /// Render commands with an egui UI context. One shared Taffy
+  /// solve fixes geometry; egui paints widgets at the solved rects
+  /// and routes their input — the row/column flow logic lives in
+  /// the solver, identical to every other native target.
   pub fn render_with_ui(&mut self, ui: &mut egui::Ui) {
     // Drain pending image loads before rendering.
     self.image_loader.poll();
 
-    if !self.pending_commands.is_empty() {
-      let commands = std::mem::take(&mut self.pending_commands);
-
-      // Pre-scan: parse StyleSheet commands into the
-      // styles map before rendering elements.
-      self.styles.clear();
-
-      for cmd in &commands {
-        if let UiCommand::StyleSheet { css, .. } = cmd {
-          parse_css_into(&mut self.styles, css);
-        }
-      }
-
-      // Top-level inline-flow detection. Templates that use a
-      // fragment (`<></>`) emit their children as siblings at the
-      // root, so the inline-flow check inside `render_element`
-      // never fires for them. Mirror that branch here so a
-      // counter `<><button/>{n}<button/></>` lays out
-      // horizontally, like its block-parent equivalent would.
-      if children_are_inline_flow(&commands, 0) {
-        ui.horizontal(|ui| self.render_commands(ui, &commands, 0));
-      } else {
-        self.render_commands(ui, &commands, 0);
-      }
+    if self.pending_commands.is_empty() {
+      return;
     }
-  }
 
-  /// Recursively render commands
-  fn render_commands(
-    &mut self,
-    ui: &mut egui::Ui,
-    commands: &[UiCommand],
-    start_idx: usize,
-  ) -> usize {
-    let mut idx = start_idx;
+    let commands = std::mem::take(&mut self.pending_commands);
 
-    while idx < commands.len() {
-      match &commands[idx] {
-        UiCommand::Event { .. } => {
-          // events are handled separately.
-          idx += 1;
-        }
+    // Pre-scan: parse StyleSheet commands into the styles map
+    // (legacy author path — superseded by the shared cascade
+    // parser in PLAN_UI_LAYOUT §6).
+    self.styles.clear();
 
-        UiCommand::StyleSheet { .. } => {
-          // Native style mapping is post-MVP.
-          idx += 1;
-        }
-
-        UiCommand::Element {
-          tag,
-          attrs,
-          self_closing,
-        } => {
-          idx =
-            self.render_element(ui, commands, idx, tag, attrs, *self_closing);
-        }
-
-        UiCommand::EndElement => {
-          // Close current element — hand control back to the
-          // caller (the enclosing container's closure).
-          return idx + 1;
-        }
-
-        UiCommand::Text(content) => {
-          ui.label(content);
-
-          idx += 1;
-        }
+    for cmd in &commands {
+      if let UiCommand::StyleSheet { css, .. } = cmd {
+        parse_css_into(&mut self.styles, css);
       }
     }
 
-    idx
+    let available = ui.available_size();
+    let mut tree = LayoutTree::build(&commands);
+    let rects = tree.solve((available.x, available.y));
+    let origin = ui.min_rect().min;
+
+    for (idx, rect) in rects {
+      let placement = egui::Rect::from_min_size(
+        origin + egui::vec2(rect.x, rect.y),
+        egui::vec2(rect.width, rect.height),
+      );
+
+      self.put_command(ui, &commands, idx, placement);
+    }
   }
 
-  /// Render a single `UiCommand::Element` and any inline children
-  /// up to the matching `EndElement`. Returns the index just after
-  /// the element's close (or just after the element itself, if
-  /// self-closing).
-  fn render_element(
+  /// Paint the placed leaf at `commands[idx]` into `rect` and route
+  /// its input. Containers carry no entry, so this only ever sees a
+  /// paintable widget (button, image, input, text tag, free text).
+  fn put_command(
     &mut self,
     ui: &mut egui::Ui,
     commands: &[UiCommand],
     idx: usize,
-    tag: &ElementTag,
-    attrs: &[Attr],
-    self_closing: bool,
-  ) -> usize {
-    let children_start = idx + 1;
+    rect: egui::Rect,
+  ) {
+    match &commands[idx] {
+      UiCommand::Element { tag, attrs, .. } => match tag {
+        ElementTag::Button => {
+          let label = collapse_text(commands, idx + 1);
+          let id = attr_num(attrs, "data-id").unwrap_or(0);
 
-    match tag {
-      ElementTag::Img => {
-        let src = attr_str(attrs, "src").unwrap_or("");
-        // Default to natural image size (0 = auto-detect
-        // in render_image).
-        let width = attr_num(attrs, "width").unwrap_or(0);
-        let height = attr_num(attrs, "height").unwrap_or(0);
+          if ui.put(rect, egui::Button::new(label)).clicked() {
+            self.state.pending_events.push((
+              id,
+              EventKind::Click,
+              EventPayload::default(),
+            ));
+          }
+        }
 
-        self.render_image(ui, src, width, height);
+        ElementTag::Img => {
+          let src = attr_str(attrs, "src").unwrap_or("");
 
-        // Img is always self-closing — no children to skip.
-        children_start
+          self.put_image(ui, src, rect);
+        }
+
+        ElementTag::Input | ElementTag::Textarea => {
+          self.put_input(ui, attrs, rect);
+        }
+
+        t if t.is_text_tag() => {
+          let content = collapse_text(commands, idx + 1);
+          let text = self.styled_text(&content, t);
+
+          ui.put(rect, egui::Label::new(text));
+        }
+
+        // Containers are geometry only — nothing to paint at v1.
+        _ => {}
+      },
+
+      UiCommand::Text(content) => {
+        ui.put(rect, egui::Label::new(content.clone()));
       }
 
-      ElementTag::Input | ElementTag::Textarea => {
-        let id = attr_num(attrs, "data-id").unwrap_or(0);
-        let placeholder = attr_str(attrs, "placeholder").unwrap_or("");
-        let value_attr = attr_str(attrs, "value").unwrap_or("").to_string();
-
-        // Sync from the program-side `value` attribute when
-        // it has changed since last frame — handles
-        // `input_val = ""` after Add click. User typing
-        // doesn't race because the typed text fires
-        // `@input` first, and the handler's `input_val =
-        // e.value` keeps the attribute in sync with what
-        // we already display.
-        let resync = self
-          .state
-          .last_value_attr
-          .get(&id)
-          .map(|prev| prev != &value_attr)
-          .unwrap_or(true);
-
-        if resync {
-          self.state.text_inputs.insert(id, value_attr.clone());
-          self.state.last_value_attr.insert(id, value_attr);
-        }
-
-        let text = self.state.text_inputs.entry(id).or_default();
-
-        let response =
-          ui.add(egui::TextEdit::singleline(text).hint_text(placeholder));
-
-        if response.changed() {
-          // `last_value_attr` tracks the program-side attribute only — writing
-          // typed text here makes the next-frame resync wipe `text_inputs[id]`.
-          self.state.pending_events.push((
-            id,
-            EventKind::Input,
-            EventPayload::with_value(text.clone()),
-          ));
-        }
-
-        // `@submit` fires when the user hits Enter while
-        // the field has focus. egui's idiom: the field
-        // loses focus on the Enter keystroke that submits,
-        // so `lost_focus() && enter_pressed` is the gate.
-        // We also re-grab focus right after so the user can
-        // keep typing without re-clicking the field.
-        if response.lost_focus()
-          && ui.input(|i| i.key_pressed(egui::Key::Enter))
-        {
-          self.state.pending_events.push((
-            id,
-            EventKind::Submit,
-            EventPayload::with_value(text.clone()),
-          ));
-
-          response.request_focus();
-        }
-
-        // Self-closing in our model (input has no children).
-        children_start
-      }
-
-      ElementTag::Button => {
-        // Button label is the concatenation of its TextNode
-        // children. Render the button imperatively, then skip
-        // past children to the matching EndElement.
-        //
-        // No cascade lookup yet — `UA_SHEET` has no `button`
-        // entry, so the resolved style would just overwrite
-        // egui's tuned button defaults (font, padding) with
-        // `ROOT` values. When PLAN_STYLER lands and we add a
-        // real `button` UA entry, this branch flows through
-        // `cascade::resolve("button", author, inline)` and
-        // applies font + min_size on the `egui::Button`.
-        let content = peek_text_children(commands, children_start);
-        let id = attr_num(attrs, "data-id").unwrap_or(0);
-
-        if ui.button(&content).clicked() {
-          self.state.pending_events.push((
-            id,
-            EventKind::Click,
-            EventPayload::default(),
-          ));
-        }
-
-        skip_to_end_element(commands, children_start)
-      }
-
-      t if t.is_text_tag() => {
-        // h1/h2/h3/p/span with inline PCDATA — render as a styled
-        // label. Concatenate all TextNode children and skip past
-        // them.
-        let content = peek_text_children(commands, children_start);
-
-        self.render_styled_text_for_tag(ui, &content, tag);
-
-        if self_closing {
-          children_start
-        } else {
-          skip_to_end_element(commands, children_start)
-        }
-      }
-
-      t if t.is_inline() => {
-        // Inline container with non-text children → horizontal.
-        if self_closing {
-          children_start
-        } else {
-          ui.horizontal(|ui| self.render_commands(ui, commands, children_start))
-            .inner
-        }
-      }
-
-      _ => {
-        // Block container (div, section, main, ...).
-        //
-        // Pre-Taffy hack for inline flow: if every direct child is
-        // an inline-ish element (span, button, input) or raw text,
-        // lay them out horizontally so siblings flow on a single
-        // line — matching how the web treats `inline-block`
-        // children inside a block parent. Mixed/all-block children
-        // fall back to vertical block flow. Phase 3 (Taffy)
-        // replaces this with the real CSS algorithm.
-        if self_closing {
-          children_start
-        } else if children_are_inline_flow(commands, children_start) {
-          ui.horizontal(|ui| self.render_commands(ui, commands, children_start))
-            .inner
-        } else {
-          ui.vertical(|ui| self.render_commands(ui, commands, children_start))
-            .inner
-        }
-      }
+      _ => {}
     }
   }
 
-  /// Render an image from an attribute-described element.
-  fn render_image(
-    &mut self,
-    ui: &mut egui::Ui,
-    src: &str,
-    width: u32,
-    height: u32,
-  ) {
-    // Use specified dimensions, or default to 256×256 when
-    // width/height attributes are omitted.
-    let w = if width > 0 { width as f32 } else { 256.0 };
-    let h = if height > 0 { height as f32 } else { 256.0 };
-    let size = egui::Vec2::new(w, h);
+  /// Place a text input at `rect`, syncing program-side value
+  /// changes and emitting `@input` / `@submit` events.
+  fn put_input(&mut self, ui: &mut egui::Ui, attrs: &[Attr], rect: egui::Rect) {
+    let id = attr_num(attrs, "data-id").unwrap_or(0);
+    let placeholder = attr_str(attrs, "placeholder").unwrap_or("");
+    let value_attr = attr_str(attrs, "value").unwrap_or("").to_string();
+
+    // Sync from the program-side `value` attribute when it has
+    // changed since last frame — handles `input_val = ""` after an
+    // Add click. User typing doesn't race because the typed text
+    // fires `@input` first, and the handler's `input_val = e.value`
+    // keeps the attribute in sync with what we already display.
+    let resync = self
+      .state
+      .last_value_attr
+      .get(&id)
+      .map(|prev| prev != &value_attr)
+      .unwrap_or(true);
+
+    if resync {
+      self.state.text_inputs.insert(id, value_attr.clone());
+      self.state.last_value_attr.insert(id, value_attr);
+    }
+
+    let text = self.state.text_inputs.entry(id).or_default();
+    let response = ui.put(
+      rect,
+      egui::TextEdit::singleline(text).hint_text(placeholder),
+    );
+
+    if response.changed() {
+      // `last_value_attr` tracks the program-side attribute only —
+      // writing typed text here makes the next-frame resync wipe
+      // `text_inputs[id]`.
+      self.state.pending_events.push((
+        id,
+        EventKind::Input,
+        EventPayload::with_value(text.clone()),
+      ));
+    }
+
+    // `@submit` fires when the user hits Enter while the field has
+    // focus. egui's idiom: the field loses focus on the Enter
+    // keystroke that submits, so `lost_focus() && enter_pressed` is
+    // the gate. Re-grab focus right after so the user can keep
+    // typing without re-clicking the field.
+    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+      self.state.pending_events.push((
+        id,
+        EventKind::Submit,
+        EventPayload::with_value(text.clone()),
+      ));
+
+      response.request_focus();
+    }
+  }
+
+  /// Place an image at `rect`, driving the async loader's state
+  /// machine (spinner while decoding, texture once ready).
+  fn put_image(&mut self, ui: &mut egui::Ui, src: &str, rect: egui::Rect) {
+    let size = rect.size();
     let ctx = ui.ctx().clone();
     let state = self.image_loader.state(src);
 
     match state {
       ImageState::Pending | ImageState::Loading => {
-        ui.add_sized(size, egui::Spinner::new());
+        ui.put(rect, egui::Spinner::new());
       }
       ImageState::Decoded(_) => {
         let image = match std::mem::replace(state, ImageState::Loading) {
@@ -333,54 +233,51 @@ impl Renderer {
         let texture =
           ctx.load_texture(src, image, egui::TextureOptions::default());
 
-        ui.add(egui::Image::from_texture(&texture).fit_to_exact_size(size));
+        ui.put(
+          rect,
+          egui::Image::from_texture(&texture).fit_to_exact_size(size),
+        );
 
         *state = ImageState::Ready(texture);
       }
       ImageState::Ready(texture) => {
-        ui.add(egui::Image::from_texture(&*texture).fit_to_exact_size(size));
+        ui.put(
+          rect,
+          egui::Image::from_texture(&*texture).fit_to_exact_size(size),
+        );
       }
       ImageState::Failed(error) => {
-        ui.colored_label(egui::Color32::RED, format!("[image error: {error}]"));
+        ui.put(
+          rect,
+          egui::Label::new(
+            egui::RichText::new(format!("[image error: {error}]"))
+              .color(egui::Color32::RED),
+          ),
+        );
       }
     }
   }
 
-  /// Render styled text for an `ElementTag` text tag. Resolves
-  /// the computed style via the UA cascade so unstyled tags get
+  /// Build the styled `RichText` for a text tag. Resolves the
+  /// computed style via the UA cascade so unstyled tags get
   /// browser-like defaults (h1=32px/700, p=16px/400, code=mono,
-  /// ...). The author `styles` map still overrides on top until
-  /// PLAN_STYLER feeds the cascade directly.
-  fn render_styled_text_for_tag(
-    &self,
-    ui: &mut egui::Ui,
-    content: &str,
-    tag: &ElementTag,
-  ) {
+  /// …); the author `styles` map still overrides on top until the
+  /// shared cascade parser feeds it directly (§6).
+  fn styled_text(&self, content: &str, tag: &ElementTag) -> egui::RichText {
     let computed = cascade::resolve(tag.as_str(), None, None);
-    let mut rt = apply_computed(egui::RichText::new(content), &computed);
+    let mut text = apply_computed(egui::RichText::new(content), &computed);
 
-    // Author overlay (legacy path — replaced in Phase 2 by passing
-    // a real `StylePatch` into `cascade::resolve`).
     if let Some(props) = self.styles.get(tag.as_str()) {
-      if let Some(c) = props.color {
-        rt = rt.color(c);
+      if let Some(color) = props.color {
+        text = text.color(color);
       }
 
       if props.bold {
-        rt = rt.strong();
+        text = text.strong();
       }
     }
 
-    // Block-flow vertical margin: top before, bottom after. The
-    // horizontal half (`margin.left/right`) is ignored at v1 — no
-    // real box model yet, that lands with Taffy in Phase 3. Note:
-    // browsers collapse adjacent vertical margins; egui's
-    // `add_space` doesn't, so consecutive paragraphs will have
-    // double the gap until margin collapsing lands in Phase 2.
-    ui.add_space(computed.margin.top);
-    ui.label(rt);
-    ui.add_space(computed.margin.bottom);
+    text
   }
 
   /// Drain events fired this frame; the runtime dispatches
@@ -455,128 +352,6 @@ fn attr_num(attrs: &[Attr], name: &str) -> Option<u32> {
   }
 
   None
-}
-
-/// Concatenate all `TextNode` children starting at `start`, up to
-/// (but not including) the matching `EndElement`. Nested elements
-/// are ignored — only direct text children contribute.
-fn peek_text_children(commands: &[UiCommand], start: usize) -> String {
-  let mut out = String::new();
-  let mut depth: usize = 0;
-  let mut idx = start;
-
-  while idx < commands.len() {
-    match &commands[idx] {
-      UiCommand::Element { self_closing, .. } if !self_closing => {
-        depth += 1;
-      }
-      UiCommand::EndElement => {
-        if depth == 0 {
-          break;
-        }
-
-        depth -= 1;
-      }
-      UiCommand::Text(s) => {
-        out.push_str(s);
-      }
-      _ => {}
-    }
-
-    idx += 1;
-  }
-
-  out
-}
-
-/// Return `true` when every direct child between `start` and the
-/// matching `EndElement` is inline-flow (span, button, input,
-/// textarea, img) or non-blank raw text. Empty containers return
-/// `false`. Used by the block container branch to pick a
-/// horizontal layout when its content would flow on a single line
-/// on the web. Phase 3 (Taffy) replaces this with the real CSS
-/// inline-formatting-context algorithm.
-fn children_are_inline_flow(commands: &[UiCommand], start: usize) -> bool {
-  let mut depth: usize = 0;
-  let mut idx = start;
-  let mut saw_any = false;
-
-  while idx < commands.len() {
-    match &commands[idx] {
-      UiCommand::Element {
-        tag, self_closing, ..
-      } => {
-        if depth == 0 {
-          saw_any = true;
-
-          if !is_inline_flow_tag(tag) {
-            return false;
-          }
-        }
-
-        if !self_closing {
-          depth += 1;
-        }
-      }
-      UiCommand::EndElement => {
-        if depth == 0 {
-          return saw_any;
-        }
-
-        depth -= 1;
-      }
-      UiCommand::Text(s) if depth == 0 && !s.trim().is_empty() => {
-        saw_any = true;
-      }
-      _ => {}
-    }
-
-    idx += 1;
-  }
-
-  saw_any
-}
-
-/// Tags treated as inline flow at the parent-layout level. Mirrors
-/// CSS `display: inline | inline-block` for the small subset zo
-/// currently models.
-fn is_inline_flow_tag(tag: &ElementTag) -> bool {
-  matches!(
-    tag,
-    ElementTag::Span
-      | ElementTag::Button
-      | ElementTag::Input
-      | ElementTag::Textarea
-      | ElementTag::Img
-  )
-}
-
-/// Return the index just after the matching `EndElement` for the
-/// element whose children begin at `start`. If no matching
-/// `EndElement` is found, return `commands.len()`.
-fn skip_to_end_element(commands: &[UiCommand], start: usize) -> usize {
-  let mut depth: usize = 0;
-  let mut idx = start;
-
-  while idx < commands.len() {
-    match &commands[idx] {
-      UiCommand::Element { self_closing, .. } if !self_closing => {
-        depth += 1;
-      }
-      UiCommand::EndElement => {
-        if depth == 0 {
-          return idx + 1;
-        }
-
-        depth -= 1;
-      }
-      _ => {}
-    }
-
-    idx += 1;
-  }
-
-  commands.len()
 }
 
 // --- CSS → egui mapping ---

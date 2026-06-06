@@ -19,6 +19,36 @@ pub enum Display {
   None,
 }
 
+/// Flex main axis. `Row` lays children left-to-right, `Column`
+/// top-to-bottom. The only two directions zo's layout needs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub enum FlexDirection {
+  #[default]
+  Row,
+  Column,
+}
+
+/// Main-axis distribution of flex children (`justify-content`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub enum Justify {
+  #[default]
+  Start,
+  Center,
+  End,
+  SpaceBetween,
+}
+
+/// Cross-axis alignment of flex children (`align-items`). `Stretch`
+/// is the CSS default; the others pin children to one edge or centre.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub enum Align {
+  #[default]
+  Stretch,
+  Start,
+  Center,
+  End,
+}
+
 /// Generic font family bucket. Mapped to a concrete font by the
 /// renderer (egui's proportional/monospace; CSS's
 /// sans-serif/serif/monospace on the web).
@@ -143,6 +173,12 @@ pub struct ComputedStyle {
   pub min_width: Size,
   pub min_height: Size,
 
+  // flex.
+  pub flex_direction: FlexDirection,
+  pub justify_content: Justify,
+  pub align_items: Align,
+  pub gap: f32,
+
   // typography.
   pub font_family: FontFamily,
   pub font_size: f32,
@@ -168,6 +204,10 @@ impl ComputedStyle {
     height: Size::Auto,
     min_width: Size::Auto,
     min_height: Size::Auto,
+    flex_direction: FlexDirection::Row,
+    justify_content: Justify::Start,
+    align_items: Align::Stretch,
+    gap: 0.0,
     font_family: FontFamily::Sans,
     font_size: 16.0,
     font_weight: 400,
@@ -199,6 +239,11 @@ pub struct StylePatch {
   pub min_width: Option<Size>,
   pub min_height: Option<Size>,
 
+  pub flex_direction: Option<FlexDirection>,
+  pub justify_content: Option<Justify>,
+  pub align_items: Option<Align>,
+  pub gap: Option<f32>,
+
   pub font_family: Option<FontFamily>,
   pub font_size: Option<f32>,
   pub font_weight: Option<u16>,
@@ -220,6 +265,10 @@ impl StylePatch {
     height: None,
     min_width: None,
     min_height: None,
+    flex_direction: None,
+    justify_content: None,
+    align_items: None,
+    gap: None,
     font_family: None,
     font_size: None,
     font_weight: None,
@@ -254,6 +303,18 @@ impl StylePatch {
     }
     if let Some(v) = self.min_height {
       base.min_height = v;
+    }
+    if let Some(v) = self.flex_direction {
+      base.flex_direction = v;
+    }
+    if let Some(v) = self.justify_content {
+      base.justify_content = v;
+    }
+    if let Some(v) = self.align_items {
+      base.align_items = v;
+    }
+    if let Some(v) = self.gap {
+      base.gap = v;
     }
     if let Some(v) = self.font_family {
       base.font_family = v;

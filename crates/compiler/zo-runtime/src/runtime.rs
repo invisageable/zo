@@ -1,6 +1,10 @@
 //! Main runtime dispatcher for zo applications
 
-use zo_runtime_render::render::{EventRegistry, Graphics, RuntimeConfig};
+// `Graphics` only names the dispatch arms, which are cfg'd out on
+// iOS (the UIKit binary never reaches this host dispatcher).
+#[cfg(not(target_os = "ios"))]
+use zo_runtime_render::render::Graphics;
+use zo_runtime_render::render::{EventRegistry, RuntimeConfig};
 use zo_ui_protocol::UiCommand;
 
 use std::sync::{Arc, Mutex};

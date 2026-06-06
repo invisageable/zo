@@ -195,6 +195,7 @@ noise = "0.9.0"
 notify = "8.2.0"
 notify-debouncer-mini = "0.7.0"
 objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", features = ["objc2", "CFCGTypes"] }
 objc2-foundation = { version = "0.3", features = [
   "NSString",
   "NSArray",
@@ -211,16 +212,14 @@ objc2-ui-kit = { version = "0.3", features = [
   "UIControl",
   "UIButton",
   "UILabel",
-  "UIStackView",
   "UIScene",
   "UIWindowScene",
   "UISceneOptions",
   "UISceneSession",
+  "UIScreen",
   "UIColor",
   "UIGeometry",
   "UIFont",
-  "NSLayoutConstraint",
-  "NSLayoutAnchor",
 ] }
 num_cpus = "1.17.0"
 parking_lot = { version = "0.12.5", features = ["nightly"] }
@@ -253,6 +252,11 @@ smallvec = { version = "1.15.1", features = ["const_new", "serde"] }
 smol_str = { version = "0.3.6", features = ["serde"] }
 syn = { version = "2.0", features = ["full"] }
 sysinfo = "0.39.2"
+taffy = { version = "0.8", default-features = false, features = [
+  "std",
+  "taffy_tree",
+  "flexbox",
+] }
 target-lexicon = "0.13.5"
 tempfile = "3.27.0"
 thin-vec = "0.2.18"

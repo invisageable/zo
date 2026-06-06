@@ -11,17 +11,18 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject};
 use objc2::{ClassType, MainThreadMarker, MainThreadOnly, define_class, sel};
 
-use objc2_foundation::{NSArray, NSDictionary, NSObjectProtocol, NSString};
+use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+use objc2_foundation::{NSDictionary, NSObjectProtocol, NSString};
 use objc2_ui_kit::{
-  NSLayoutConstraint, UIApplication, UIApplicationDelegate,
-  UIApplicationLaunchOptionsKey, UIButton, UIButtonType, UIColor,
-  UIControlEvents, UIControlState, UILabel, UILayoutConstraintAxis, UIScene,
-  UISceneConnectionOptions, UISceneDelegate, UISceneSession, UIStackView,
-  UIStackViewAlignment, UIViewController, UIWindow, UIWindowScene,
-  UIWindowSceneDelegate,
+  UIApplication, UIApplicationDelegate, UIApplicationLaunchOptionsKey,
+  UIButton, UIButtonType, UIColor, UIControlEvents, UIControlState, UIFont,
+  UILabel, UIScene, UISceneConnectionOptions, UISceneDelegate, UISceneSession,
+  UIView, UIViewController, UIWindow, UIWindowScene, UIWindowSceneDelegate,
 };
 
+use zo_runtime_render::layout::{LayoutTree, Rect, collapse_text};
 use zo_runtime_render::render::{EventPayload, EventRegistry, build_event_map};
+use zo_ui_protocol::style::ComputedStyle;
 use zo_ui_protocol::{Attr, ElementTag, EventKind, UiCommand};
 
 use std::cell::RefCell;
@@ -55,12 +56,58 @@ struct Runtime {
   /// refreshes reactive bindings into `shared`.
   registry: EventRegistry,
   /// The command buffer handlers mutate; reread after each tap to
-  /// repaint bound labels.
+  /// reconcile the view tree.
   shared: Arc<Mutex<Vec<UiCommand>>>,
-  /// `(command index, label)` for every reactive `Text` rendered as
-  /// a `UILabel`. After a tap, `shared[index]`'s text is copied into
-  /// the label.
-  labels: Vec<(usize, Retained<UILabel>)>,
+  /// The live view hierarchy + its layout tree, retained across taps
+  /// so a tap reconciles in place instead of rebuilding every widget.
+  /// `None` until the scene connects and the first render runs.
+  host: Option<ViewHost>,
+}
+
+/// The retained native view tree paired with its layout solver. Held
+/// across updates: a tap mutates `shared`, then `reconcile` updates
+/// only the widgets whose text changed and re-frames the rest — no
+/// allocation on the common path, so hundreds of items stay cheap.
+struct ViewHost {
+  /// The root view every widget is framed inside; reused on rebuild.
+  container: Retained<UIView>,
+  /// Persistent Taffy tree — `reconcile` dirties only changed leaves.
+  tree: LayoutTree,
+  /// One native view per placed leaf, in `solve` order.
+  views: Vec<PlacedView>,
+}
+
+/// A native view bound to a placed leaf. Kept across updates so the
+/// reconciler repaints in place; the variant carries the concrete
+/// type so text + frame writes hit the right API.
+enum PlacedView {
+  Button(Retained<UIButton>),
+  Label(Retained<UILabel>),
+  /// Reserved geometry for leaves the iOS path does not paint yet
+  /// (image, input).
+  Other(Retained<UIView>),
+}
+
+impl PlacedView {
+  fn set_frame(&self, frame: CGRect) {
+    match self {
+      Self::Button(button) => button.setFrame(frame),
+      Self::Label(label) => label.setFrame(frame),
+      Self::Other(view) => view.setFrame(frame),
+    }
+  }
+
+  fn set_text(&self, text: &str) {
+    let text = NSString::from_str(text);
+
+    match self {
+      Self::Button(button) => {
+        button.setTitle_forState(Some(&text), UIControlState::Normal);
+      }
+      Self::Label(label) => label.setText(Some(&text)),
+      Self::Other(_) => {}
+    }
+  }
 }
 
 /// Stash the reactive wiring for the scene delegate to consume.
@@ -74,7 +121,7 @@ pub(crate) fn install(
     *r.borrow_mut() = Some(Runtime {
       registry,
       shared,
-      labels: Vec::new(),
+      host: None,
     });
   });
 }
@@ -119,14 +166,15 @@ define_class!(
     /// Target-action for every `UIButton`. The sender's `tag` is the
     /// widget id assigned at lowering; map it back to its click
     /// handler, dispatch into compiled zo (which mutates state and
-    /// refreshes `shared`), then repaint the bound labels.
+    /// refreshes `shared`), then reconcile the view tree against the
+    /// new command stream.
     #[unsafe(method(buttonTapped:))]
     fn button_tapped(&self, sender: &UIButton) {
       let widget_id = sender.tag().to_string();
 
       RUNTIME.with(|r| {
-        let runtime = r.borrow();
-        let Some(runtime) = runtime.as_ref() else {
+        let mut runtime = r.borrow_mut();
+        let Some(runtime) = runtime.as_mut() else {
           return;
         };
 
@@ -147,13 +195,43 @@ define_class!(
           runtime.registry.dispatch(&handler, &EventPayload::default());
         }
 
-        // Repaint: the handler refreshed `shared` in place, so each
-        // bound label re-reads its command's current text.
-        let cmds = runtime.shared.lock().unwrap();
+        // The handler mutated `shared` in place; reconcile the view
+        // tree against it.
+        let cmds = runtime.shared.lock().unwrap().clone();
+        let Some(host) = runtime.host.as_mut() else {
+          return;
+        };
 
-        for (idx, label) in &runtime.labels {
-          if let Some(UiCommand::Text(text)) = cmds.get(*idx) {
-            label.setText(Some(&NSString::from_str(text)));
+        match host.tree.reconcile(&cmds) {
+          // Fast path: structure unchanged. Re-solve (Taffy only
+          // re-measures the dirtied leaves), re-frame every view, and
+          // rewrite text on just the changed ones.
+          Some(changed) => {
+            let bounds = host.container.bounds();
+            let rects = host.tree.solve((
+              bounds.size.width as f32,
+              bounds.size.height as f32,
+            ));
+
+            for (view, (_, rect)) in host.views.iter().zip(&rects) {
+              view.set_frame(frame_of(*rect));
+            }
+
+            for (index, text) in changed {
+              host.views[index].set_text(&text);
+            }
+          }
+          // Structure changed (items added/removed): rebuild the
+          // container's widgets once from the new stream.
+          None => {
+            clear_subviews(&host.container);
+
+            let mtm = MainThreadMarker::from(self);
+            let (tree, views) =
+              render_into(&cmds, &host.container, self, mtm);
+
+            host.tree = tree;
+            host.views = views;
           }
         }
       });
@@ -189,34 +267,23 @@ define_class!(
           .unwrap_or_default()
       });
 
-      let (stack, labels) = build_view(&cmds, self, mtm);
+      // One container view fills the screen and owns every widget by
+      // frame — no `UIStackView`, no Auto-Layout. It is sized to the
+      // scene's screen bounds so the solve's coordinate space matches
+      // (centring comes from the root's justify/align).
+      let bounds = window_scene.screen().bounds();
+      let container = UIView::initWithFrame(UIView::alloc(mtm), bounds);
+
+      container.setBackgroundColor(Some(&UIColor::whiteColor()));
+      controller.setView(Some(&container));
+
+      let (tree, views) = render_into(&cmds, &container, self, mtm);
 
       RUNTIME.with(|r| {
         if let Some(rt) = r.borrow_mut().as_mut() {
-          rt.labels = labels;
+          rt.host = Some(ViewHost { container, tree, views });
         }
       });
-
-      if let Some(root) = controller.view() {
-        root.setBackgroundColor(Some(&UIColor::whiteColor()));
-        stack.setTranslatesAutoresizingMaskIntoConstraints(false);
-        root.addSubview(&stack);
-
-        // Pin the stack's centre to the view's centre. Without
-        // explicit constraints the stack fills the screen and the
-        // arranged items spread to the edges; centring clusters
-        // `− 0 +` together.
-        let constraints = NSArray::from_retained_slice(&[
-          stack
-            .centerXAnchor()
-            .constraintEqualToAnchor(&root.centerXAnchor()),
-          stack
-            .centerYAnchor()
-            .constraintEqualToAnchor(&root.centerYAnchor()),
-        ]);
-
-        NSLayoutConstraint::activateConstraints(&constraints, mtm);
-      }
 
       window.setRootViewController(Some(&controller));
       window.makeKeyAndVisible();
@@ -229,31 +296,54 @@ define_class!(
   unsafe impl UIWindowSceneDelegate for SceneDelegate {}
 );
 
-/// Build the native view tree from the command stream. A vertical
-/// `UIStackView`; `Element{Button}` → `UIButton` whose title is the
-/// `Text` that follows before `EndElement` and whose `tag` is the
-/// lowering-assigned widget id (wired to `buttonTapped:` on
-/// `target`); a free-standing `Text` → `UILabel`, returned with its
-/// command index so taps can repaint it. Styles are ignored for now.
-fn build_view(
-  cmds: &[UiCommand],
-  target: &SceneDelegate,
+/// Builds native views for solved leaves and frames them on a
+/// container. Stateless beyond its borrows — `place` returns the
+/// created `PlacedView` so the host keeps it for reconciliation.
+struct ViewBuilder<'a> {
+  cmds: &'a [UiCommand],
+  container: &'a UIView,
+  target: &'a SceneDelegate,
   mtm: MainThreadMarker,
-) -> (Retained<UIStackView>, Vec<(usize, Retained<UILabel>)>) {
-  let stack = UIStackView::new(mtm);
+}
 
-  stack.setAxis(UILayoutConstraintAxis::Vertical);
-  stack.setAlignment(UIStackViewAlignment::Center);
-  stack.setSpacing(24.0);
+impl<'a> ViewBuilder<'a> {
+  fn new(
+    cmds: &'a [UiCommand],
+    container: &'a UIView,
+    target: &'a SceneDelegate,
+    mtm: MainThreadMarker,
+  ) -> Self {
+    Self {
+      cmds,
+      container,
+      target,
+      mtm,
+    }
+  }
 
-  let target_object: &AnyObject = target.as_ref();
-  let mut labels: Vec<(usize, Retained<UILabel>)> = Vec::new();
-  let mut pending_button: Option<Retained<UIButton>> = None;
-
-  for (idx, cmd) in cmds.iter().enumerate() {
-    match cmd {
+  /// Build, frame, and attach the native view for the placed leaf at
+  /// `commands[idx]`. `Element{Button}` → `UIButton` titled by its
+  /// collapsed text and tagged with its lowering widget id (wired to
+  /// `buttonTapped:`); a text tag or free-standing `Text` → `UILabel`.
+  /// Other leaves (image, input) get a bare reserved view. `style`
+  /// drives the font so the rendered text matches the measured box.
+  fn place(
+    &self,
+    idx: usize,
+    frame: CGRect,
+    style: &ComputedStyle,
+  ) -> PlacedView {
+    match &self.cmds[idx] {
       UiCommand::Element { tag, attrs, .. } if *tag == ElementTag::Button => {
-        let button = UIButton::buttonWithType(UIButtonType::System, mtm);
+        let button = UIButton::buttonWithType(UIButtonType::System, self.mtm);
+        let title = NSString::from_str(&collapse_text(self.cmds, idx + 1));
+
+        button.setTitle_forState(Some(&title), UIControlState::Normal);
+
+        if let Some(label) = button.titleLabel() {
+          // SAFETY: a system font of a positive size is always valid.
+          unsafe { label.setFont(Some(&font_of(style))) };
+        }
 
         // The `data-id` carries the widget id the `Event` command
         // references; stash it in `tag` so `buttonTapped:` can route
@@ -262,8 +352,10 @@ fn build_view(
           button.setTag(id);
         }
 
-        // SAFETY: `target_object` is the live scene delegate, and
-        // `buttonTapped:` is a registered selector taking the sender.
+        // SAFETY: the scene delegate is live, and `buttonTapped:` is a
+        // registered selector taking the sender.
+        let target_object: &AnyObject = self.target.as_ref();
+
         unsafe {
           button.addTarget_action_forControlEvents(
             Some(target_object),
@@ -272,31 +364,93 @@ fn build_view(
           );
         }
 
-        stack.addArrangedSubview(&button);
-        pending_button = Some(button);
-      }
-      UiCommand::Text(content) => {
-        let text = NSString::from_str(content);
+        button.setFrame(frame);
+        self.container.addSubview(&button);
 
-        match &pending_button {
-          Some(button) => {
-            button.setTitle_forState(Some(&text), UIControlState::Normal);
-          }
-          None => {
-            let label = UILabel::new(mtm);
-
-            label.setText(Some(&text));
-            stack.addArrangedSubview(&label);
-            labels.push((idx, label));
-          }
-        }
+        PlacedView::Button(button)
       }
-      UiCommand::EndElement => pending_button = None,
-      _ => {}
+
+      UiCommand::Element { tag, .. } if tag.is_text_tag() => {
+        self.label(&collapse_text(self.cmds, idx + 1), frame, style)
+      }
+
+      UiCommand::Text(content) => self.label(content, frame, style),
+
+      _ => {
+        let view = UIView::initWithFrame(UIView::alloc(self.mtm), frame);
+
+        self.container.addSubview(&view);
+
+        PlacedView::Other(view)
+      }
     }
   }
 
-  (stack, labels)
+  /// Build, frame, and attach a `UILabel` rendered at the style's
+  /// font, so its text fits the box the solver measured for it.
+  fn label(
+    &self,
+    text: &str,
+    frame: CGRect,
+    style: &ComputedStyle,
+  ) -> PlacedView {
+    let label = UILabel::new(self.mtm);
+
+    label.setText(Some(&NSString::from_str(text)));
+    // SAFETY: a system font of a positive size is always valid.
+    unsafe { label.setFont(Some(&font_of(style))) };
+    label.setFrame(frame);
+    self.container.addSubview(&label);
+
+    PlacedView::Label(label)
+  }
+}
+
+/// The system font sized to a computed style, so native text renders
+/// at the same `font_size` the deterministic measure assumed.
+fn font_of(style: &ComputedStyle) -> Retained<UIFont> {
+  UIFont::systemFontOfSize(style.font_size as f64)
+}
+
+/// Solve `cmds` against the container's bounds and place a native
+/// view per leaf, returning the persistent tree + view list the host
+/// reconciles against.
+fn render_into(
+  cmds: &[UiCommand],
+  container: &UIView,
+  target: &SceneDelegate,
+  mtm: MainThreadMarker,
+) -> (LayoutTree, Vec<PlacedView>) {
+  let bounds = container.bounds();
+  let mut tree = LayoutTree::build(cmds);
+  let rects = tree.solve((bounds.size.width as f32, bounds.size.height as f32));
+
+  // Styles parallel the solved leaves; clone so the tree is free to
+  // move into the host alongside the views.
+  let styles = tree.styles().to_vec();
+  let builder = ViewBuilder::new(cmds, container, target, mtm);
+  let views = rects
+    .into_iter()
+    .zip(styles)
+    .map(|((idx, rect), style)| builder.place(idx, frame_of(rect), &style))
+    .collect();
+
+  (tree, views)
+}
+
+/// Detach every child view so a structural rebuild starts clean.
+fn clear_subviews(container: &UIView) {
+  for view in container.subviews().iter() {
+    view.removeFromSuperview();
+  }
+}
+
+/// A solved `Rect` → UIKit `CGRect`.
+fn frame_of(rect: Rect) -> CGRect {
+  CGRect::new(
+    CGPoint::new(rect.x as f64, rect.y as f64),
+    CGSize::new(rect.width as f64, rect.height as f64),
+  )
 }
 
 /// Read an element's `data-id` widget id. The executor stores it as
