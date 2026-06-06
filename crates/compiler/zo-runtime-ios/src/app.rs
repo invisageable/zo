@@ -22,7 +22,7 @@ use objc2_ui_kit::{
 
 use zo_runtime_render::layout::{LayoutTree, Rect, collapse_text};
 use zo_runtime_render::render::{EventPayload, EventRegistry, build_event_map};
-use zo_ui_protocol::style::ComputedStyle;
+use zo_ui_protocol::style::{ComputedStyle, Rgba, StylePatch};
 use zo_ui_protocol::{Attr, ElementTag, EventKind, UiCommand};
 
 use std::cell::RefCell;
@@ -326,12 +326,14 @@ impl<'a> ViewBuilder<'a> {
   /// collapsed text and tagged with its lowering widget id (wired to
   /// `buttonTapped:`); a text tag or free-standing `Text` → `UILabel`.
   /// Other leaves (image, input) get a bare reserved view. `style`
-  /// drives the font so the rendered text matches the measured box.
+  /// drives the font; `author` says which colours the stylesheet
+  /// declared, so undeclared widgets keep their native look.
   fn place(
     &self,
     idx: usize,
     frame: CGRect,
     style: &ComputedStyle,
+    author: &StylePatch,
   ) -> PlacedView {
     match &self.cmds[idx] {
       UiCommand::Element { tag, attrs, .. } if *tag == ElementTag::Button => {
@@ -343,6 +345,19 @@ impl<'a> ViewBuilder<'a> {
         if let Some(label) = button.titleLabel() {
           // SAFETY: a system font of a positive size is always valid.
           unsafe { label.setFont(Some(&font_of(style))) };
+        }
+
+        // Declared `color` recolours the title; otherwise the system
+        // tint stands. Declared `background` fills the button.
+        if author.color.is_some() {
+          button.setTitleColor_forState(
+            Some(&ui_color(style.color)),
+            UIControlState::Normal,
+          );
+        }
+
+        if author.background.is_some() {
+          button.setBackgroundColor(Some(&ui_color(style.background)));
         }
 
         // The `data-id` carries the widget id the `Event` command
@@ -371,10 +386,10 @@ impl<'a> ViewBuilder<'a> {
       }
 
       UiCommand::Element { tag, .. } if tag.is_text_tag() => {
-        self.label(&collapse_text(self.cmds, idx + 1), frame, style)
+        self.label(&collapse_text(self.cmds, idx + 1), frame, style, author)
       }
 
-      UiCommand::Text(content) => self.label(content, frame, style),
+      UiCommand::Text(content) => self.label(content, frame, style, author),
 
       _ => {
         let view = UIView::initWithFrame(UIView::alloc(self.mtm), frame);
@@ -387,18 +402,28 @@ impl<'a> ViewBuilder<'a> {
   }
 
   /// Build, frame, and attach a `UILabel` rendered at the style's
-  /// font, so its text fits the box the solver measured for it.
+  /// font + colour, so its text fits the box the solver measured and
+  /// matches the cascade. A declared `background` fills the label.
   fn label(
     &self,
     text: &str,
     frame: CGRect,
     style: &ComputedStyle,
+    author: &StylePatch,
   ) -> PlacedView {
     let label = UILabel::new(self.mtm);
 
     label.setText(Some(&NSString::from_str(text)));
-    // SAFETY: a system font of a positive size is always valid.
-    unsafe { label.setFont(Some(&font_of(style))) };
+    // SAFETY: a system font of a positive size, and a non-nil colour.
+    unsafe {
+      label.setFont(Some(&font_of(style)));
+      label.setTextColor(Some(&ui_color(style.color)));
+    }
+
+    if author.background.is_some() {
+      label.setBackgroundColor(Some(&ui_color(style.background)));
+    }
+
     label.setFrame(frame);
     self.container.addSubview(&label);
 
@@ -410,6 +435,16 @@ impl<'a> ViewBuilder<'a> {
 /// at the same `font_size` the deterministic measure assumed.
 fn font_of(style: &ComputedStyle) -> Retained<UIFont> {
   UIFont::systemFontOfSize(style.font_size as f64)
+}
+
+/// A target-agnostic `Rgba` → UIKit `UIColor` (components 0–1).
+fn ui_color(color: Rgba) -> Retained<UIColor> {
+  UIColor::colorWithRed_green_blue_alpha(
+    color.r as f64 / 255.0,
+    color.g as f64 / 255.0,
+    color.b as f64 / 255.0,
+    color.a as f64 / 255.0,
+  )
 }
 
 /// Solve `cmds` against the container's bounds and place a native
@@ -425,14 +460,17 @@ fn render_into(
   let mut tree = LayoutTree::build(cmds);
   let rects = tree.solve((bounds.size.width as f32, bounds.size.height as f32));
 
-  // Styles parallel the solved leaves; clone so the tree is free to
-  // move into the host alongside the views.
+  // Styles + author patches parallel the solved leaves; clone so the
+  // tree is free to move into the host alongside the views.
   let styles = tree.styles().to_vec();
+  let authors = tree.authors().to_vec();
   let builder = ViewBuilder::new(cmds, container, target, mtm);
   let views = rects
     .into_iter()
-    .zip(styles)
-    .map(|((idx, rect), style)| builder.place(idx, frame_of(rect), &style))
+    .enumerate()
+    .map(|(i, (idx, rect))| {
+      builder.place(idx, frame_of(rect), &styles[i], &authors[i])
+    })
     .collect();
 
   (tree, views)

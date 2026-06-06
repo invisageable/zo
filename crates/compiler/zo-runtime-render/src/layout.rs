@@ -14,7 +14,7 @@
 
 use zo_ui_protocol::style::{
   Align, ComputedStyle, Display, FlexDirection, Justify, Size as ZoSize,
-  cascade,
+  StylePatch, cascade, css,
 };
 use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
@@ -70,6 +70,10 @@ pub struct LayoutTree {
   /// Resolved style per placed leaf — kept so `reconcile` can rebuild
   /// a leaf's measure context when its text changes.
   styles: Vec<ComputedStyle>,
+  /// The author patch per placed leaf (`EMPTY` when no rule targets
+  /// it). Its `Some` fields tell a runtime which declared properties
+  /// to paint over a native widget's defaults.
+  authors: Vec<StylePatch>,
   /// Last text per placed leaf, diffed against the next stream.
   texts: Vec<String>,
   /// The command stream this tree was built from. `reconcile`
@@ -81,7 +85,8 @@ impl LayoutTree {
   /// Build the tree. Top-level siblings (fragment children) hang off a
   /// synthetic root flex container sized to the viewport in `solve`.
   pub fn build(commands: &[UiCommand]) -> Self {
-    let mut builder = Builder::new();
+    let author = collect_author(commands);
+    let mut builder = Builder::new(author);
     let children = builder.children(commands);
 
     // Synthetic root: a flex container whose direction follows the
@@ -115,6 +120,7 @@ impl LayoutTree {
       cmd_index: builder.cmd_index,
       nodes: builder.nodes,
       styles: builder.styles,
+      authors: builder.authors,
       texts: builder.texts,
       source: commands.to_vec(),
     }
@@ -172,6 +178,13 @@ impl LayoutTree {
   /// colour) so the on-screen text matches the measured geometry.
   pub fn styles(&self) -> &[ComputedStyle] {
     &self.styles
+  }
+
+  /// The author patch for each placed leaf, parallel to `solve`'s
+  /// returned order. A runtime paints a declared colour only where
+  /// the patch's field is `Some`, leaving native defaults otherwise.
+  pub fn authors(&self) -> &[StylePatch] {
+    &self.authors
   }
 
   /// Solve against the viewport and return one absolute `Rect` per
@@ -236,21 +249,27 @@ impl LayoutTree {
 /// builder.
 struct Builder {
   tree: TaffyTree<Leaf>,
+  /// Author rules parsed from the stream's stylesheets, scanned per
+  /// element to resolve its style and record what it declared.
+  author: Vec<(String, StylePatch)>,
   cursor: usize,
   cmd_index: Vec<usize>,
   nodes: Vec<NodeId>,
   styles: Vec<ComputedStyle>,
+  authors: Vec<StylePatch>,
   texts: Vec<String>,
 }
 
 impl Builder {
-  fn new() -> Self {
+  fn new(author: Vec<(String, StylePatch)>) -> Self {
     Self {
       tree: TaffyTree::new(),
+      author,
       cursor: 0,
       cmd_index: Vec::new(),
       nodes: Vec::new(),
       styles: Vec::new(),
+      authors: Vec::new(),
       texts: Vec::new(),
     }
   }
@@ -275,11 +294,12 @@ impl Builder {
         }
 
         // Free-standing text (`{count}`) → a measured leaf with root
-        // typography (no tag to key the cascade on).
+        // typography (no tag to key the cascade on, no author patch).
         UiCommand::Text(text) => {
           let idx = self.cursor;
           let text = text.clone();
-          let node = self.leaf(idx, text, ComputedStyle::ROOT, None);
+          let node =
+            self.leaf(idx, text, ComputedStyle::ROOT, StylePatch::EMPTY, None);
 
           children.push(node);
           self.cursor += 1;
@@ -292,7 +312,8 @@ impl Builder {
         } => {
           let idx = self.cursor;
           let self_closing = *self_closing;
-          let style = cascade::resolve(tag.as_str(), None, None);
+          let author = css::author_patch(&self.author, tag.as_str());
+          let style = cascade::resolve(tag.as_str(), author.as_ref(), None);
           let leaf = is_leaf_tag(tag);
           let size = leaf_size_override(tag, attrs);
 
@@ -304,7 +325,8 @@ impl Builder {
             } else {
               collapse_text(cmds, self.cursor)
             };
-            let node = self.leaf(idx, text, style, size);
+            let author = author.unwrap_or(StylePatch::EMPTY);
+            let node = self.leaf(idx, text, style, author, size);
 
             children.push(node);
 
@@ -343,6 +365,7 @@ impl Builder {
     idx: usize,
     text: String,
     style: ComputedStyle,
+    author: StylePatch,
     size: Option<TaffySize<Dimension>>,
   ) -> NodeId {
     let taffy_style = TaffyStyle {
@@ -370,10 +393,25 @@ impl Builder {
     self.cmd_index.push(idx);
     self.nodes.push(node);
     self.styles.push(style);
+    self.authors.push(author);
     self.texts.push(text);
 
     node
   }
+}
+
+/// Parse every `StyleSheet` command in the stream into one ordered
+/// list of author rules — the single CSS parse the cascade folds in.
+fn collect_author(commands: &[UiCommand]) -> Vec<(String, StylePatch)> {
+  let mut rules = Vec::new();
+
+  for cmd in commands {
+    if let UiCommand::StyleSheet { css, .. } = cmd {
+      rules.extend(css::parse(css));
+    }
+  }
+
+  rules
 }
 
 /// True when two command streams place the same widgets in the same

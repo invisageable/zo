@@ -280,6 +280,72 @@ impl StylePatch {
     background: None,
   };
 
+  /// Merge another patch on top of this one. Set fields in `other`
+  /// overwrite; unset fields leave this patch's field untouched. Used
+  /// to fold several author rules that target the same tag into one.
+  pub fn overlay(&mut self, other: &Self) {
+    if other.display.is_some() {
+      self.display = other.display;
+    }
+    if other.margin.is_some() {
+      self.margin = other.margin;
+    }
+    if other.padding.is_some() {
+      self.padding = other.padding;
+    }
+    if other.width.is_some() {
+      self.width = other.width;
+    }
+    if other.height.is_some() {
+      self.height = other.height;
+    }
+    if other.min_width.is_some() {
+      self.min_width = other.min_width;
+    }
+    if other.min_height.is_some() {
+      self.min_height = other.min_height;
+    }
+    if other.flex_direction.is_some() {
+      self.flex_direction = other.flex_direction;
+    }
+    if other.justify_content.is_some() {
+      self.justify_content = other.justify_content;
+    }
+    if other.align_items.is_some() {
+      self.align_items = other.align_items;
+    }
+    if other.gap.is_some() {
+      self.gap = other.gap;
+    }
+    if other.font_family.is_some() {
+      self.font_family = other.font_family;
+    }
+    if other.font_size.is_some() {
+      self.font_size = other.font_size;
+    }
+    if other.font_weight.is_some() {
+      self.font_weight = other.font_weight;
+    }
+    if other.font_style.is_some() {
+      self.font_style = other.font_style;
+    }
+    if other.text_align.is_some() {
+      self.text_align = other.text_align;
+    }
+    if other.text_decoration.is_some() {
+      self.text_decoration = other.text_decoration;
+    }
+    if other.line_height.is_some() {
+      self.line_height = other.line_height;
+    }
+    if other.color.is_some() {
+      self.color = other.color;
+    }
+    if other.background.is_some() {
+      self.background = other.background;
+    }
+  }
+
   /// Fold this patch into a `ComputedStyle`. Set fields overwrite;
   /// unset fields leave the base untouched.
   pub fn apply(&self, base: &mut ComputedStyle) {

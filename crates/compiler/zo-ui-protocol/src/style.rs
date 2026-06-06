@@ -8,6 +8,7 @@
 
 pub mod cascade;
 pub mod computed;
+pub mod css;
 pub mod ua;
 
 pub use cascade::resolve;
