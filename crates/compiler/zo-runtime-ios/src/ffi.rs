@@ -1,34 +1,17 @@
 //! The `_zo_run_native` C-ABI entry point for iOS.
 
 use zo_runtime_render::aot::{
-  ZoRuntimeContext, decode_template, refresh_bindings_from_global,
+  SendPtr, ZoRuntimeContext, build_registry, decode_template,
+  refresh_bindings_from_global,
 };
-use zo_ui_protocol::UiCommand;
+use zo_runtime_render::render::EventRegistry;
 
-use std::sync::{Mutex, OnceLock};
-
-/// The decoded template the app delegate renders.
-///
-/// `UIApplicationMain` takes a delegate CLASS, not an instance, and
-/// constructs the delegate itself — so the commands cannot be handed
-/// in through a constructor. They reach the delegate through this
-/// process global, set before `UIApplicationMain` spins up the run
-/// loop and read once in `didFinishLaunchingWithOptions`.
-static COMMANDS: OnceLock<Mutex<Vec<UiCommand>>> = OnceLock::new();
-
-/// The template commands captured by `zo_run_native`, or empty if the
-/// entry point hasn't run (defensive — the delegate then renders an
-/// empty screen rather than panicking).
-pub(crate) fn commands() -> Vec<UiCommand> {
-  COMMANDS
-    .get()
-    .map(|m| m.lock().unwrap().clone())
-    .unwrap_or_default()
-}
+use std::sync::{Arc, Mutex};
 
 /// AOT entry point. Decodes the embedded template, refreshes reactive
-/// bindings into the initial command stream, stashes it for the
-/// delegate, then launches the UIKit run loop (blocks until exit).
+/// bindings into the initial command stream, builds the event
+/// registry, hands both to the app delegate, then launches the UIKit
+/// run loop (blocks until exit).
 ///
 /// Exported as the Mach-O symbol `_zo_run_native` — the same symbol
 /// the desktop runtime exports, so codegen's `BL _zo_run_native` is
@@ -57,6 +40,10 @@ pub unsafe extern "C" fn zo_run_native(ctx: *const ZoRuntimeContext) {
     }
   };
 
+  // Bake initial reactive values into the command stream. The
+  // postcard payload already carries every `mut`'s initial value, so
+  // this is a no-op on the first frame — it keeps the
+  // refresh-after-tap path identical to startup.
   unsafe {
     refresh_bindings_from_global(
       ctx_ref.text_bindings_ptr,
@@ -65,7 +52,21 @@ pub unsafe extern "C" fn zo_run_native(ctx: *const ZoRuntimeContext) {
     );
   }
 
-  let _ = COMMANDS.set(Mutex::new(cmds));
+  let shared = Arc::new(Mutex::new(cmds.clone()));
 
+  // Build the registry only when the program registered a dispatcher;
+  // a static template leaves it empty and taps no-op.
+  let registry = match ctx_ref.handle_event {
+    Some(dispatch) => build_registry(
+      &cmds,
+      SendPtr(dispatch),
+      SendPtr(ctx_ref.text_bindings_ptr),
+      ctx_ref.text_bindings_count,
+      Arc::clone(&shared),
+    ),
+    None => EventRegistry::new(),
+  };
+
+  crate::app::install(registry, shared);
   crate::app::run();
 }

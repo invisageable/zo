@@ -7926,6 +7926,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "zo-bundler"
+version = "0.4.0"
+
+[[package]]
 name = "zo-c-abi"
 version = "0.4.0"
 
@@ -8019,6 +8023,7 @@ dependencies = [
  "rustc-hash 2.1.2",
  "tempfile",
  "zo-analyzer",
+ "zo-bundler",
  "zo-codegen",
  "zo-codegen-backend",
  "zo-dce",

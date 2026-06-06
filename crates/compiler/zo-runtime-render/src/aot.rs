@@ -121,9 +121,11 @@ unsafe impl<T> Sync for SendPtr<T> {}
 /// command vec. Extracted so unit tests can exercise the
 /// decode path without launching a UI runtime.
 ///
-/// Safety: the `(template_ptr, template_len)` pair must
-/// describe a valid postcard-encoded `Vec<UiCommand>` byte
-/// range owned by the caller for the duration of this call.
+/// # Safety
+///
+/// The `(template_ptr, template_len)` pair must describe a
+/// valid postcard-encoded `Vec<UiCommand>` byte range owned
+/// by the caller for the duration of this call.
 pub unsafe fn decode_template(
   ctx: &ZoRuntimeContext,
 ) -> Result<Vec<UiCommand>, CodecError> {
@@ -295,6 +297,11 @@ unsafe fn refresh_bindings(
 /// Production wrapper — holds both reactive-state mutexes
 /// across the binding walk and forwards to
 /// `refresh_bindings`.
+///
+/// # Safety
+///
+/// `bindings_ptr` must be null or point to `bindings_count`
+/// valid `TextBinding` entries that live for the call.
 pub unsafe fn refresh_bindings_from_global(
   bindings_ptr: *const TextBinding,
   bindings_count: usize,

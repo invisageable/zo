@@ -834,6 +834,195 @@ fn test_code_directory_hashes() {
   assert!(binary.len() > 0x5000); // Code + signature
 }
 
+/// Returns the raw bytes of the first load command of
+/// `cmd_type`, sliced from the header onward. Walks the load
+/// commands exactly as dyld does: `cmd` and `cmdsize` are the
+/// first two `u32`s of every command.
+fn find_load_command(data: &[u8], cmd_type: u32) -> Option<&[u8]> {
+  let header_size = std::mem::size_of::<MachHeader64>();
+  let ncmds = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
+
+  let mut offset = header_size;
+
+  for _ in 0..ncmds {
+    if offset + 8 > data.len() {
+      break;
+    }
+
+    let cmd = u32::from_le_bytes([
+      data[offset],
+      data[offset + 1],
+      data[offset + 2],
+      data[offset + 3],
+    ]);
+    let cmdsize = u32::from_le_bytes([
+      data[offset + 4],
+      data[offset + 5],
+      data[offset + 6],
+      data[offset + 7],
+    ]) as usize;
+
+    if cmd == cmd_type {
+      return Some(&data[offset..offset + cmdsize]);
+    }
+
+    offset += cmdsize;
+  }
+
+  None
+}
+
+/// Reads a little-endian `u32` at `byte_offset` within `cmd`.
+fn read_u32(cmd: &[u8], byte_offset: usize) -> u32 {
+  u32::from_le_bytes([
+    cmd[byte_offset],
+    cmd[byte_offset + 1],
+    cmd[byte_offset + 2],
+    cmd[byte_offset + 3],
+  ])
+}
+
+/// Regression guard for every `__LINKEDIT` sub-blob alignment
+/// invariant. The bind opcode stream has an odd byte length
+/// here on purpose — that is the exact shape that pushed
+/// `symoff`, then `indirectsymoff`, then the code signature
+/// off their required boundaries and made dyld silently drop
+/// the eager binds (null `__got` slots → `br x16` to 0x0).
+///
+/// Asserts purely against the produced bytes (no `dyld_info`)
+/// that `LC_SYMTAB.symoff` is 8-aligned (nlist_64), that
+/// `LC_DYSYMTAB.indirectsymoff` is 4-aligned (u32 entries),
+/// and that `LC_CODE_SIGNATURE.dataoff` is 16-aligned
+/// (SuperBlob); plus that the tables nest inside `__LINKEDIT`
+/// in emission order and the signature ends at the file's end.
+#[test]
+fn test_linkedit_subblob_alignment() {
+  let mut macho = MachO::new();
+
+  macho.add_text_segment();
+  macho.add_data_segment();
+  macho.add_dyld_info();
+
+  // Four runtime imports bound eagerly into __DATA GOT slots,
+  // mirroring the iOS path that crashed.
+  let binds: [(&str, u8, u64, u8); 4] = [
+    (
+      "_zo_state_get",
+      DATA_SEGMENT_INDEX,
+      0x20,
+      LIBSYSTEM_DYLIB_ORDINAL,
+    ),
+    (
+      "_zo_state_set",
+      DATA_SEGMENT_INDEX,
+      0x28,
+      LIBSYSTEM_DYLIB_ORDINAL,
+    ),
+    (
+      "_zo_state_init",
+      DATA_SEGMENT_INDEX,
+      0x30,
+      LIBSYSTEM_DYLIB_ORDINAL,
+    ),
+    (
+      "_zo_run_native",
+      DATA_SEGMENT_INDEX,
+      0x38,
+      LIBSYSTEM_DYLIB_ORDINAL,
+    ),
+  ];
+
+  let bind_data = MachO::build_bind_opcodes(&binds);
+
+  // The defect only surfaces when the bind stream is NOT a
+  // multiple of 8. Force an odd length with a trailing pad
+  // byte (an extra BIND_OPCODE_DONE is harmless to dyld).
+  let mut bind_data = bind_data;
+  if bind_data.len().is_multiple_of(8) {
+    bind_data.push(0x00);
+  }
+  assert!(
+    !bind_data.len().is_multiple_of(8),
+    "test needs a non-8-aligned bind length"
+  );
+
+  macho.set_bind_data(bind_data);
+
+  // Undefined symbols for the binds + a couple of locals so
+  // the nlist_64 table and the string table are non-trivial.
+  macho.add_local_symbol("_main", 1, 0);
+  for (name, _, _, _) in &binds {
+    macho.add_undefined_symbol(name, LIBSYSTEM_DYLIB_ORDINAL as u16);
+  }
+  for index in 0..binds.len() as u32 {
+    macho.add_indirect_symbol(1 + index);
+  }
+
+  macho.add_code(vec![0xd6, 0x5f, 0x03, 0xc0]); // ret
+  macho.set_entry_point(0);
+
+  let binary = macho.finish_with_signature();
+
+  let symtab =
+    find_load_command(&binary, LC_SYMTAB).expect("LC_SYMTAB present");
+  let dysymtab =
+    find_load_command(&binary, LC_DYSYMTAB).expect("LC_DYSYMTAB present");
+  let dyld_info = find_load_command(&binary, LC_DYLD_INFO_ONLY)
+    .expect("LC_DYLD_INFO_ONLY present");
+  let sig = find_load_command(&binary, LC_CODE_SIGNATURE)
+    .expect("LC_CODE_SIGNATURE present");
+
+  // `symoff` is the third u32 of SymtabCommand (after
+  // cmd, cmdsize); `stroff` is the fifth, `strsize` sixth.
+  let symoff = read_u32(symtab, 8);
+  let nsyms = read_u32(symtab, 12);
+  let stroff = read_u32(symtab, 16);
+  let strsize = read_u32(symtab, 20);
+
+  // `indirectsymoff` is the 15th u32 of DysymtabCommand.
+  let indirectsymoff = read_u32(dysymtab, 14 * 4);
+  let nindirectsyms = read_u32(dysymtab, 15 * 4);
+
+  // `bind_off`/`bind_size` are the 5th/6th u32 of
+  // DyldInfoCommand.
+  let bind_off = read_u32(dyld_info, 16);
+  let bind_size = read_u32(dyld_info, 20);
+
+  // `dataoff`/`datasize` are the 3rd/4th u32 of
+  // LinkeditDataCommand.
+  let sig_off = read_u32(sig, 8);
+  let sig_size = read_u32(sig, 12);
+
+  // Core ABI invariants.
+  assert!(
+    symoff.is_multiple_of(LINKEDIT_SYMTAB_ALIGN),
+    "symoff must be 8-aligned"
+  );
+  assert!(
+    indirectsymoff.is_multiple_of(LINKEDIT_U32_TABLE_ALIGN),
+    "indirectsymoff must be 4-aligned"
+  );
+  assert!(
+    sig_off.is_multiple_of(LINKEDIT_CODE_SIGNATURE_ALIGN),
+    "code signature dataoff must be 16-aligned"
+  );
+
+  // Byte-stream/offset lockstep: every table nests inside the
+  // file in emission order, and the signature ends exactly at
+  // the file's end (no truncation, no divergence).
+  let nlist_size = std::mem::size_of::<Nlist64>() as u32;
+
+  assert!(bind_size > 0 && bind_off <= symoff);
+  assert!(symoff + nsyms * nlist_size <= stroff);
+  assert!(stroff + strsize <= indirectsymoff);
+  assert!(indirectsymoff + nindirectsyms * 4 <= sig_off);
+  assert_eq!(
+    sig_off as usize + sig_size as usize,
+    binary.len(),
+    "signature must end at the file's end"
+  );
+}
+
 // ============================================================================
 // 10. Advanced Features Tests
 // ============================================================================

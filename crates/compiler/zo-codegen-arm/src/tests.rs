@@ -1306,3 +1306,137 @@ fn test_builtin_call_keeps_caller_save_reserve() {
      the >=144-byte caller-save reserve; frames: {frames:?}"
   );
 }
+
+/// Bytes one saved register occupies on the stack — the width
+/// of the saved x30 slot a spill must never reach.
+const SAVED_REG_SLOT_BYTES: u32 = 8;
+
+/// One decoded non-leaf frame: its working-SP drop in bytes
+/// (`sub sp, sp, #frame`) and the byte offsets of every
+/// `str x?, [sp, #imm]` emitted inside it. Used to prove no
+/// blanket caller-save spill reaches the saved x29/x30 record.
+struct DecodedFrame {
+  frame: u32,
+  spill_offsets: Vec<u32>,
+}
+
+/// Split `code` into non-leaf frames and decode each one's
+/// `sub sp` drop plus its SP-relative GP stores.
+///
+/// @note — a non-leaf prologue is `stp x29, x30, [sp, #-0x10]!`
+/// (`0xa9bf7bfd`) immediately followed by `sub sp, sp, #imm`.
+/// The frame ends at the next such prologue. Closures and
+/// normal functions share this shape, so the same decoder
+/// covers both paths.
+fn decode_non_leaf_frames(code: &[u8]) -> Vec<DecodedFrame> {
+  // `stp x29, x30, [sp, #-0x10]!` — the non-leaf entry record.
+  const STP_FP_LR_PRE: u32 = 0xa9bf_7bfd;
+  // `sub sp, sp, #imm` (64-bit): Rn = Rd = 31 pinned.
+  const SUB_SP_SP: u32 = 0xD100_03FF;
+  const SUB_SP_SP_MASK: u32 = 0xFFC0_03FF;
+  // `str xt, [sp, #imm]` (64-bit, unsigned offset): the base
+  // register field (Rn) is pinned to SP (31); imm12 scales by 8.
+  const STR_SP: u32 = 0xF900_03E0;
+  const STR_SP_MASK: u32 = 0xFFC0_03E0;
+
+  let insns: Vec<u32> = code
+    .chunks_exact(4)
+    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+    .collect();
+
+  let mut frames = Vec::new();
+  let mut current: Option<DecodedFrame> = None;
+
+  for window in insns.windows(2) {
+    let insn = window[0];
+
+    if insn == STP_FP_LR_PRE && (window[1] & SUB_SP_SP_MASK) == SUB_SP_SP {
+      if let Some(frame) = current.take() {
+        frames.push(frame);
+      }
+
+      current = Some(DecodedFrame {
+        frame: (window[1] >> 10) & 0xFFF,
+        spill_offsets: Vec::new(),
+      });
+
+      continue;
+    }
+
+    if let Some(frame) = current.as_mut()
+      && (insn & STR_SP_MASK) == STR_SP
+    {
+      frame.spill_offsets.push(((insn >> 10) & 0xFFF) * 8);
+    }
+  }
+
+  if let Some(frame) = current.take() {
+    frames.push(frame);
+  }
+
+  frames
+}
+
+#[test]
+fn test_reactive_closure_frame_covers_blanket_spill() {
+  // A `#render` counter whose `+` / `-` handlers run closures
+  // that read and write a reactive `mut`. Each reactive
+  // `Load`/`Store` lowers to a state-helper `BL` wrapped in the
+  // blanket `emit_caller_save_spill` (`str x1..x15`), so the
+  // closure frame MUST reserve that area — otherwise the spills
+  // overrun the frame into the saved x29/x30 record and the
+  // epilogue `ret`s into garbage the first time a handler runs.
+  let code = compile_to_code(
+    r#"fun main() {
+  mut count: int = 0;
+  imu counter: </> ::= <>
+    <button @click={fn() => count -= 1}>-</button>
+    {count}
+    <button @click={fn() => count += 1}>+</button>
+  </>;
+
+  #render counter;
+}"#,
+  );
+
+  let frames = decode_non_leaf_frames(&code);
+
+  assert!(
+    !frames.is_empty(),
+    "expected at least one non-leaf frame (main + closures)"
+  );
+
+  // Every spill in every non-leaf frame must land strictly
+  // below the frame's working-SP drop. The saved x29/x30 record
+  // sits at `[sp, #frame]` / `[sp, #frame + 8]`, so any store at
+  // an offset `>= frame` clobbers it. Closures with no spills
+  // are vacuously safe.
+  for DecodedFrame {
+    frame,
+    spill_offsets,
+  } in &frames
+  {
+    if let Some(&highest) = spill_offsets.iter().max() {
+      assert!(
+        highest + SAVED_REG_SLOT_BYTES <= *frame,
+        "frame `sub sp, sp, #{frame}` is too small for its \
+         spills: highest `str x?, [sp, #{highest}]` needs the \
+         frame to be at least {} bytes so the saved x29/x30 \
+         record at [sp, #{frame}] is never overwritten",
+        highest + SAVED_REG_SLOT_BYTES,
+      );
+    }
+  }
+
+  // The reactive closures must actually pay the blanket reserve:
+  // at least one frame reaches the 144-byte caller-save area.
+  // Without the fix the closure frame was only 0x40 (64) bytes.
+  let max_frame = frames.iter().map(|f| f.frame).max().unwrap();
+
+  assert!(
+    max_frame >= 144,
+    "a reactive closure makes a state-helper `BL` and must keep \
+     the >=144-byte caller-save reserve; largest `sub sp` was \
+     {max_frame}"
+  );
+}

@@ -1085,6 +1085,29 @@ impl<'a> ARM64Gen<'a> {
     )
   }
 
+  /// Whether an instruction accesses a reactive `mut` slot and
+  /// therefore lowers to a state-helper `BL` (`emit_state_load`
+  /// / `emit_state_store`, both via `emit_extern_call`). Like
+  /// the explicit runtime instructions, that blanket spill is
+  /// load-bearing — without the reserve its `str x1..x15`
+  /// overruns the frame into the saved x29/x30 record.
+  ///
+  /// @note — mirrors the reactive dispatch in `Insn::Load` /
+  /// `Insn::Store`: a `LoadSource::Local`/`Store` whose symbol
+  /// is in `reactive_slots` routes through the runtime dylib
+  /// instead of the stack frame. The plain (non-reactive) form
+  /// of either is a register move or `ldr`/`str` with no `BL`.
+  fn insn_is_reactive_access(&self, insn: &Insn) -> bool {
+    match insn {
+      Insn::Load {
+        src: LoadSource::Local(sym),
+        ..
+      } => self.reactive_slots.contains_key(sym),
+      Insn::Store { name, .. } => self.reactive_slots.contains_key(name),
+      _ => false,
+    }
+  }
+
   /// Total stack frame size in bytes, 16-byte aligned. The
   /// single source of truth shared by the prologue's `sub sp`
   /// and the epilogue's `add sp`.
@@ -1130,7 +1153,9 @@ impl<'a> ARM64Gen<'a> {
     let mut max_overflow_args: u32 = 0;
 
     for insn in body {
-      if Self::insn_needs_blanket_caller_save(insn) {
+      if Self::insn_needs_blanket_caller_save(insn)
+        || self.insn_is_reactive_access(insn)
+      {
         needs_blanket = true;
       }
 

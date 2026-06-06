@@ -193,6 +193,40 @@ pub(crate) const TEXT_FILE_OFFSET: u64 = 0; // TEXT includes the header
 pub(crate) const ALIGNMENT_8BYTE_MASK: usize = !7; // Mask for 8-byte alignment
 pub(crate) const SECTION_ALIGN_4BYTE: u32 = 2; // 2^2 = 4 bytes alignment
 
+/// Alignment, in bytes, of the `__LINKEDIT` symbol table.
+///
+/// @note — each entry is an `nlist_64` (16 bytes) whose
+/// `n_value`/`n_strx` fields dyld reads as aligned words;
+/// `symoff` must land on an 8-byte boundary or dyld rejects
+/// the whole `__LINKEDIT` with "mis-aligned LINKEDIT content
+/// 'symbol table'" and drops every bind it described.
+pub(crate) const LINKEDIT_SYMTAB_ALIGN: u32 = 8;
+
+/// Alignment, in bytes, of the indirect symbol table and of
+/// the relocation tables that may follow it.
+///
+/// @note — indirect entries are `u32` and `relocation_info`
+/// records are pairs of `u32`/bitfield words; both require a
+/// 4-byte-aligned start offset.
+pub(crate) const LINKEDIT_U32_TABLE_ALIGN: u32 = 4;
+
+/// Alignment, in bytes, of the `LC_CODE_SIGNATURE` blob.
+///
+/// @note — the embedded SuperBlob's `dataoff` must be
+/// 16-byte aligned; `dyld_info`/AMFI report "mis-aligned code
+/// signature" and refuse the signature otherwise.
+pub(crate) const LINKEDIT_CODE_SIGNATURE_ALIGN: u32 = 16;
+
+/// Round `offset` up to the next multiple of `align`.
+///
+/// @note — `align` is always a LINKEDIT sub-blob alignment
+/// (4, 8 or 16), so the returned value never overflows for
+/// any realistic file offset.
+#[inline]
+pub(crate) const fn align_up_u32(offset: u32, align: u32) -> u32 {
+  (offset + align - 1) & !(align - 1)
+}
+
 // Version constants
 pub(crate) const MACOS_VERSION_14_0: u32 = 0x000E0000; // macOS 14.0
 
@@ -5997,27 +6031,89 @@ impl MachO {
       self.header.flags &= !MH_NOUNDEFS;
     }
 
-    let symtab_offset = linkedit_start + bind_size;
+    // Resolve the indirect symbol table NOW so the offset
+    // math below counts the exact same entries the write-out
+    // emits. The table is `self.indirect_symbols` plus any
+    // entries pulled from `symbol_refs`; computing it once
+    // keeps `nindirectsyms`, the reserved LINKEDIT space, and
+    // the bytes written perfectly in lockstep.
+    let mut all_indirect = self.indirect_symbols.clone();
+
+    if !self.symbol_refs.is_empty() {
+      for index in self.generate_indirect_symbol_table() {
+        if !all_indirect.contains(&index) {
+          all_indirect.push(index);
+        }
+      }
+    }
+
+    // `__LINKEDIT` sub-blob layout. Each table is placed at
+    // the next offset that satisfies its ABI alignment, and
+    // every padding byte is folded into `base_linkedit_size`
+    // so the offset math here and the byte stream in the
+    // write-out below never diverge:
+    //
+    //   linkedit_start
+    //     bind opcodes        (bind_size)
+    //     pad -> 8            (symtab)
+    //     nlist_64 table      (symtab_size)
+    //     string table        (strtab_size)
+    //     pad -> 4            (indirect / relocations)
+    //     indirect symtab     (indirect_symtab_size)
+    //     relocations         (relocations_size)
+    //     pad -> 16           (code signature)
+    //     code signature      (signature_size)
+    let symtab_offset =
+      align_up_u32(linkedit_start + bind_size, LINKEDIT_SYMTAB_ALIGN);
+    let bind_padding = symtab_offset - (linkedit_start + bind_size);
     let symtab_size = n_symbols * std::mem::size_of::<Nlist64>() as u32;
+
     let strtab_offset = symtab_offset + symtab_size;
     let strtab_size = string_table.len() as u32;
-    let indirect_symtab_offset = strtab_offset + strtab_size;
-    let indirect_symtab_size = self.indirect_symbols.len() as u32 * 4;
 
-    // Calculate base LINKEDIT content size
-    let base_linkedit_size =
-      bind_size + symtab_size + strtab_size + indirect_symtab_size;
+    let indirect_symtab_offset =
+      align_up_u32(strtab_offset + strtab_size, LINKEDIT_U32_TABLE_ALIGN);
+    let strtab_padding = indirect_symtab_offset - (strtab_offset + strtab_size);
+    let indirect_symtab_size = all_indirect.len() as u32 * 4;
+
+    // Relocation records (`relocation_info`, 8 bytes each)
+    // follow the indirect table. They inherit its 4-byte
+    // alignment since the indirect table size is a multiple
+    // of 4. Folding them in keeps the segment `filesize`,
+    // `code_limit`, and the final `output.resize` correct
+    // when the writer emits relocations. Their file offset is
+    // derived in the write-out from `output.len()` and stored
+    // in each section's `reloff`.
+    let relocations_size = (self.text_relocations.len()
+      + self.data_relocations.len()) as u32
+      * std::mem::size_of::<RelocationInfo>() as u32;
+
+    // LINKEDIT content size excluding the code signature.
+    let base_linkedit_size = bind_size
+      + bind_padding
+      + symtab_size
+      + strtab_size
+      + strtab_padding
+      + indirect_symtab_size
+      + relocations_size;
+
+    // The code signature's SuperBlob must start on a 16-byte
+    // boundary; pad the gap after the base content.
+    let signature_offset = align_up_u32(
+      linkedit_start + base_linkedit_size,
+      LINKEDIT_CODE_SIGNATURE_ALIGN,
+    );
+    let signature_padding =
+      signature_offset - (linkedit_start + base_linkedit_size);
 
     // Calculate signature size if needed
     let mut signature_size = 0u32;
-    let mut signature_offset = 0u32;
 
     if with_signature {
-      // Signature starts right after the base LINKEDIT content
-      signature_offset = linkedit_start + base_linkedit_size;
-
-      // Calculate the size of the binary WITHOUT signature (for code_limit)
-      let code_limit = self.linkedit_file_offset() + base_linkedit_size as u64;
+      // The signed region (`code_limit`) covers everything up
+      // to the signature's aligned start — base content plus
+      // the 16-byte alignment padding.
+      let code_limit = signature_offset as u64;
 
       // Code-signing page size: 4096 bytes (see
       // `generate_code_signature` for the rationale —
@@ -6039,8 +6135,12 @@ impl MachO {
       signature_size = (signature_size + 15) & !15;
     }
 
-    // Total LINKEDIT size includes signature
-    let total_linkedit_size = base_linkedit_size + signature_size;
+    // Total LINKEDIT size: base content + signature alignment
+    // padding + signature blob. The padding lands inside the
+    // segment whether or not a signature follows, so the
+    // segment `filesize`/`vmsize` always cover it.
+    let total_linkedit_size =
+      base_linkedit_size + signature_padding + signature_size;
 
     // Pre-size `output` to the final binary length so the
     // writer doesn't pay for ~4 doublings as it grows
@@ -6061,7 +6161,7 @@ impl MachO {
         n_external,
         n_undefined,
         indirect_symtab_offset,
-        self.indirect_symbols.len() as u32,
+        all_indirect.len() as u32,
       );
     }
 
@@ -6194,10 +6294,13 @@ impl MachO {
     // Pad to LINKEDIT offset
     output.resize(self.linkedit_file_offset() as usize, 0);
 
-    // Write bind data (dyld non-lazy binding opcodes).
+    // Write bind data (dyld non-lazy binding opcodes), then
+    // pad to the 8-byte boundary the `nlist_64` table needs.
     if !self.bind_data.is_empty() {
       output.extend_from_slice(&self.bind_data);
     }
+
+    output.resize(output.len() + bind_padding as usize, 0);
 
     // Write symbol table
     for (symbol, str_offset) in
@@ -6257,23 +6360,14 @@ impl MachO {
       });
     }
 
-    // Write string table
+    // Write string table, then pad so the indirect symbol
+    // table (`u32` entries) that follows stays 4-byte aligned.
     output.extend_from_slice(&string_table);
+    output.resize(output.len() + strtab_padding as usize, 0);
 
-    // Write indirect symbol table
-    // Combine indirect_symbols with symbols from symbol_refs
-    let mut all_indirect = self.indirect_symbols.clone();
-
-    if !self.symbol_refs.is_empty() {
-      let refs_indirect = self.generate_indirect_symbol_table();
-
-      for idx in refs_indirect {
-        if !all_indirect.contains(&idx) {
-          all_indirect.push(idx);
-        }
-      }
-    }
-
+    // Write the indirect symbol table resolved above; reusing
+    // `all_indirect` keeps the byte count identical to the
+    // space reserved for `indirect_symtab_size`.
     for &index in &all_indirect {
       output.extend_from_slice(&index.to_le_bytes());
     }
@@ -6312,15 +6406,19 @@ impl MachO {
       output.extend_from_slice(&data_reloc_data);
     }
 
-    // Pad to complete LINKEDIT segment size (without signature)
-    let base_final_size =
-      (self.linkedit_file_offset() + base_linkedit_size as u64) as usize;
-
-    output.resize(base_final_size, 0);
+    // Pad to the 16-byte-aligned signature start. `output`
+    // now holds exactly `base_linkedit_size` bytes of
+    // LINKEDIT content; resizing to `signature_offset` adds
+    // the alignment padding, so the next byte — whether the
+    // signature or the segment tail — begins aligned and the
+    // hashed `code_limit` matches the value used to size the
+    // signature above.
+    output.resize(signature_offset as usize, 0);
 
     // Add code signature if requested
     if with_signature {
-      // The code_limit is the size WITHOUT the signature
+      // The code_limit is the aligned size WITHOUT the
+      // signature — identical to `signature_offset`.
       let code_limit = output.len() as u32;
 
       let signature = Self::generate_code_signature(

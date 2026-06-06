@@ -54,10 +54,12 @@ pub fn bundle(spec: &BundleSpec) -> io::Result<()> {
   Ok(())
 }
 
-/// The minimal `Info.plist` the Simulator needs to install + launch a
-/// legacy (non-scene) UIKit app: identity, package type, the platform
-/// it was built for, and an empty `UILaunchScreen` so the app draws
-/// full-screen instead of letterboxed.
+/// The `Info.plist` the Simulator needs to install + launch the app:
+/// identity, package type, the platform it was built for, an empty
+/// `UILaunchScreen` so the app draws full-screen, and the
+/// `UIApplicationSceneManifest` that opts into the `UIScene` lifecycle
+/// and names `ZoSceneDelegate` — without it UIKit stays on the legacy
+/// app-delegate window path and never connects the scene.
 fn info_plist(spec: &BundleSpec) -> String {
   let (platform, dt_platform) = if spec.simulator {
     ("iPhoneSimulator", "iphonesimulator")
@@ -83,6 +85,20 @@ fn info_plist(spec: &BundleSpec) -> String {
   <key>MinimumOSVersion</key><string>15.0</string>
   <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
   <key>UILaunchScreen</key><dict/>
+  <key>UIApplicationSceneManifest</key>
+  <dict>
+    <key>UIApplicationSupportsMultipleScenes</key><false/>
+    <key>UISceneConfigurations</key>
+    <dict>
+      <key>UIWindowSceneSessionRoleApplication</key>
+      <array>
+        <dict>
+          <key>UISceneConfigurationName</key><string>Default Configuration</string>
+          <key>UISceneDelegateClassName</key><string>ZoSceneDelegate</string>
+        </dict>
+      </array>
+    </dict>
+  </dict>
 </dict>
 </plist>
 "#,
