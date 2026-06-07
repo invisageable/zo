@@ -160,6 +160,29 @@ impl Rgba {
   }
 }
 
+/// The surface material an element paints with. `Glass` opts into
+/// Apple's Liquid Glass on iOS 26 (a frosted approximation on web /
+/// egui); a declared `background` colour tints the glass instead of
+/// filling it solid.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub enum Material {
+  /// A solid fill — today's behaviour, byte-identical default.
+  #[default]
+  Solid,
+  /// A translucent glass material in the given style.
+  Glass(GlassStyle),
+}
+
+/// The Liquid Glass variant, mirroring `UIGlassEffectStyle`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub enum GlassStyle {
+  /// Standard glass — the more opaque, legible default.
+  #[default]
+  Regular,
+  /// Clear glass — thinner, lets more of the backdrop through.
+  Clear,
+}
+
 /// Fully resolved style for one element. Renderers consume this
 /// after the cascade has folded UA + author + inline patches.
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
@@ -191,6 +214,9 @@ pub struct ComputedStyle {
   // color.
   pub color: Rgba,
   pub background: Rgba,
+
+  // surface.
+  pub material: Material,
 }
 
 impl ComputedStyle {
@@ -217,6 +243,7 @@ impl ComputedStyle {
     line_height: 1.2,
     color: Rgba::BLACK,
     background: Rgba::WHITE,
+    material: Material::Solid,
   };
 }
 
@@ -254,6 +281,8 @@ pub struct StylePatch {
 
   pub color: Option<Rgba>,
   pub background: Option<Rgba>,
+
+  pub material: Option<Material>,
 }
 
 impl StylePatch {
@@ -278,6 +307,7 @@ impl StylePatch {
     line_height: None,
     color: None,
     background: None,
+    material: None,
   };
 
   /// Merge another patch on top of this one. Set fields in `other`
@@ -344,6 +374,9 @@ impl StylePatch {
     if other.background.is_some() {
       self.background = other.background;
     }
+    if other.material.is_some() {
+      self.material = other.material;
+    }
   }
 
   /// Fold this patch into a `ComputedStyle`. Set fields overwrite;
@@ -408,6 +441,9 @@ impl StylePatch {
     }
     if let Some(v) = self.background {
       base.background = v;
+    }
+    if let Some(v) = self.material {
+      base.material = v;
     }
   }
 }

@@ -13,7 +13,8 @@
 //! native; the web renderer still honours them through real CSS.
 
 use super::computed::{
-  Align, Display, Edges, FlexDirection, Justify, Rgba, Size, StylePatch,
+  Align, Display, Edges, FlexDirection, GlassStyle, Justify, Material, Rgba,
+  Size, StylePatch,
 };
 
 /// Parse a compiled stylesheet into `(tag, patch)` rules. Order is
@@ -136,7 +137,25 @@ fn apply_declaration(patch: &mut StylePatch, name: &str, value: &str) {
     "min-height" => patch.min_height = parse_size(value),
     "padding" => patch.padding = parse_edges(value),
     "margin" => patch.margin = parse_edges(value),
+    "material" => patch.material = parse_material(value),
     _ => {}
+  }
+}
+
+/// `material: glass | glass clear | solid` → `Material`. The first
+/// token picks the material; a `glass` second token picks the style
+/// (`clear`, else `regular`). Unknown values yield `None`, so the
+/// element keeps the cascaded `Solid` default.
+fn parse_material(value: &str) -> Option<Material> {
+  let mut parts = value.split_whitespace();
+
+  match parts.next()? {
+    "glass" => Some(Material::Glass(match parts.next() {
+      Some("clear") => GlassStyle::Clear,
+      _ => GlassStyle::Regular,
+    })),
+    "solid" | "none" => Some(Material::Solid),
+    _ => None,
   }
 }
 
@@ -393,5 +412,41 @@ mod tests {
     let rules = parse("p { color: red; }");
 
     assert!(author_patch(&rules, "h1").is_none());
+  }
+
+  #[test]
+  fn material_glass_regular_and_clear() {
+    let rules =
+      parse("button { material: glass; } .card { material: glass clear; }");
+
+    assert_eq!(
+      author_patch(&rules, "button").unwrap().material,
+      Some(Material::Glass(GlassStyle::Regular))
+    );
+    assert_eq!(
+      author_patch(&rules, ".card").unwrap().material,
+      Some(Material::Glass(GlassStyle::Clear))
+    );
+  }
+
+  #[test]
+  fn material_solid_and_unknown() {
+    let rules = parse("a { material: solid; } b { material: marble; }");
+
+    assert_eq!(
+      author_patch(&rules, "a").unwrap().material,
+      Some(Material::Solid)
+    );
+    // An unmodelled value leaves `material` unset → cascaded default.
+    assert_eq!(author_patch(&rules, "b").unwrap().material, None);
+  }
+
+  #[test]
+  fn material_coexists_with_background_tint() {
+    let rules = parse("button { material: glass; background: #3b82f6; }");
+    let patch = author_patch(&rules, "button").unwrap();
+
+    assert_eq!(patch.material, Some(Material::Glass(GlassStyle::Regular)));
+    assert_eq!(patch.background, Some(Rgba::rgb(59, 130, 246)));
   }
 }

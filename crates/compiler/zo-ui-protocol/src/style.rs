@@ -14,6 +14,7 @@ pub mod ua;
 pub use cascade::resolve;
 pub use computed::{
   Align, ComputedStyle, Display, Edges, FlexDirection, FontFamily, FontStyle,
-  Justify, Rgba, Size, StylePatch, TextAlign, TextDecoration,
+  GlassStyle, Justify, Material, Rgba, Size, StylePatch, TextAlign,
+  TextDecoration,
 };
 pub use ua::{UA_SHEET, lookup as ua_lookup};
