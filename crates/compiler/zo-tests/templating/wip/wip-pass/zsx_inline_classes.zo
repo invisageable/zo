@@ -7,5 +7,5 @@ fun main() {
     <li.list-item>Item3</li>
   </ul>;
 
-  #dom app;
+  #render app;
 }

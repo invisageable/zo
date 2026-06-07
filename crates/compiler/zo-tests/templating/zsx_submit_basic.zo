@@ -12,5 +12,5 @@ fun main() {
     />
   </>;
 
-  #dom view;
+  #render view;
 }

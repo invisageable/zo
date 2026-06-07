@@ -5,5 +5,5 @@ fun main() {
   imu second: str = "world";
   imu view: </> ::= <p>{first}, {second}!</p>;
 
-  #dom view;
+  #render view;
 }

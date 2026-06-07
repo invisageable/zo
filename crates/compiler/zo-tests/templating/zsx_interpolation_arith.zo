@@ -5,5 +5,5 @@ fun main() {
   imu y: int = 20;
   imu view: </> ::= <p>total: {x + y}</p>;
 
-  #dom view;
+  #render view;
 }

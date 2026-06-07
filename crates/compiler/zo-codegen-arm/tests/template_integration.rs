@@ -44,7 +44,7 @@ fn test_complete_template_binary() {
     bindings: zo_sir::TemplateBindings::default(),
   });
 
-  let dom_name = interner.intern("dom");
+  let dom_name = interner.intern("render");
 
   sir.emit(Insn::Directive {
     name: dom_name,
@@ -59,7 +59,11 @@ fn test_complete_template_binary() {
   assert!(codegen.has_templates, "Should have templates");
 
   let link_obj = codegen.into_link_object(artifact);
-  let macho_binary = zo_linker::link_macho(link_obj).executable;
+  let macho_binary = zo_linker::link_macho(
+    link_obj,
+    zo_codegen_backend::Target::Arm64AppleDarwin,
+  )
+  .executable;
 
   assert!(!macho_binary.is_empty(), "Should generate Mach-O binary");
 
@@ -153,7 +157,7 @@ fn test_template_memory_layout() {
 
   // `Insn::Template` postcard-encodes its command stream into
   // a `template_data` rodata payload — no ARM instructions
-  // land in `artifact.code` until a `#dom` directive triggers
+  // land in `artifact.code` until a `#render` directive triggers
   // `emit_render_call`. Verify the rodata blob exists, is
   // attached to the expected symbol, and decodes back to the
   // same command stream we fed in.
@@ -225,7 +229,11 @@ fn test_multiple_templates() {
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
   let link_obj = codegen.into_link_object(artifact);
-  let macho = zo_linker::link_macho(link_obj).executable;
+  let macho = zo_linker::link_macho(
+    link_obj,
+    zo_codegen_backend::Target::Arm64AppleDarwin,
+  )
+  .executable;
 
   assert!(!macho.is_empty(), "Should generate Mach-O binary");
 

@@ -2,5 +2,5 @@ fun main() {
   -- fragment are root cannot be nested?!.
   imu view: </> ::= <><></></>;
 
-  #dom view;
+  #render view;
 }

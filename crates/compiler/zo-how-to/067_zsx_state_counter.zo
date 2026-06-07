@@ -16,6 +16,6 @@ fun main() {
     <button @click={fn() => count += 1}>+</button>
   </>;
 
-  -- `#dom` renders the template. clicks update the count.
-  #dom counter;
+  -- `#render` renders the template. clicks update the count.
+  #render counter;
 }

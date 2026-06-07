@@ -5,5 +5,5 @@ fun counter() {
     clicks: {Counter.count}
   </button>;
 
-  #dom component;
+  #render component;
 }

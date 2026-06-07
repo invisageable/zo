@@ -169,7 +169,7 @@ fn main() {
   );
 
   // templating/ — ZSX programs. Now windowed: P2 of
-  // `PLAN_DOM_CODEGEN_WIRING` wired `#dom` codegen to
+  // `PLAN_DOM_CODEGEN_WIRING` wired `#render` codegen to
   // `_zo_run_native` in `libzo_runtime_native.dylib`,
   // which blocks on `eframe::run_native`. Same WindowRun
   // shape as raylib / misato: build always, run only with

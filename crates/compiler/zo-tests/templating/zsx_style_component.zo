@@ -20,5 +20,5 @@ fun main() {
     <p class="subtitle">welcome to zo</p>
   </>;
 
-  #dom view;
+  #render view;
 }

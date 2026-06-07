@@ -1,7 +1,3 @@
-//! ```sh
-//! cargo run --release --bin zon -- build zo-samples/tests/test_1000000_funcs.zo --target arm64-apple-darwin
-//! ```
-
 use crate::constants::{
   ANALYZER_NAME, CODEGEN_NAME, LINKER_NAME, PARSER_NAME, TOKENIZER_NAME,
 };
@@ -1942,15 +1938,22 @@ impl Compiler {
     // the program imports and reports `RuntimeKind` — lean
     // core when every import resolves in the 1.3 MB core,
     // the full 9.9 MB UI build when any UI-exclusive
-    // symbol (`#dom` / render) is referenced. Vendored
+    // symbol (`#render` / render) is referenced. Vendored
     // `#link` dylibs (raylib, …) are staged separately by
     // basename from the SIR.
-    stage_runtime_artifacts(
-      runtime,
-      &lowering.semantic.sir,
-      &lowering.session.interner,
-      lowering.output_path,
-    );
+    if matches!(
+      lowering.target,
+      Target::Arm64AppleIos | Target::Arm64AppleIosSim
+    ) {
+      bundle_ios(lowering.target, lowering.output_path);
+    } else {
+      stage_runtime_artifacts(
+        runtime,
+        &lowering.semantic.sir,
+        &lowering.session.interner,
+        lowering.output_path,
+      );
+    }
 
     self.profiler.end_phase(LINKER_NAME);
     self
@@ -2175,12 +2178,16 @@ impl Compiler {
         }
       };
 
-      stage_runtime_artifacts(
-        runtime,
-        &semantic.sir,
-        &session.interner,
-        output_path,
-      );
+      if matches!(target, Target::Arm64AppleIos | Target::Arm64AppleIosSim) {
+        bundle_ios(target, output_path);
+      } else {
+        stage_runtime_artifacts(
+          runtime,
+          &semantic.sir,
+          &session.interner,
+          output_path,
+        );
+      }
     }
 
     let errors = self.reporter.errors();
@@ -2377,6 +2384,59 @@ fn stage_runtime_artifacts(
 
   for name in &needs.dylib_basenames {
     stage_dylib(runtime_dir, &deps_dir, name);
+  }
+}
+
+/// Build the iOS `.app` for a `--target=ios*` binary instead of a
+/// desktop `deps/` staging — an iOS binary loads its runtime from
+/// `App.app/Frameworks/`, never a sibling `deps/`.
+///
+/// The runtime dylib is the cross-compiled
+/// `target/<rust-triple>/<profile>/libzo_runtime.dylib`, a sibling of
+/// the compiler's own `target/<profile>/` (where `current_exe` lives).
+fn bundle_ios(target: Target, output_path: &std::path::Path) {
+  let Some(name) = output_path.file_stem().and_then(|s| s.to_str()) else {
+    return;
+  };
+
+  let Ok(zo_binary) = std::env::current_exe() else {
+    return;
+  };
+
+  let Some(profile_dir) = zo_binary.parent() else {
+    return;
+  };
+
+  let (Some(target_root), Some(profile)) =
+    (profile_dir.parent(), profile_dir.file_name())
+  else {
+    return;
+  };
+
+  let triple = match target {
+    Target::Arm64AppleIosSim => "aarch64-apple-ios-sim",
+    Target::Arm64AppleIos => "aarch64-apple-ios",
+    _ => return,
+  };
+
+  let runtime_dylib = target_root
+    .join(triple)
+    .join(profile)
+    .join("libzo_runtime.dylib");
+  let app_dir = output_path.with_extension("app");
+  let bundle_id = format!("house.compilords.{name}");
+
+  let spec = zo_bundler::ios::BundleSpec {
+    binary: output_path,
+    runtime_dylib: &runtime_dylib,
+    app_dir: &app_dir,
+    name,
+    bundle_id: &bundle_id,
+    simulator: matches!(target, Target::Arm64AppleIosSim),
+  };
+
+  if let Err(error) = zo_bundler::ios::bundle(&spec) {
+    eprintln!("zo: iOS bundle failed: {error}");
   }
 }
 

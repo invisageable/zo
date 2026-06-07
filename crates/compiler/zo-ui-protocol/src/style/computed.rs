@@ -19,6 +19,36 @@ pub enum Display {
   None,
 }
 
+/// Flex main axis. `Row` lays children left-to-right, `Column`
+/// top-to-bottom. The only two directions zo's layout needs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub enum FlexDirection {
+  #[default]
+  Row,
+  Column,
+}
+
+/// Main-axis distribution of flex children (`justify-content`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub enum Justify {
+  #[default]
+  Start,
+  Center,
+  End,
+  SpaceBetween,
+}
+
+/// Cross-axis alignment of flex children (`align-items`). `Stretch`
+/// is the CSS default; the others pin children to one edge or centre.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub enum Align {
+  #[default]
+  Stretch,
+  Start,
+  Center,
+  End,
+}
+
 /// Generic font family bucket. Mapped to a concrete font by the
 /// renderer (egui's proportional/monospace; CSS's
 /// sans-serif/serif/monospace on the web).
@@ -143,6 +173,12 @@ pub struct ComputedStyle {
   pub min_width: Size,
   pub min_height: Size,
 
+  // flex.
+  pub flex_direction: FlexDirection,
+  pub justify_content: Justify,
+  pub align_items: Align,
+  pub gap: f32,
+
   // typography.
   pub font_family: FontFamily,
   pub font_size: f32,
@@ -168,6 +204,10 @@ impl ComputedStyle {
     height: Size::Auto,
     min_width: Size::Auto,
     min_height: Size::Auto,
+    flex_direction: FlexDirection::Row,
+    justify_content: Justify::Start,
+    align_items: Align::Stretch,
+    gap: 0.0,
     font_family: FontFamily::Sans,
     font_size: 16.0,
     font_weight: 400,
@@ -199,6 +239,11 @@ pub struct StylePatch {
   pub min_width: Option<Size>,
   pub min_height: Option<Size>,
 
+  pub flex_direction: Option<FlexDirection>,
+  pub justify_content: Option<Justify>,
+  pub align_items: Option<Align>,
+  pub gap: Option<f32>,
+
   pub font_family: Option<FontFamily>,
   pub font_size: Option<f32>,
   pub font_weight: Option<u16>,
@@ -220,6 +265,10 @@ impl StylePatch {
     height: None,
     min_width: None,
     min_height: None,
+    flex_direction: None,
+    justify_content: None,
+    align_items: None,
+    gap: None,
     font_family: None,
     font_size: None,
     font_weight: None,
@@ -230,6 +279,72 @@ impl StylePatch {
     color: None,
     background: None,
   };
+
+  /// Merge another patch on top of this one. Set fields in `other`
+  /// overwrite; unset fields leave this patch's field untouched. Used
+  /// to fold several author rules that target the same tag into one.
+  pub fn overlay(&mut self, other: &Self) {
+    if other.display.is_some() {
+      self.display = other.display;
+    }
+    if other.margin.is_some() {
+      self.margin = other.margin;
+    }
+    if other.padding.is_some() {
+      self.padding = other.padding;
+    }
+    if other.width.is_some() {
+      self.width = other.width;
+    }
+    if other.height.is_some() {
+      self.height = other.height;
+    }
+    if other.min_width.is_some() {
+      self.min_width = other.min_width;
+    }
+    if other.min_height.is_some() {
+      self.min_height = other.min_height;
+    }
+    if other.flex_direction.is_some() {
+      self.flex_direction = other.flex_direction;
+    }
+    if other.justify_content.is_some() {
+      self.justify_content = other.justify_content;
+    }
+    if other.align_items.is_some() {
+      self.align_items = other.align_items;
+    }
+    if other.gap.is_some() {
+      self.gap = other.gap;
+    }
+    if other.font_family.is_some() {
+      self.font_family = other.font_family;
+    }
+    if other.font_size.is_some() {
+      self.font_size = other.font_size;
+    }
+    if other.font_weight.is_some() {
+      self.font_weight = other.font_weight;
+    }
+    if other.font_style.is_some() {
+      self.font_style = other.font_style;
+    }
+    if other.text_align.is_some() {
+      self.text_align = other.text_align;
+    }
+    if other.text_decoration.is_some() {
+      self.text_decoration = other.text_decoration;
+    }
+    if other.line_height.is_some() {
+      self.line_height = other.line_height;
+    }
+    if other.color.is_some() {
+      self.color = other.color;
+    }
+    if other.background.is_some() {
+      self.background = other.background;
+    }
+  }
 
   /// Fold this patch into a `ComputedStyle`. Set fields overwrite;
   /// unset fields leave the base untouched.
@@ -254,6 +369,18 @@ impl StylePatch {
     }
     if let Some(v) = self.min_height {
       base.min_height = v;
+    }
+    if let Some(v) = self.flex_direction {
+      base.flex_direction = v;
+    }
+    if let Some(v) = self.justify_content {
+      base.justify_content = v;
+    }
+    if let Some(v) = self.align_items {
+      base.align_items = v;
+    }
+    if let Some(v) = self.gap {
+      base.gap = v;
     }
     if let Some(v) = self.font_family {
       base.font_family = v;

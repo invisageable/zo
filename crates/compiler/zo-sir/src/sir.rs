@@ -899,7 +899,7 @@ pub enum Insn {
     rhs: ValueId,
     ty_id: TyId,
   },
-  /// Directive execution (e.g., #dom, #run)
+  /// Directive execution (e.g., #render, #run)
   Directive {
     name: Symbol,
     value: ValueId,

@@ -8,5 +8,5 @@ fun main() {
     <button on:click={fn() => count += 1}>count</button>
   </>;
 
-  #dom counter;
+  #render counter;
 }

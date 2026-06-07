@@ -35,3 +35,12 @@ pub mod vec;
 
 #[cfg(feature = "ui")]
 pub use runtime::Runtime;
+
+/// Force-link the iOS UIKit backend's `_zo_run_native` into this
+/// cdylib. The desktop dispatcher references `zo-runtime-native`,
+/// which co-locates and thereby keeps its entry symbol; on iOS the
+/// dispatcher is a no-op, so the entry the AOT binary calls is dead-
+/// stripped unless something references the crate. This re-export is
+/// that reference.
+#[cfg(all(feature = "ui", target_os = "ios"))]
+pub use zo_runtime_ios::zo_run_native;

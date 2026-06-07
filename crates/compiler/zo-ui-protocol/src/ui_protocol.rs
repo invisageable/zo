@@ -5,6 +5,16 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The per-item placeholder inside a list binding's recipe.
+///
+/// A list binding's item recipe is a `Vec<UiCommand>` sub-stream
+/// (e.g. `<li>{t}</li>` → `Element(Li)`, `Text(SENTINEL)`,
+/// `EndElement`). Codegen embeds it with this sentinel where the
+/// item value goes; the runtime substitutes each array element
+/// for the sentinel `Text` as it renders the list. The NUL
+/// wrapping makes a collision with real user text impossible.
+pub const LIST_ITEM_SENTINEL: &str = "\u{0}__zo_list_item__\u{0}";
+
 /// Stylesheet scope.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum StyleScope {

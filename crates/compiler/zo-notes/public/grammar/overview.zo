@@ -307,7 +307,7 @@ fun main() {
   imu name: str = "world";
   imu hello: </> ::= <h1>hello, {name}!</h1>;
 
-  #dom hello;
+  #render hello;
 }
 
 -- expr:zsx.
@@ -320,7 +320,7 @@ fun main() {
     <button onclick={fn() -> count += 1}>+</button>
   </>;
 
-  #dom counter
+  #render counter
 }
 
 -- stmt:if.

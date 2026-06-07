@@ -4,5 +4,5 @@ fun main() {
   imu count: int = 42;
   imu view: </> ::= <p>count: {count}</p>;
 
-  #dom view;
+  #render view;
 }

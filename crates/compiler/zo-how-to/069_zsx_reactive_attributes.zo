@@ -27,7 +27,7 @@ fun main() {
     <img {src} {width} height="128" />
   </>;
 
-  #dom view;
+  #render view;
 }
 
 -- ## how does this work?

@@ -133,7 +133,11 @@ fn test_template_entry_point_export() {
   let link_obj = codegen.into_link_object(artifact);
 
   // Generate Mach-O and verify it has the entry point
-  let macho = zo_linker::link_macho(link_obj).executable;
+  let macho = zo_linker::link_macho(
+    link_obj,
+    zo_codegen_backend::Target::Arm64AppleDarwin,
+  )
+  .executable;
 
   assert!(!macho.is_empty(), "Should generate Mach-O binary");
 
@@ -179,8 +183,8 @@ fn test_template_with_dom_directive() {
     bindings: zo_sir::TemplateBindings::default(),
   });
 
-  // Add #dom directive
-  let dom_name = interner.intern("dom");
+  // Add #render directive
+  let dom_name = interner.intern("render");
 
   sir.emit(Insn::Directive {
     name: dom_name,
@@ -195,22 +199,25 @@ fn test_template_with_dom_directive() {
   assert!(codegen.has_templates, "Should have templates");
 
   println!(
-    "Generated {} bytes with #dom directive",
+    "Generated {} bytes with #render directive",
     artifact.code.len()
   );
 
-  // `#dom` imports `_zo_run_native` — a UI-exclusive
+  // `#render` imports `_zo_run_native` — a UI-exclusive
   // symbol — so the linker must select the full runtime,
   // and its `LC_LOAD_DYLIB` must resolve through the one
   // canonical runtime path (no parallel absolute-path
   // `libzo_runtime_native` reference).
   let link_obj = codegen.into_link_object(artifact);
-  let output = zo_linker::link_macho(link_obj);
+  let output = zo_linker::link_macho(
+    link_obj,
+    zo_codegen_backend::Target::Arm64AppleDarwin,
+  );
 
   assert_eq!(
     output.runtime,
     zo_linker::RuntimeKind::Full,
-    "a #dom program must select the full UI runtime"
+    "a #render program must select the full UI runtime"
   );
 
   // All six UI symbols route to the same canonical runtime

@@ -1,7 +1,7 @@
 -! Filesystem path manipulation.
 -!
--! @note — pure string operations, no I/O or FFI. Paths are
--! plain `str` values — no opaque wrapper type.
+-! @note — string operations, no I/O or FFI. Paths are plain `str` values — no
+-! opaque wrapper type.
 
 -! Platform path separator.
 pub val SEPARATOR: str = "/";
@@ -25,9 +25,8 @@ pub fun join(base: str, child: str) -> str {
   base ++ SEPARATOR ++ child
 }
 
--! Directory portion of `path` (everything before the last
--! separator). Returns `"."` for bare filenames, `""` for
--! empty input.
+-! Directory portion of `path` (everything before the last separator). Returns
+-! `"."` for bare filenames, `""` for empty input.
 pub fun parent(path: str) -> str {
   imu n: int = path.len;
 

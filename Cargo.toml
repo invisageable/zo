@@ -59,6 +59,7 @@ zo-analyzer = { path = "crates/compiler/zo-analyzer", version = "0.4.0" }
 zo-benches = { path = "crates/compiler/zo-benches", version = "0.4.0" }
 zo-binder = { path = "crates/compiler/zo-binder", version = "0.4.0" }
 zo-buffer = { path = "crates/compiler/zo-buffer", version = "0.4.0" }
+zo-bundler = { path = "crates/compiler/zo-bundler", version = "0.4.0" }
 zo-c-abi = { path = "crates/compiler/zo-c-abi", version = "0.4.0" }
 zo-codegen = { path = "crates/compiler/zo-codegen", version = "0.4.0" }
 zo-codegen-arm = { path = "crates/compiler/zo-codegen-arm", version = "0.4.0" }
@@ -92,6 +93,7 @@ zo-profiler = { path = "crates/compiler/zo-profiler", version = "0.4.0" }
 zo-register-allocation = { path = "crates/compiler/zo-register-allocation", version = "0.4.0" }
 zo-reporter = { path = "crates/compiler/zo-reporter", version = "0.4.0" }
 zo-runtime = { path = "crates/compiler/zo-runtime", version = "0.4.0" }
+zo-runtime-ios = { path = "crates/compiler/zo-runtime-ios", version = "0.4.0" }
 zo-runtime-native = { path = "crates/compiler/zo-runtime-native", version = "0.4.0" }
 zo-runtime-render = { path = "crates/compiler/zo-runtime-render", version = "0.4.0" }
 zo-runtime-web = { path = "crates/compiler/zo-runtime-web", version = "0.4.0" }
@@ -192,6 +194,34 @@ log = "0.4.29"
 noise = "0.9.0"
 notify = "8.2.0"
 notify-debouncer-mini = "0.7.0"
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", features = ["objc2", "CFCGTypes"] }
+objc2-foundation = { version = "0.3", features = [
+  "NSString",
+  "NSArray",
+  "NSObject",
+  "NSDictionary",
+  "NSGeometry",
+] }
+objc2-ui-kit = { version = "0.3", features = [
+  "UIApplication",
+  "UIResponder",
+  "UIWindow",
+  "UIView",
+  "UIViewController",
+  "UIControl",
+  "UIButton",
+  "UILabel",
+  "UITextField",
+  "UIScene",
+  "UIWindowScene",
+  "UISceneOptions",
+  "UISceneSession",
+  "UIScreen",
+  "UIColor",
+  "UIGeometry",
+  "UIFont",
+] }
 num_cpus = "1.17.0"
 parking_lot = { version = "0.12.5", features = ["nightly"] }
 pdfium-render = "0.9.0"
@@ -223,6 +253,11 @@ smallvec = { version = "1.15.1", features = ["const_new", "serde"] }
 smol_str = { version = "0.3.6", features = ["serde"] }
 syn = { version = "2.0", features = ["full"] }
 sysinfo = "0.39.2"
+taffy = { version = "0.8", default-features = false, features = [
+  "std",
+  "taffy_tree",
+  "flexbox",
+] }
 target-lexicon = "0.13.5"
 tempfile = "3.27.0"
 thin-vec = "0.2.18"

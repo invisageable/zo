@@ -48,7 +48,10 @@ fn ensure_target_supported(target: Target) -> Result<(), LinkError> {
     | Target::X8664UnknownLinuxGnu => Ok(()),
     Target::Arm64PcWindowsMsvc
     | Target::X8664PcWindowsMsvc
-    | Target::Wasm32UnknownUnknown => Err(LinkError::CrossNotSupported(target)),
+    | Target::Wasm32UnknownUnknown
+    | Target::Arm64AppleIos
+    | Target::Arm64AppleIosSim
+    | Target::Aarch64LinuxAndroid => Err(LinkError::CrossNotSupported(target)),
   }
 }
 

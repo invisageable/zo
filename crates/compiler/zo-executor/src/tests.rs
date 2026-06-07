@@ -422,7 +422,7 @@ fn test_directives() {
     r#"
       fun main() {
         imu view: </> ::= <>hello</>;
-        #dom view;
+        #render view;
       }
     "#,
     &[

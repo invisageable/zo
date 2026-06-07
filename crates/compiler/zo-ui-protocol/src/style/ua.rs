@@ -8,7 +8,9 @@
 //! relevant. Lookup is keyed by the canonical lowercase tag name
 //! (`ElementTag::as_str()`), so `Custom("foo")` works too.
 
-use super::computed::{Edges, FontFamily, Rgba, StylePatch, TextDecoration};
+use super::computed::{
+  Display, Edges, FontFamily, Rgba, StylePatch, TextDecoration,
+};
 
 /// Convenience builder so the table below stays readable.
 const fn patch() -> StylePatch {
@@ -103,6 +105,14 @@ pub const UA_SHEET: &[(&str, StylePatch)] = &[
       bottom: 0.0,
       left: 40.0,
     }),
+    ..patch()
+  }),
+
+  // interactive — a button is a flex leaf with a comfortable hit
+  // padding; the layout solver collapses its label into one box.
+  ("button", StylePatch {
+    display: Some(Display::Flex),
+    padding: Some(Edges::all(6.0)),
     ..patch()
   }),
 

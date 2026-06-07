@@ -1427,7 +1427,7 @@ fn translate_body(
       // Module-level markers that the executor interleaves
       // with real work. No-ops in this backend: registration
       // already happened in the top-level first pass.
-      // `Directive` (`#run`, `#dom`) is a semantic marker —
+      // `Directive` (`#run`, `#render`) is a semantic marker —
       // no CLIF to emit.
       Insn::PackDecl { .. }
       | Insn::ModuleLoad { .. }

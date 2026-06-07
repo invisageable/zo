@@ -16,5 +16,5 @@ fun main() {
   -- css rules for `p` will be applied to this tag element.
   imu view: </> ::= <p>JOiN THE DEVOLUTiON</p>;
 
-  #dom view;
+  #render view;
 }

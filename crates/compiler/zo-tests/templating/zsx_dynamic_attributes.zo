@@ -5,5 +5,5 @@ fun main() {
 	imu name: str = "johndoe";
   imu image ::= <img {src} alt="a picture of '{name}'" />;
 
-  #dom image;
+  #render image;
 }

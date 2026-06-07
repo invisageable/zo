@@ -12,5 +12,5 @@ $: {
 fun main() {
   imu view: </> ::= <div class="card">content</div>;
 
-  #dom view;
+  #render view;
 }

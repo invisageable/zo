@@ -5,5 +5,5 @@ fun main() {
     <!-- <h1>I've been commented</h1> -->
   </>;
 
-  #dom view;
+  #render view;
 }

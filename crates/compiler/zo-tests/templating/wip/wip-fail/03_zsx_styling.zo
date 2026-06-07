@@ -25,5 +25,5 @@ fun main() {
     man.
   </p>;
 
-  #dom paragraph;
+  #render paragraph;
 }

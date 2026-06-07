@@ -10,5 +10,5 @@ fun main() {
     </div>
   </>;
 
-  #dom page;
+  #render page;
 }

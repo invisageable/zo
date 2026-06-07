@@ -7,5 +7,5 @@ fun main() {
     <button class="primary">Submit</button>
   </>;
 
-  #dom form;
+  #render form;
 }

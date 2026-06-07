@@ -833,7 +833,10 @@ impl PrettyPrinter {
     let arch_name = match target {
       Target::Arm64AppleDarwin
       | Target::Arm64PcWindowsMsvc
-      | Target::Arm64UnknownLinuxGnu => "ARM64",
+      | Target::Arm64UnknownLinuxGnu
+      | Target::Arm64AppleIos
+      | Target::Arm64AppleIosSim
+      | Target::Aarch64LinuxAndroid => "ARM64",
       Target::X8664AppleDarwin
       | Target::X8664PcWindowsMsvc
       | Target::X8664UnknownLinuxGnu => "X86-64",
@@ -846,7 +849,10 @@ impl PrettyPrinter {
     match target {
       Target::Arm64AppleDarwin
       | Target::Arm64PcWindowsMsvc
-      | Target::Arm64UnknownLinuxGnu => {
+      | Target::Arm64UnknownLinuxGnu
+      | Target::Arm64AppleIos
+      | Target::Arm64AppleIosSim
+      | Target::Aarch64LinuxAndroid => {
         self.disassemble_arm64(&artifact.code);
       }
       Target::X8664AppleDarwin

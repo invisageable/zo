@@ -9,5 +9,5 @@ fun main() {
   imu wrap := fn(text: str) =:> <div>{text}</div>; -- TODO: replace `=:>` with `::=`
   imu view: </> ::= <><warp text="hello world" /></>;
 
-  #dom view;
+  #render view;
 }

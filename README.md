@@ -35,7 +35,7 @@
   <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-web.png">
 </p>
 
-ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. NATiVE GPU OR THE WEB — SAME SOURCE.
+ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS (NATiVE GPU, WEB, ANDROiD OR iOS) — SAME SOURCE.
 
 **-concurrency**
 
@@ -116,19 +116,26 @@ zo SUPPORTS [`raylib`](https://www.raylib.com).
 
 ## why zo?
 
-zo iS BUiLT FROM THE GROUND UP USiNG DATA-ORiENTED DESiGN. BY HAND-ROLLiNG THE COMPiLER STAGES AND EMiTTiNG MACHiNE CODE DiRECTLY, zo ELiMiNATES THE OVERHEAD OF HEAVY ABSTRACTiONS AND EXTERNAL LiNKERS.
+zo iS A STATiCALLY COMPiLED SYSTEMS LANGUAGE, iT COMPiLES 500,000 LiNES iN 1.8 SECONDS TO A 32 KB BiNARY WiTHOUT A ViRTUAL MACHiNE OR GARBAGE COLLECTOR. THE LANGUAGE PAiRS CONCURRENT, GREEN-THREADED EXECUTiON WiTH A SiNGLE, DECLARATiVE CODEBASE THAT DEPLOYS DiRECTLY TO NATiVE PLATFORM WiDGETS ACROSS WEB, DESKTOP, AND MOBiLE.
+
+CROSS-PLATFORM DEVELOPMENT REQUiRES COMPROMiSE: MANAGiNG UNSTABLE, GENERATED GRADLE AND XCODE CONFiGURATiONS, OR CHOOSiNG BETWEEN JAVASCRiPT BRiDGE LATENCY AND CUSTOM CANVAS RENDERERS' NON-NATiVE SCROLLiNG, BROKEN TEXT RENDERiNG, AND iNACCESSiBLE SCREENS.
+
+zo RESOLVES THESE COMPROMiSES BY COMPiLiNG A SiNGLE, DECLARATiVE CODEBASE TO NATiVE PLATFORM WiDGETS. THE ZERO-DEPENDENCY COMPiLER PACKAGES AND SiGNS THE APPLiCATiON WiTHOUT EXTERNAL SOFTWARE DEVELOPMENT KiTS (SDKs), WHiLE A GREEN-THREADED SCHEDULER EXECUTES THE BiNARY WiTH NO ViRTUAL MACHiNES, GARBAGE COLLECTiON, OR PERFORMANCE BRiDGES.
 
 > *« Rust makes you wait. C makes you think. zo just lets you build. » — i10e*
 
 ### benchmarks.
 
-| Compiler  | Hot Average | Throughput      | vs zo             |
-| :-------- | :---------- | :-------------- | :---------------- |
-| **zo**    | **60 ms**   | **~167K LoC/s** | **1x (baseline)** |
-| **clang** | 148 ms      | ~67K LoC/s      | 2.4x slower       |
-| **rustc** | 321 ms      | ~31K LoC/s      | 5.3x slower       |
+| Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      | Speed vs zo      |
+| :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
+| **zo**   | 25.01ms  | 12.09ms  | 11.53ms  | 10.46ms  | 9.08ms   | **13.63ms**  | **1.0x**         |
+| clang    | 270.34ms | 76.76ms  | 81.65ms  | 66.49ms  | 61.47ms  | **111.34ms** | **8.2x slower**  |
+| go       | 376.35ms | 131.52ms | 125.96ms | 143.16ms | 129.17ms | **181.23ms** | **13.3x slower** |
+| rustc    | 272.33ms | 164.42ms | 147.28ms | 170.54ms | 167.56ms | **184.42ms** | **13.5x slower** |
+| gleam    | 205.87ms | 206.04ms | 205.66ms | 205.48ms | 202.47ms | **205.11ms** | **15.0x slower** |
+| odin     | 422.94ms | 216.09ms | 219.56ms | 228.20ms | 230.74ms | **263.50ms** | **19.3x slower** |
 
-*Workload: 10,000 lines of code compiled to native ARM64 binary (including Hindley-Milner type inference, monomorphization, type checking, constant folding, propagation, dead code elimination and link passes).*
+*Workload: 503 tasks in a ring (`threadring`). A token hops node-to-node `N` times compiled to native ARM64 binary (including Hindley-Milner type inference, monomorphization, type checking, constant folding, propagation, dead code elimination and link passes).*
 
 [@methodology-and-full-numbers](./crates/compiler/zo-benches)
 
@@ -210,7 +217,7 @@ THE AiM OF THE PROJECT iS TO ENHANCE THE DEVELOPER EXPERiENCE, MAKiNG iT SEAMLES
 
 zo iS A COMPLETE ECOSYSTEM THAT GiVES YOU THE KEYS. YOU FiNALLY HAVE CONTROL OVER YOUR WORKSTATiON. YOU'LL NEVER HAVE TO WORK BLiND AGAiN. OUR TOOLS PROViDE ALL THE iNFORMATiON YOU NEED FOR YOUR PROGRAM, FROM DESiGN TO DELiVERY.
 
-WE ARE AGAiNST ABUNDANT SOFTWARE UNiFORMiTY. zo UNiFiES THE WEB AND THE GPU — NOT BY FORCiNG THE WEB iNTO A CANVAS, BUT BY HARMONiZiNG FLEXBOX LAYOUTS WiTH RAW GPU POWER. WE WiLL DO EVERYTHiNG WE CAN TO PUSH THE BOUNDARiES OF iNNOVATiON TO THE LiMiT.
+WE ARE AGAiNST ABUNDANT SOFTWARE UNiFORMiTY. zo UNiFiES DESKTOP, MOBiLE AND THE WEB — NOT BY FORCiNG THE WEB iNTO A CANVAS, BUT BY HARMONiZiNG FLEXBOX LAYOUTS WiTH RAW GPU POWER. WE WiLL DO EVERYTHiNG WE CAN TO PUSH THE BOUNDARiES OF iNNOVATiON TO THE LiMiT.
 
 **JOiN THE DEVOLUTiON.**
 

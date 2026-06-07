@@ -14,5 +14,5 @@ fun main() {
   -- 2. we use this component inside this one as a nested one.
   imu paragraph: </> ::= <p><nested /></p>;
   -- 3- voilà! that's it!
-  #dom paragraph;
+  #render paragraph;
 }

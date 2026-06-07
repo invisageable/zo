@@ -43,7 +43,7 @@ fn snapshot_template_with_interpolation() {
       fun main() {
         imu component ::= <div class={if enabled {"on"} else {"off"}} />;
 
-        #dom component;
+        #render component;
       }
     "#,
   );
@@ -61,7 +61,7 @@ fn test_fragment_with_multiple_elements() {
           <footer>Footer</footer>
         </>;
 
-        #dom component;
+        #render component;
       }
     "#,
   );
@@ -81,7 +81,7 @@ fn test_mixed_code() {
           How are you today?
         </div>;
 
-        #dom component;
+        #render component;
       }
     "#,
   );

@@ -4,5 +4,5 @@ fun main() {
   imu nested ::= <p>lorem ipsum.</p>;
   imu paragraph ::= <p><nested /></p>;
 
-  #dom paragraph;
+  #render paragraph;
 }

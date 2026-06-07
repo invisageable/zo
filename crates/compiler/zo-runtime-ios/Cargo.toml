@@ -1,0 +1,24 @@
+[package]
+name = "zo-runtime-ios"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+# `cdylib` exposes `_zo_run_native` as a stable C-ABI symbol. A
+# `zo build --target=ios*` exe links `libzo_runtime.dylib` (this
+# crate, cross-compiled) and calls in at startup with a
+# `ZoRuntimeContext`. `rlib`/`staticlib` keep the future
+# static-link / aggregation paths open.
+crate-type = ["rlib", "staticlib", "cdylib"]
+doctest = false
+
+[dependencies]
+# internal:crates.
+zo-runtime-render = { workspace = true }
+zo-ui-protocol = { workspace = true }
+
+# external:crates.
+objc2 = { workspace = true }
+objc2-core-foundation = { workspace = true }
+objc2-foundation = { workspace = true }
+objc2-ui-kit = { workspace = true }

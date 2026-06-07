@@ -15,12 +15,21 @@ pub unsafe extern "C-unwind" fn zo_os_name() -> *const u8 {
     alloc_str(b"macos")
   }
 
+  #[cfg(target_os = "ios")]
+  {
+    alloc_str(b"ios")
+  }
+
   #[cfg(target_os = "linux")]
   {
     alloc_str(b"linux")
   }
 
-  #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+  #[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "linux"
+  )))]
   {
     alloc_str(b"unknown")
   }

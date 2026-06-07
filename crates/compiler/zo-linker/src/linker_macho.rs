@@ -17,27 +17,22 @@
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use zo_codegen_backend::MachoLinkObject;
+use zo_codegen_backend::Target;
 use zo_emitter_arm::X16;
 use zo_writer_macho::{
   CODE_OFFSET, DATA_SEGMENT_INDEX, LIBSYSTEM_DYLIB_ORDINAL, MachO, PAGE_MASK,
-  TEXT_SECTION_BASE, UI_EXCLUSIVE_RUNTIME_SYMBOLS, VM_BASE,
+  Simulator, TEXT_SECTION_BASE, UI_EXCLUSIVE_RUNTIME_SYMBOLS, VM_BASE,
   ZO_RUNTIME_SYMBOL_PREFIX, round_up_segment,
 };
-
-/// `LC_LOAD_DYLIB` path the binary records for zo's own
-/// runtime. The compiler stages the chosen runtime flavor
-/// (lean core or full UI) under this exact sibling path —
-/// see [`RuntimeKind`].
-const RUNTIME_DYLIB_LOAD_PATH: &str = "@loader_path/deps/libzo_runtime.dylib";
 
 /// Which `libzo_runtime.dylib` flavor a linked binary
 /// needs, derived from the runtime symbols it actually
 /// imports.
 ///
-/// The binary's `LC_LOAD_DYLIB` is identical in every case
-/// ([`RUNTIME_DYLIB_LOAD_PATH`]); only the file the
-/// compiler copies into the sibling `deps/` differs. The
-/// full dylib is a superset of the lean core, so binding
+/// The binary records one runtime `LC_LOAD_DYLIB` (a `deps/`
+/// sibling on desktop, an `App.app/Frameworks/` entry on
+/// iOS); only the file the compiler stages there differs by
+/// flavor. The full dylib is a superset of the lean core, so binding
 /// resolution is unaffected by the choice — a program that
 /// needs only lean symbols runs against either, but staging
 /// the 1.3 MB lean core avoids cold-loading the 9.9 MB GPU
@@ -92,9 +87,22 @@ pub struct LinkOutput {
 /// Assemble a mach-o executable from the codegen's
 /// `LinkObject`. Returns the executable bytes plus the
 /// runtime flavor to stage — see [`LinkOutput`].
-pub fn link_macho(link_obj: MachoLinkObject) -> LinkOutput {
+pub fn link_macho(link_obj: MachoLinkObject, target: Target) -> LinkOutput {
   let mut macho = MachO::new();
   let mut code = link_obj.code;
+
+  // iOS embeds the runtime in `App.app/Frameworks/` next to the
+  // flat `App.app/<binary>`; desktop stages it in a sibling
+  // `deps/`. Both resolve relative to the binary's own directory,
+  // so the only difference is the subdirectory.
+  let is_ios =
+    matches!(target, Target::Arm64AppleIos | Target::Arm64AppleIosSim);
+  let runtime_subdir = if is_ios {
+    "@executable_path/Frameworks"
+  } else {
+    "@loader_path/deps"
+  };
+  let runtime_load_path = format!("{runtime_subdir}/libzo_runtime.dylib");
 
   // The mach-o `__DATA` segment starts immediately after
   // the page-rounded `__TEXT` segment. We compute the
@@ -143,7 +151,7 @@ pub fn link_macho(link_obj: MachoLinkObject) -> LinkOutput {
   // would otherwise emit two identical `LC_LOAD_DYLIB`s.
   let final_load_path = |path: &str| -> String {
     if let Some(name) = path.strip_prefix("@executable_path/") {
-      format!("@loader_path/deps/{name}")
+      format!("{runtime_subdir}/{name}")
     } else {
       path.to_owned()
     }
@@ -161,7 +169,7 @@ pub fn link_macho(link_obj: MachoLinkObject) -> LinkOutput {
       // A `#link` symbol that resolves to the runtime path
       // is a runtime symbol — fold it into the single
       // runtime entry rather than a parallel ordinal.
-      if resolved == RUNTIME_DYLIB_LOAD_PATH {
+      if resolved == runtime_load_path {
         needs_runtime_dylib = true;
         runtime_kind = runtime_kind.max_with(classify(c_sym));
       } else if seen_path.insert(resolved.clone()) {
@@ -305,7 +313,7 @@ pub fn link_macho(link_obj: MachoLinkObject) -> LinkOutput {
   macho.add_dylib("/usr/lib/libSystem.B.dylib");
 
   if needs_runtime_dylib {
-    macho.add_dylib(RUNTIME_DYLIB_LOAD_PATH);
+    macho.add_dylib(&runtime_load_path);
   }
 
   // Each `#link { macos: ... }` path declared by a `pack`
@@ -321,7 +329,19 @@ pub fn link_macho(link_obj: MachoLinkObject) -> LinkOutput {
   }
 
   macho.add_uuid();
-  macho.add_build_version();
+
+  if is_ios {
+    let simulator = if matches!(target, Target::Arm64AppleIosSim) {
+      Simulator::Yes
+    } else {
+      Simulator::No
+    };
+
+    macho.add_build_version_ios(simulator);
+  } else {
+    macho.add_build_version();
+  }
+
   macho.add_source_version();
 
   // Entry point must point to the actual main function,
