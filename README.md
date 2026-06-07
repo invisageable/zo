@@ -26,7 +26,7 @@
       <button @click={fn() => count += 1}>+</button>
     </>;
 
-    #dom counter;
+    #render counter;
   }
   ```
 
