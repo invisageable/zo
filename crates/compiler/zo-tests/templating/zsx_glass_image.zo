@@ -1,0 +1,25 @@
+-- test-build-pass: liquid glass over a bundled image backdrop.
+--
+-- `body { background-image }` paints a full-screen photo behind every
+-- widget; the glass buttons refract it. A `--target=ios` build copies
+-- the local image into the `.app`, so it loads on a device — not just
+-- the Simulator. A URL or an absolute path works too.
+
+$: {
+  body {
+    background-image: url("crates/compiler/zo-tests/assets/images/iOS-7-dark-mod-iphone-wallpaper-ar72014.jpeg");
+  }
+
+  button {
+    material: glass;
+  }
+}
+
+fun main() {
+  imu view: </> ::= <>
+    <button>-</button>
+    <button>+</button>
+  </>;
+
+  #render view;
+}

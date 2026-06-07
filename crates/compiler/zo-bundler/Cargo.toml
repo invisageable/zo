@@ -10,3 +10,5 @@ doctest = false
 # `_CodeSignature` seal (which will pull in `zo-writer-macho`'s SHA-256
 # + signer) arrive when the Simulator demands them.
 [dependencies]
+# internal:crates.
+zo-ui-protocol = { workspace = true }

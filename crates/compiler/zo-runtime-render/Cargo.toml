@@ -6,6 +6,13 @@ edition.workspace = true
 [lib]
 doctest = false
 
+# `http` pulls `ureq` (→ rustls → ring) for URL image sources. Off by
+# default so the iOS runtime stays lean — a device bundles its assets
+# and never needs a TLS stack. Only the desktop (egui) runtime enables
+# it; the local-file loader is always available.
+[features]
+http = ["dep:ureq"]
+
 [dependencies]
 # internal:sources.
 
@@ -21,6 +28,7 @@ zo-value = { workspace = true }
 rustc-hash = { workspace = true }
 taffy = { workspace = true }
 thin-vec = { workspace = true }
+ureq = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

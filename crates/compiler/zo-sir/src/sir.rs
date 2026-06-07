@@ -242,6 +242,30 @@ pub struct Sir {
 }
 
 impl Sir {
+  /// Every stylesheet's CSS in the program — a top-level `$: {}`
+  /// (`Insn::StyleSheet`) and any styles embedded in a template
+  /// (`UiCommand::StyleSheet`). The bundler reads these to find image
+  /// assets a `--target=ios` build must copy into the `.app`.
+  pub fn stylesheets(&self) -> Vec<&str> {
+    let mut sheets = Vec::new();
+
+    for insn in &self.instructions {
+      match insn {
+        Insn::StyleSheet { css, .. } => sheets.push(css.as_str()),
+        Insn::Template { commands, .. } => {
+          for command in commands {
+            if let UiCommand::StyleSheet { css, .. } = command {
+              sheets.push(css.as_str());
+            }
+          }
+        }
+        _ => {}
+      }
+    }
+
+    sheets
+  }
+
   /// Creates a new [`SirBuilder`] instance.
   pub fn new() -> Self {
     Self {

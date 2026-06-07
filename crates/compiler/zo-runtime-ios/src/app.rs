@@ -7,29 +7,38 @@
 //! `UIScreen::mainScreen` / `UIWindow::initWithFrame:`). The Info.plist
 //! `UIApplicationSceneManifest` names `ZoSceneDelegate`.
 
+use zo_runtime_render::asset::load_image_bytes;
+use zo_runtime_render::layout::{LayoutTree, Rect, collapse_text};
+use zo_runtime_render::render::{EventPayload, EventRegistry, build_event_map};
+use zo_ui_protocol::style::{
+  ComputedStyle, GlassStyle, Material, Rgba, StylePatch,
+};
+use zo_ui_protocol::{Attr, ElementTag, EventKind, UiCommand};
+
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject};
 use objc2::{ClassType, MainThreadMarker, MainThreadOnly, define_class, sel};
 
-use objc2_core_foundation::{CGPoint, CGRect, CGSize};
-use objc2_foundation::{NSDictionary, NSObjectProtocol, NSString};
+use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
+use objc2_foundation::{
+  NSBundle, NSData, NSDictionary, NSObjectProtocol, NSOperatingSystemVersion,
+  NSProcessInfo, NSString,
+};
 use objc2_ui_kit::{
   UIApplication, UIApplicationDelegate, UIApplicationLaunchOptionsKey,
-  UIButton, UIButtonType, UIColor, UIControlEvents, UIControlState, UIFont,
-  UILabel, UIScene, UISceneConnectionOptions, UISceneDelegate, UISceneSession,
-  UITextBorderStyle, UITextField, UIView, UIViewController, UIWindow,
-  UIWindowScene, UIWindowSceneDelegate,
+  UIButton, UIButtonConfiguration, UIButtonType, UIColor, UIControlEvents,
+  UIControlState, UICornerConfiguration, UICornerRadius, UIFont, UIGlassEffect,
+  UIGlassEffectStyle, UIImage, UIImageView, UILabel, UIScene,
+  UISceneConnectionOptions, UISceneDelegate, UISceneSession, UITextBorderStyle,
+  UITextField, UIView, UIViewContentMode, UIViewController, UIVisualEffectView,
+  UIWindow, UIWindowScene, UIWindowSceneDelegate,
 };
-
-use zo_runtime_render::layout::{LayoutTree, Rect, collapse_text};
-use zo_runtime_render::render::{EventPayload, EventRegistry, build_event_map};
-use zo_ui_protocol::style::{ComputedStyle, Rgba, StylePatch};
-use zo_ui_protocol::{Attr, ElementTag, EventKind, UiCommand};
 
 use std::cell::RefCell;
 use std::ffi::{c_char, c_int};
+use std::path::Path;
 use std::ptr::NonNull;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 thread_local! {
   /// Retains the key window for the process lifetime. UIKit holds
@@ -90,6 +99,13 @@ enum PlacedView {
   /// Reserved geometry for leaves the iOS path does not paint yet
   /// (image).
   Other(Retained<UIView>),
+  /// A glass-backed leaf: `effect` is the `UIVisualEffectView` framed
+  /// and attached to the container; `inner` is its real content,
+  /// sized to the effect view's local bounds inside `contentView`.
+  Glass {
+    effect: Retained<UIVisualEffectView>,
+    inner: Box<PlacedView>,
+  },
 }
 
 impl PlacedView {
@@ -99,28 +115,37 @@ impl PlacedView {
       Self::Label(label) => label.setFrame(frame),
       Self::Field(field) => field.setFrame(frame),
       Self::Other(view) => view.setFrame(frame),
+      // Frame the glass wrapper; the inner view fills it at local
+      // origin, so the solver's geometry stays the source of truth.
+      Self::Glass { effect, inner } => {
+        effect.setFrame(frame);
+        inner.set_frame(CGRect::new(CGPoint::new(0.0, 0.0), frame.size));
+      }
     }
   }
 
   fn set_text(&self, text: &str) {
-    let text = NSString::from_str(text);
+    let ns = NSString::from_str(text);
 
     match self {
       Self::Button(button) => {
-        button.setTitle_forState(Some(&text), UIControlState::Normal);
+        button.setTitle_forState(Some(&ns), UIControlState::Normal);
       }
-      Self::Label(label) => label.setText(Some(&text)),
+      Self::Label(label) => label.setText(Some(&ns)),
       // A text field's content is the user's live edit — only
       // overwrite it on a real programmatic change (e.g. the
       // input clearing after Add), never echo it back mid-type.
       Self::Field(field) => {
         let current = field.text().map(|s| s.to_string()).unwrap_or_default();
 
-        if current != text.to_string() {
-          field.setText(Some(&text));
+        if current != text {
+          field.setText(Some(&ns));
         }
       }
       Self::Other(_) => {}
+      // The glass wrapper holds no text of its own; defer to its
+      // inner content (a label whose text the reconciler refreshes).
+      Self::Glass { inner, .. } => inner.set_text(text),
     }
   }
 }
@@ -252,7 +277,7 @@ define_class!(
       let bounds = window_scene.screen().bounds();
       let container = UIView::initWithFrame(UIView::alloc(mtm), bounds);
 
-      container.setBackgroundColor(Some(&UIColor::whiteColor()));
+      // The backdrop (body colour / image) is painted by `render_into`.
       controller.setView(Some(&container));
 
       let (tree, views) = render_into(&cmds, &container, self, mtm);
@@ -398,17 +423,37 @@ impl<'a> ViewBuilder<'a> {
           unsafe { label.setFont(Some(&font_of(style))) };
         }
 
-        // Declared `color` recolours the title; otherwise the system
-        // tint stands. Declared `background` fills the button.
-        if author.color.is_some() {
-          button.setTitleColor_forState(
-            Some(&ui_color(style.color)),
-            UIControlState::Normal,
-          );
-        }
+        match glass_of(style) {
+          // A glass `UIButton.Configuration` owns the material, the
+          // rounded shape, and the interactive tap highlight. A
+          // declared `background` tints via the button's `tintColor`.
+          Some(glass) => {
+            button.setConfiguration(Some(&glass_button_config(
+              glass, author, self.mtm,
+            )));
 
-        if author.background.is_some() {
-          button.setBackgroundColor(Some(&ui_color(style.background)));
+            if author.background.is_some() {
+              // SAFETY: a non-nil colour on the live main-thread button
+              // drives the tinted-glass configuration's tint.
+              unsafe {
+                button.setTintColor(Some(&ui_color(style.background)));
+              }
+            }
+          }
+          // Solid: declared `color` recolours the title (else the
+          // system tint stands); declared `background` fills the box.
+          None => {
+            if author.color.is_some() {
+              button.setTitleColor_forState(
+                Some(&ui_color(style.color)),
+                UIControlState::Normal,
+              );
+            }
+
+            if author.background.is_some() {
+              button.setBackgroundColor(Some(&ui_color(style.background)));
+            }
+          }
         }
 
         // The `data-id` carries the widget id the `Event` command
@@ -523,14 +568,34 @@ impl<'a> ViewBuilder<'a> {
       label.setTextColor(Some(&ui_color(style.color)));
     }
 
-    if author.background.is_some() {
-      label.setBackgroundColor(Some(&ui_color(style.background)));
+    match glass_of(style) {
+      // Glass label: the declared `background` tints the glass, not a
+      // solid fill. The label rides inside the effect view's content.
+      Some(glass) => {
+        let tint = author.background.is_some().then_some(style.background);
+        let effect = wrap_glass(&label, glass, tint, self.mtm);
+
+        effect.setFrame(frame);
+        label.setFrame(CGRect::new(CGPoint::new(0.0, 0.0), frame.size));
+        self.container.addSubview(&effect);
+
+        PlacedView::Glass {
+          effect,
+          inner: Box::new(PlacedView::Label(label)),
+        }
+      }
+      // Solid: a declared `background` fills the label directly.
+      None => {
+        if author.background.is_some() {
+          label.setBackgroundColor(Some(&ui_color(style.background)));
+        }
+
+        label.setFrame(frame);
+        self.container.addSubview(&label);
+
+        PlacedView::Label(label)
+      }
     }
-
-    label.setFrame(frame);
-    self.container.addSubview(&label);
-
-    PlacedView::Label(label)
   }
 }
 
@@ -550,9 +615,151 @@ fn ui_color(color: Rgba) -> Retained<UIColor> {
   )
 }
 
+/// Default corner radius (pt) for a glass panel until a `border-radius`
+/// property exists. Without an explicit corner config a glass effect
+/// view defaults to a capsule — wrong for a rectangular panel.
+const GLASS_CORNER_RADIUS: CGFloat = 16.0;
+
+/// The glass style this element asks for, but only when the OS can
+/// render it. `UIGlassEffect` is iOS 26+ and the deployment target is
+/// 15.0, so every glass path funnels through this guard.
+fn glass_of(style: &ComputedStyle) -> Option<GlassStyle> {
+  match style.material {
+    Material::Glass(glass) if glass_available() => Some(glass),
+    _ => None,
+  }
+}
+
+/// `true` on iOS 26+, where the glass APIs exist. Cached — the OS
+/// version cannot change mid-process.
+fn glass_available() -> bool {
+  static AVAILABLE: OnceLock<bool> = OnceLock::new();
+
+  *AVAILABLE.get_or_init(|| {
+    let version = NSOperatingSystemVersion {
+      majorVersion: 26,
+      minorVersion: 0,
+      patchVersion: 0,
+    };
+
+    NSProcessInfo::processInfo().isOperatingSystemAtLeastVersion(version)
+  })
+}
+
+/// The glass `UIButton.Configuration` for a style: clear glass for the
+/// `Clear` variant, tinted glass when a `background` is declared, plain
+/// glass otherwise. The configuration owns the shape + tap highlight.
+fn glass_button_config(
+  glass: GlassStyle,
+  author: &StylePatch,
+  mtm: MainThreadMarker,
+) -> Retained<UIButtonConfiguration> {
+  match (glass, author.background.is_some()) {
+    (GlassStyle::Clear, _) => {
+      UIButtonConfiguration::clearGlassButtonConfiguration(mtm)
+    }
+    (GlassStyle::Regular, true) => {
+      UIButtonConfiguration::tintedGlassButtonConfiguration(mtm)
+    }
+    (GlassStyle::Regular, false) => {
+      UIButtonConfiguration::glassButtonConfiguration(mtm)
+    }
+  }
+}
+
+/// Wrap an already-built content view in a glass `UIVisualEffectView`:
+/// the glass material, a rounded (non-capsule) shape, and an optional
+/// `background`-derived tint. The content moves into the effect view's
+/// `contentView`; the caller frames the returned wrapper.
+fn wrap_glass(
+  content: &UIView,
+  glass: GlassStyle,
+  tint: Option<Rgba>,
+  mtm: MainThreadMarker,
+) -> Retained<UIVisualEffectView> {
+  let style = match glass {
+    GlassStyle::Regular => UIGlassEffectStyle::Regular,
+    GlassStyle::Clear => UIGlassEffectStyle::Clear,
+  };
+  let effect = UIGlassEffect::effectWithStyle(style, mtm);
+
+  if let Some(tint) = tint {
+    effect.setTintColor(Some(&ui_color(tint)));
+  }
+
+  let view = UIVisualEffectView::initWithEffect(
+    UIVisualEffectView::alloc(mtm),
+    Some(&effect),
+  );
+  let radius = UICornerRadius::fixedRadius(GLASS_CORNER_RADIUS);
+  let corners = UICornerConfiguration::configurationWithUniformRadius(&radius);
+
+  view.setCornerConfiguration(&corners);
+  view.contentView().addSubview(content);
+
+  view
+}
+
 /// Solve `cmds` against the container's bounds and place a native
 /// view per leaf, returning the persistent tree + view list the host
 /// reconciles against.
+/// Load a `UIImage` from a catalog ref. The bytes come through the
+/// one shared loader (`zo-runtime-render::asset`) that egui uses too —
+/// local file or URL — after resolving the ref to a readable path;
+/// UIKit decodes them. `None` on any failure — a missing backdrop
+/// must never crash the app.
+fn load_ui_image(src: &str) -> Option<Retained<UIImage>> {
+  let path = resolve_asset_path(src);
+  let bytes = load_image_bytes(&path).ok()?;
+  let data = NSData::from_vec(bytes);
+
+  UIImage::imageWithData(&data)
+}
+
+/// Map a catalog ref to a path the loader can read: a URL is left
+/// alone, an absolute file that exists is left alone (Simulator /
+/// desktop parity), else the asset's basename inside the app bundle —
+/// where a `--target=ios` build copied it (the device-correct home).
+fn resolve_asset_path(src: &str) -> String {
+  if src.starts_with("http://") || src.starts_with("https://") {
+    return src.to_string();
+  }
+
+  let path = Path::new(src);
+
+  if path.is_absolute() && path.exists() {
+    return src.to_string();
+  }
+
+  let basename = src.rsplit('/').next().unwrap_or(src);
+
+  bundle_resource_path(basename).unwrap_or_else(|| src.to_string())
+}
+
+/// `<App.app>/<name>` via the main bundle's resource directory (the
+/// bundle root on iOS), where the bundler placed copied assets.
+fn bundle_resource_path(name: &str) -> Option<String> {
+  let resource_path = NSBundle::mainBundle().resourcePath()?.to_string();
+
+  Some(format!("{resource_path}/{name}"))
+}
+
+/// A full-bounds `UIImageView` for the container backdrop: aspect-fill
+/// so the image covers the screen, clipped so it never overflows.
+fn backdrop_view(
+  image: &UIImage,
+  bounds: CGRect,
+  mtm: MainThreadMarker,
+) -> Retained<UIImageView> {
+  let view = UIImageView::initWithImage(UIImageView::alloc(mtm), Some(image));
+
+  view.setFrame(bounds);
+  view.setContentMode(UIViewContentMode::ScaleAspectFill);
+  view.setClipsToBounds(true);
+
+  view
+}
+
 fn render_into(
   cmds: &[UiCommand],
   container: &UIView,
@@ -561,6 +768,21 @@ fn render_into(
 ) -> (LayoutTree, Vec<PlacedView>) {
   let bounds = container.bounds();
   let mut tree = LayoutTree::build(cmds);
+
+  // Paint the container backdrop from the `body` rule: a declared
+  // colour, then a full-screen image behind every widget (so glass
+  // refracts it). Done before placing leaves → the image is backmost.
+  let root_style = tree.root_style();
+
+  container.setBackgroundColor(Some(&ui_color(root_style.background)));
+
+  if let Some(id) = root_style.background_image
+    && let Some(url) = tree.images().get(id as usize)
+    && let Some(image) = load_ui_image(url)
+  {
+    container.addSubview(&backdrop_view(&image, bounds, mtm));
+  }
+
   let rects = tree.solve((bounds.size.width as f32, bounds.size.height as f32));
 
   // Styles + author patches parallel the solved leaves; clone so the

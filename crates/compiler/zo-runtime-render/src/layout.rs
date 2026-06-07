@@ -79,13 +79,28 @@ pub struct LayoutTree {
   /// The command stream this tree was built from. `reconcile`
   /// compares a new stream against it to decide fast-path vs rebuild.
   source: Vec<UiCommand>,
+  /// The stylesheet image catalog: `images[id]` is the URL for a
+  /// `background_image` handle on any resolved `ComputedStyle`.
+  images: Vec<String>,
+  /// The resolved `body` style — the root container's backdrop
+  /// (`background-image` / `background`) when the program declares one.
+  root_style: ComputedStyle,
 }
 
 impl LayoutTree {
   /// Build the tree. Top-level siblings (fragment children) hang off a
   /// synthetic root flex container sized to the viewport in `solve`.
   pub fn build(commands: &[UiCommand]) -> Self {
-    let author = collect_author(commands);
+    let (author, images) = collect_author(commands);
+
+    // The container backdrop comes from the `body` rule (image or
+    // colour); resolve it before `author` moves into the builder.
+    let body_style = cascade::resolve(
+      "body",
+      css::author_patch(&author, "body").as_ref(),
+      None,
+    );
+
     let mut builder = Builder::new(author);
     let children = builder.children(commands);
 
@@ -123,6 +138,8 @@ impl LayoutTree {
       authors: builder.authors,
       texts: builder.texts,
       source: commands.to_vec(),
+      images,
+      root_style: body_style,
     }
   }
 
@@ -185,6 +202,19 @@ impl LayoutTree {
   /// the patch's field is `Some`, leaving native defaults otherwise.
   pub fn authors(&self) -> &[StylePatch] {
     &self.authors
+  }
+
+  /// The stylesheet image catalog. A `ComputedStyle`'s
+  /// `background_image` is an index into this slice.
+  pub fn images(&self) -> &[String] {
+    &self.images
+  }
+
+  /// The resolved `body` style — the root container's backdrop. A
+  /// runtime paints the container from its `background_image` /
+  /// `background` instead of a hardcoded colour.
+  pub fn root_style(&self) -> ComputedStyle {
+    self.root_style
   }
 
   /// Solve against the viewport and return one absolute `Rect` per
@@ -400,18 +430,35 @@ impl Builder {
   }
 }
 
-/// Parse every `StyleSheet` command in the stream into one ordered
-/// list of author rules — the single CSS parse the cascade folds in.
-fn collect_author(commands: &[UiCommand]) -> Vec<(String, StylePatch)> {
+/// Parse every `StyleSheet` command into one ordered list of author
+/// rules plus the combined image catalog the cascade folds in. Each
+/// sheet's `background_image` handles are offset into the combined
+/// catalog so indices stay valid when several sheets are concatenated.
+fn collect_author(
+  commands: &[UiCommand],
+) -> (Vec<(String, StylePatch)>, Vec<String>) {
   let mut rules = Vec::new();
+  let mut images = Vec::new();
 
   for cmd in commands {
     if let UiCommand::StyleSheet { css, .. } = cmd {
-      rules.extend(css::parse(css));
+      let mut sheet = css::parse(css);
+      let base = images.len() as u32;
+
+      if base > 0 {
+        for (_, patch) in &mut sheet.rules {
+          if let Some(id) = patch.background_image.as_mut() {
+            *id += base;
+          }
+        }
+      }
+
+      rules.extend(sheet.rules);
+      images.extend(sheet.images);
     }
   }
 
-  rules
+  (rules, images)
 }
 
 /// True when two command streams place the same widgets in the same

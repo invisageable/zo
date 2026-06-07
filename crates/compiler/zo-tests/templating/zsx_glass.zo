@@ -1,0 +1,24 @@
+-- test-build-pass: liquid glass via the `material` css property.
+
+$: {
+  button {
+    material: glass;
+  }
+
+  .panel {
+    material: glass clear;
+    background: #3b82f6;
+    color: white;
+  }
+}
+
+fun main() {
+  imu view: </> ::= <>
+    <div class="panel">
+      <button>-</button>
+      <button>+</button>
+    </div>
+  </>;
+
+  #render view;
+}

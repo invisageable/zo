@@ -202,6 +202,9 @@ objc2-foundation = { version = "0.3", features = [
   "NSObject",
   "NSDictionary",
   "NSGeometry",
+  "NSProcessInfo",
+  "NSData",
+  "NSBundle",
 ] }
 objc2-ui-kit = { version = "0.3", features = [
   "UIApplication",
@@ -221,6 +224,15 @@ objc2-ui-kit = { version = "0.3", features = [
   "UIColor",
   "UIGeometry",
   "UIFont",
+  "UIVisualEffect",
+  "UIVisualEffectView",
+  "UIGlassEffect",
+  "UIButtonConfiguration",
+  "UICornerConfiguration",
+  "UICornerRadius",
+  "UIImage",
+  "UIImageView",
+  "objc2-core-foundation",
 ] }
 num_cpus = "1.17.0"
 parking_lot = { version = "0.12.5", features = ["nightly"] }

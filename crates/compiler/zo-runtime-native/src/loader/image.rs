@@ -13,9 +13,9 @@
 //! Loading --[recv LoadResponse::Err]-> Failed
 //! Decoded --[main thread uploads]--> Ready
 //! ```
+use zo_runtime_render::asset::load_image_bytes;
 
 use eframe::egui;
-
 use rustc_hash::FxHashMap as HashMap;
 
 use std::sync::mpsc;
@@ -143,44 +143,15 @@ fn worker_loop(
   }
 }
 
-/// Returns `true` if `src` is an `http://` or `https://` URL.
-fn is_http_url(src: &str) -> bool {
-  src.starts_with("http://") || src.starts_with("https://")
-}
-
-/// Blocking HTTP GET — fetches the full body into a `Vec`.
-fn fetch_http(url: &str) -> Result<Vec<u8>, String> {
-  let mut response = ureq::get(url)
-    .call()
-    .map_err(|e| format!("http error: {e}"))?;
-
-  response
-    .body_mut()
-    .read_to_vec()
-    .map_err(|e| format!("http read error: {e}"))
-}
-
 /// Read and decode a single image file or URL.
 fn decode(src: &str) -> LoadResponse {
-  let bytes = if is_http_url(src) {
-    match fetch_http(src) {
-      Ok(b) => b,
-      Err(e) => {
-        return LoadResponse::Err {
-          src: src.to_string(),
-          error: e,
-        };
-      }
-    }
-  } else {
-    match std::fs::read(src) {
-      Ok(b) => b,
-      Err(e) => {
-        return LoadResponse::Err {
-          src: src.to_string(),
-          error: format!("read error: {e}"),
-        };
-      }
+  let bytes = match load_image_bytes(src) {
+    Ok(bytes) => bytes,
+    Err(error) => {
+      return LoadResponse::Err {
+        src: src.to_string(),
+        error,
+      };
     }
   };
 
