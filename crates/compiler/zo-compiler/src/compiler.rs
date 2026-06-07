@@ -1945,7 +1945,11 @@ impl Compiler {
       lowering.target,
       Target::Arm64AppleIos | Target::Arm64AppleIosSim
     ) {
-      bundle_ios(lowering.target, lowering.output_path);
+      bundle_ios(
+        lowering.target,
+        lowering.output_path,
+        &lowering.semantic.sir,
+      );
     } else {
       stage_runtime_artifacts(
         runtime,
@@ -2179,7 +2183,7 @@ impl Compiler {
       };
 
       if matches!(target, Target::Arm64AppleIos | Target::Arm64AppleIosSim) {
-        bundle_ios(target, output_path);
+        bundle_ios(target, output_path, &semantic.sir);
       } else {
         stage_runtime_artifacts(
           runtime,
@@ -2394,7 +2398,7 @@ fn stage_runtime_artifacts(
 /// The runtime dylib is the cross-compiled
 /// `target/<rust-triple>/<profile>/libzo_runtime.dylib`, a sibling of
 /// the compiler's own `target/<profile>/` (where `current_exe` lives).
-fn bundle_ios(target: Target, output_path: &std::path::Path) {
+fn bundle_ios(target: Target, output_path: &std::path::Path, sir: &Sir) {
   let Some(name) = output_path.file_stem().and_then(|s| s.to_str()) else {
     return;
   };
@@ -2426,6 +2430,7 @@ fn bundle_ios(target: Target, output_path: &std::path::Path) {
   let app_dir = output_path.with_extension("app");
   let bundle_id = format!("house.compilords.{name}");
 
+  let stylesheets = sir.stylesheets();
   let spec = zo_bundler::ios::BundleSpec {
     binary: output_path,
     runtime_dylib: &runtime_dylib,
@@ -2433,6 +2438,7 @@ fn bundle_ios(target: Target, output_path: &std::path::Path) {
     name,
     bundle_id: &bundle_id,
     simulator: matches!(target, Target::Arm64AppleIosSim),
+    stylesheets: &stylesheets,
   };
 
   if let Err(error) = zo_bundler::ios::bundle(&spec) {

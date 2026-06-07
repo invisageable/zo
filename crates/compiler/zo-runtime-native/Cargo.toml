@@ -18,7 +18,8 @@ doctest = false
 zo-error = { workspace = true }
 zo-reporter = { workspace = true }
 zo-ui-protocol = { workspace = true }
-zo-runtime-render = { workspace = true }
+# `http` enables URL image sources (desktop has no asset bundle).
+zo-runtime-render = { workspace = true, features = ["http"] }
 
 # external:crates.
 eframe = { workspace = true }
@@ -27,4 +28,3 @@ libloading = { workspace = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true }
 thin-vec = { workspace = true }
-ureq = { workspace = true }

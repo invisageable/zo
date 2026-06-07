@@ -17,10 +17,23 @@ use super::computed::{
   Size, StylePatch,
 };
 
-/// Parse a compiled stylesheet into `(tag, patch)` rules. Order is
+/// A parsed stylesheet: per-selector rules plus the image catalog
+/// their `background_image` handles index into. The catalog keeps URL
+/// strings off the POD `ComputedStyle` (the manifesto's flyweight
+/// pattern), so a renderer resolves `id → images[id] → asset`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ParsedSheet {
+  /// `(selector_key, patch)` rules, in source order.
+  pub rules: Vec<(String, StylePatch)>,
+  /// `images[id]` is the URL for a `background_image` handle.
+  pub images: Vec<String>,
+}
+
+/// Parse a compiled stylesheet into rules + an image catalog. Order is
 /// preserved so later rules win when merged for one tag.
-pub fn parse(css: &str) -> Vec<(String, StylePatch)> {
+pub fn parse(css: &str) -> ParsedSheet {
   let mut rules = Vec::new();
+  let mut images = Vec::new();
   let mut chars = css.chars().peekable();
 
   while chars.peek().is_some() {
@@ -90,13 +103,25 @@ pub fn parse(css: &str) -> Vec<(String, StylePatch)> {
         chars.next();
       }
 
-      apply_declaration(&mut patch, name.trim(), value.trim());
+      let name = name.trim();
+      let value = value.trim();
+
+      // `background-image: url("…")` interns its URL into the catalog
+      // and stores the index — the one property whose value lives off
+      // the POD style, so it cannot flow through `apply_declaration`.
+      if name == "background-image" {
+        if let Some(url) = parse_url(value) {
+          patch.background_image = Some(intern_image(&mut images, url));
+        }
+      } else {
+        apply_declaration(&mut patch, name, value);
+      }
     }
 
     rules.push((selector_key(&selector), patch));
   }
 
-  rules
+  ParsedSheet { rules, images }
 }
 
 /// Fold every rule matching `tag` into one author patch (later
@@ -115,6 +140,32 @@ pub fn author_patch(
   }
 
   merged
+}
+
+/// `url("x")` / `url('x')` / `url(x)` → the bare URL. Only the
+/// `url(...)` form is modelled at v1; anything else yields `None`.
+fn parse_url(value: &str) -> Option<String> {
+  let inner = value.strip_prefix("url(")?.strip_suffix(')')?.trim();
+  let unquoted = inner
+    .strip_prefix('"')
+    .and_then(|s| s.strip_suffix('"'))
+    .or_else(|| inner.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+    .unwrap_or(inner)
+    .trim();
+
+  (!unquoted.is_empty()).then(|| unquoted.to_string())
+}
+
+/// Intern a URL into the catalog, returning its index. Deduplicates so
+/// the same URL across rules shares one entry.
+fn intern_image(images: &mut Vec<String>, url: String) -> u32 {
+  if let Some(pos) = images.iter().position(|existing| *existing == url) {
+    return pos as u32;
+  }
+
+  images.push(url);
+
+  (images.len() - 1) as u32
 }
 
 /// Map one `prop: value` declaration onto the patch. Unknown
@@ -329,6 +380,12 @@ fn skip_ws(chars: &mut std::iter::Peekable<std::str::Chars>) {
 mod tests {
   use super::*;
 
+  /// Rules-only view of `super::parse`, so the rule-focused tests
+  /// stay terse; the catalog-aware tests call `super::parse` directly.
+  fn parse(css: &str) -> Vec<(String, StylePatch)> {
+    super::parse(css).rules
+  }
+
   #[test]
   fn color_and_weight() {
     let rules = parse("p { color: cyan; font-weight: 800; }");
@@ -448,5 +505,57 @@ mod tests {
 
     assert_eq!(patch.material, Some(Material::Glass(GlassStyle::Regular)));
     assert_eq!(patch.background, Some(Rgba::rgb(59, 130, 246)));
+  }
+
+  #[test]
+  fn background_image_interns_into_catalog() {
+    let sheet = super::parse(r#"body { background-image: url("a.jpg"); }"#);
+
+    assert_eq!(sheet.images, vec!["a.jpg".to_string()]);
+    assert_eq!(
+      author_patch(&sheet.rules, "body").unwrap().background_image,
+      Some(0)
+    );
+  }
+
+  #[test]
+  fn background_image_quote_and_paren_forms() {
+    let sheet = super::parse(
+      "a { background-image: url('x'); } b { background-image: url(y); }",
+    );
+
+    assert_eq!(sheet.images, vec!["x".to_string(), "y".to_string()]);
+    assert_eq!(
+      author_patch(&sheet.rules, "a").unwrap().background_image,
+      Some(0)
+    );
+    assert_eq!(
+      author_patch(&sheet.rules, "b").unwrap().background_image,
+      Some(1)
+    );
+  }
+
+  #[test]
+  fn background_image_dedupes_shared_url() {
+    let sheet = super::parse(
+      r#"a { background-image: url("p"); } b { background-image: url("p"); }"#,
+    );
+
+    assert_eq!(sheet.images, vec!["p".to_string()]);
+    assert_eq!(
+      author_patch(&sheet.rules, "b").unwrap().background_image,
+      Some(0)
+    );
+  }
+
+  #[test]
+  fn background_image_malformed_yields_none() {
+    let sheet = super::parse("a { background-image: none; }");
+
+    assert!(sheet.images.is_empty());
+    assert_eq!(
+      author_patch(&sheet.rules, "a").unwrap().background_image,
+      None
+    );
   }
 }

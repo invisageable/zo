@@ -7,25 +7,7 @@
 //! `UIScreen::mainScreen` / `UIWindow::initWithFrame:`). The Info.plist
 //! `UIApplicationSceneManifest` names `ZoSceneDelegate`.
 
-use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, NSObject};
-use objc2::{ClassType, MainThreadMarker, MainThreadOnly, define_class, sel};
-
-use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
-use objc2_foundation::{
-  NSDictionary, NSObjectProtocol, NSOperatingSystemVersion, NSProcessInfo,
-  NSString,
-};
-use objc2_ui_kit::{
-  UIApplication, UIApplicationDelegate, UIApplicationLaunchOptionsKey,
-  UIButton, UIButtonConfiguration, UIButtonType, UIColor, UIControlEvents,
-  UIControlState, UICornerConfiguration, UICornerRadius, UIFont, UIGlassEffect,
-  UIGlassEffectStyle, UILabel, UIScene, UISceneConnectionOptions,
-  UISceneDelegate, UISceneSession, UITextBorderStyle, UITextField, UIView,
-  UIViewController, UIVisualEffectView, UIWindow, UIWindowScene,
-  UIWindowSceneDelegate,
-};
-
+use zo_runtime_render::asset::load_image_bytes;
 use zo_runtime_render::layout::{LayoutTree, Rect, collapse_text};
 use zo_runtime_render::render::{EventPayload, EventRegistry, build_event_map};
 use zo_ui_protocol::style::{
@@ -33,8 +15,28 @@ use zo_ui_protocol::style::{
 };
 use zo_ui_protocol::{Attr, ElementTag, EventKind, UiCommand};
 
+use objc2::rc::Retained;
+use objc2::runtime::{AnyObject, NSObject};
+use objc2::{ClassType, MainThreadMarker, MainThreadOnly, define_class, sel};
+
+use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
+use objc2_foundation::{
+  NSBundle, NSData, NSDictionary, NSObjectProtocol, NSOperatingSystemVersion,
+  NSProcessInfo, NSString,
+};
+use objc2_ui_kit::{
+  UIApplication, UIApplicationDelegate, UIApplicationLaunchOptionsKey,
+  UIButton, UIButtonConfiguration, UIButtonType, UIColor, UIControlEvents,
+  UIControlState, UICornerConfiguration, UICornerRadius, UIFont, UIGlassEffect,
+  UIGlassEffectStyle, UIImage, UIImageView, UILabel, UIScene,
+  UISceneConnectionOptions, UISceneDelegate, UISceneSession, UITextBorderStyle,
+  UITextField, UIView, UIViewContentMode, UIViewController, UIVisualEffectView,
+  UIWindow, UIWindowScene, UIWindowSceneDelegate,
+};
+
 use std::cell::RefCell;
 use std::ffi::{c_char, c_int};
+use std::path::Path;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -275,7 +277,7 @@ define_class!(
       let bounds = window_scene.screen().bounds();
       let container = UIView::initWithFrame(UIView::alloc(mtm), bounds);
 
-      container.setBackgroundColor(Some(&UIColor::whiteColor()));
+      // The backdrop (body colour / image) is painted by `render_into`.
       controller.setView(Some(&container));
 
       let (tree, views) = render_into(&cmds, &container, self, mtm);
@@ -701,6 +703,63 @@ fn wrap_glass(
 /// Solve `cmds` against the container's bounds and place a native
 /// view per leaf, returning the persistent tree + view list the host
 /// reconciles against.
+/// Load a `UIImage` from a catalog ref. The bytes come through the
+/// one shared loader (`zo-runtime-render::asset`) that egui uses too —
+/// local file or URL — after resolving the ref to a readable path;
+/// UIKit decodes them. `None` on any failure — a missing backdrop
+/// must never crash the app.
+fn load_ui_image(src: &str) -> Option<Retained<UIImage>> {
+  let path = resolve_asset_path(src);
+  let bytes = load_image_bytes(&path).ok()?;
+  let data = NSData::from_vec(bytes);
+
+  UIImage::imageWithData(&data)
+}
+
+/// Map a catalog ref to a path the loader can read: a URL is left
+/// alone, an absolute file that exists is left alone (Simulator /
+/// desktop parity), else the asset's basename inside the app bundle —
+/// where a `--target=ios` build copied it (the device-correct home).
+fn resolve_asset_path(src: &str) -> String {
+  if src.starts_with("http://") || src.starts_with("https://") {
+    return src.to_string();
+  }
+
+  let path = Path::new(src);
+
+  if path.is_absolute() && path.exists() {
+    return src.to_string();
+  }
+
+  let basename = src.rsplit('/').next().unwrap_or(src);
+
+  bundle_resource_path(basename).unwrap_or_else(|| src.to_string())
+}
+
+/// `<App.app>/<name>` via the main bundle's resource directory (the
+/// bundle root on iOS), where the bundler placed copied assets.
+fn bundle_resource_path(name: &str) -> Option<String> {
+  let resource_path = NSBundle::mainBundle().resourcePath()?.to_string();
+
+  Some(format!("{resource_path}/{name}"))
+}
+
+/// A full-bounds `UIImageView` for the container backdrop: aspect-fill
+/// so the image covers the screen, clipped so it never overflows.
+fn backdrop_view(
+  image: &UIImage,
+  bounds: CGRect,
+  mtm: MainThreadMarker,
+) -> Retained<UIImageView> {
+  let view = UIImageView::initWithImage(UIImageView::alloc(mtm), Some(image));
+
+  view.setFrame(bounds);
+  view.setContentMode(UIViewContentMode::ScaleAspectFill);
+  view.setClipsToBounds(true);
+
+  view
+}
+
 fn render_into(
   cmds: &[UiCommand],
   container: &UIView,
@@ -709,6 +768,21 @@ fn render_into(
 ) -> (LayoutTree, Vec<PlacedView>) {
   let bounds = container.bounds();
   let mut tree = LayoutTree::build(cmds);
+
+  // Paint the container backdrop from the `body` rule: a declared
+  // colour, then a full-screen image behind every widget (so glass
+  // refracts it). Done before placing leaves → the image is backmost.
+  let root_style = tree.root_style();
+
+  container.setBackgroundColor(Some(&ui_color(root_style.background)));
+
+  if let Some(id) = root_style.background_image
+    && let Some(url) = tree.images().get(id as usize)
+    && let Some(image) = load_ui_image(url)
+  {
+    container.addSubview(&backdrop_view(&image, bounds, mtm));
+  }
+
   let rects = tree.solve((bounds.size.width as f32, bounds.size.height as f32));
 
   // Styles + author patches parallel the solved leaves; clone so the

@@ -8,7 +8,7 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Everything needed to lay down one iOS `.app`.
 pub struct BundleSpec<'a> {
@@ -25,6 +25,10 @@ pub struct BundleSpec<'a> {
   /// Whether the bundle targets the Simulator (vs a device) — selects
   /// the `CFBundleSupportedPlatforms` / `DTPlatformName` values.
   pub simulator: bool,
+  /// The program's stylesheets. The bundler scans them for local
+  /// `background-image` assets to copy into the bundle, so a shipped
+  /// app reaches them (its sandbox sees only its own `.app`).
+  pub stylesheets: &'a [&'a str],
 }
 
 /// Build a runnable `.app` from `spec`. Overwrites any existing bundle
@@ -51,7 +55,44 @@ pub fn bundle(spec: &BundleSpec) -> io::Result<()> {
   fs::create_dir_all(&frameworks)?;
   fs::copy(spec.runtime_dylib, frameworks.join("libzo_runtime.dylib"))?;
 
+  // Copy referenced local images into the bundle root so the runtime
+  // resolves them by basename on a device, not just in the Simulator.
+  for asset in collect_local_assets(spec.stylesheets) {
+    if let Some(name) = asset.file_name() {
+      fs::copy(&asset, spec.app_dir.join(name))?;
+    }
+  }
+
   Ok(())
+}
+
+/// Local image source paths the program's stylesheets reference,
+/// resolved to absolute against the build working directory. URLs and
+/// missing files are skipped — only existing local files are bundled.
+fn collect_local_assets(stylesheets: &[&str]) -> Vec<PathBuf> {
+  let cwd = std::env::current_dir().unwrap_or_default();
+  let mut assets: Vec<PathBuf> = Vec::new();
+
+  for css in stylesheets {
+    for url in zo_ui_protocol::style::css::parse(css).images {
+      if url.starts_with("http://") || url.starts_with("https://") {
+        continue;
+      }
+
+      let path = Path::new(&url);
+      let absolute = if path.is_absolute() {
+        path.to_path_buf()
+      } else {
+        cwd.join(path)
+      };
+
+      if absolute.exists() && !assets.contains(&absolute) {
+        assets.push(absolute);
+      }
+    }
+  }
+
+  assets
 }
 
 /// The `Info.plist` the Simulator needs to install + launch the app:

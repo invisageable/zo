@@ -7948,6 +7948,9 @@ dependencies = [
 [[package]]
 name = "zo-bundler"
 version = "0.4.0"
+dependencies = [
+ "zo-ui-protocol",
+]
 
 [[package]]
 name = "zo-c-abi"
@@ -8433,7 +8436,6 @@ dependencies = [
  "rustc-hash 2.1.2",
  "serde",
  "thin-vec",
- "ureq",
  "zo-error",
  "zo-reporter",
  "zo-runtime-render",
@@ -8448,6 +8450,7 @@ dependencies = [
  "rustc-hash 2.1.2",
  "taffy",
  "thin-vec",
+ "ureq",
  "zo-interner",
  "zo-sir",
  "zo-span",
