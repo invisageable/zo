@@ -689,6 +689,16 @@ pub struct Executor<'a> {
   /// vs `Thread` (fresh OS thread via `spawn thread
   /// fn()`).
   pending_spawn: Option<(usize, usize, SpawnKind)>,
+  /// Set only while a `@click`/`@input`/… event-handler
+  /// closure runs its capture analysis. The runtime event
+  /// dispatcher invokes handlers as `dispatch(widget, kind,
+  /// event_ptr)` with no capture setup, so the closure must
+  /// NOT capture reactive template mutables — those stay free
+  /// so the body reads them as `Load Local`, which codegen
+  /// rewrites to `_zo_state_get*`. `.map` / computed `{expr}`
+  /// closures (which the runtime DOES call with their
+  /// captures) leave it clear.
+  in_event_handler_closure: bool,
 }
 
 /// Deferred short-circuit operator, finalized when the RHS
@@ -899,6 +909,7 @@ impl<'a> Executor<'a> {
       branch_stack: Vec::with_capacity(8),
       nursery_stack: Vec::with_capacity(4),
       pending_spawn: None,
+      in_event_handler_closure: false,
       branch_result_counter: 0,
       skip_until: 0,
       pending_decl: None,
@@ -7905,6 +7916,22 @@ impl<'a> Executor<'a> {
     (ty_id, j)
   }
 
+  /// Whether `sym` is a reactive template binding — the union
+  /// of text bindings, dynamic attribute bindings
+  /// (`Attr::Dynamic.var`), and list bindings
+  /// (`ListBinding.items_var`). Such vars are read at runtime
+  /// through their state cell (`_zo_state_get*`), so an
+  /// event-handler closure must not capture them.
+  fn is_reactive_template_mutable(&self, sym: Symbol) -> bool {
+    let bindings = &self.template_bindings;
+
+    bindings.text.iter().any(|(_, s)| *s == sym)
+      || bindings.list.iter().any(|(_, b)| b.items_var == sym)
+      || bindings.attrs.iter().any(
+        |(_, attr)| matches!(attr, Attr::Dynamic { var, .. } if *var == sym.0),
+      )
+  }
+
   /// Scans closure body for identifiers that reference
   /// outer-scope locals (captures). Returns deduplicated list
   /// with type and mutability info.
@@ -7941,6 +7968,23 @@ impl<'a> Executor<'a> {
         // Check if it's an outer local.
         if let Some(local) = self.lookup_local(sym) {
           let is_mutable = local.mutability == Mutability::Yes;
+
+          // Event-handler closures are invoked by the runtime
+          // dispatcher with NO capture setup, so a reactive
+          // template mutable must stay free — the body then
+          // reads it as `Load Local` (codegen rewrites to
+          // `_zo_state_get*`) instead of dereferencing an absent
+          // capture register. Scoped to event handlers only —
+          // `.map` / computed `{expr}` closures ARE called with
+          // their captures.
+          if self.in_event_handler_closure
+            && is_mutable
+            && self.is_reactive_template_mutable(sym)
+          {
+            seen.push(sym);
+
+            continue;
+          }
 
           captures.push((sym, local.ty_id, is_mutable));
           seen.push(sym);
@@ -8219,6 +8263,12 @@ impl<'a> Executor<'a> {
 
     let captures =
       self.identify_captures(body_start_idx, body_end_idx, &params);
+
+    // The event-handler flag is consumed exactly once — by this
+    // closure's own capture analysis. Clear it before executing
+    // the body so a nested `.map` / `{expr}` closure keeps its
+    // (legitimately runtime-invoked) captures.
+    self.in_event_handler_closure = false;
 
     // -- 4. Build combined params: captures + user params ----
 
@@ -24342,7 +24392,21 @@ impl<'a> Executor<'a> {
                           None
                         };
 
+                      // Mark this as an event-handler closure so
+                      // `identify_captures` drops reactive
+                      // template mutables — they're read via
+                      // `_zo_state_get*`, not the dispatcher's
+                      // absent captures. Saved/restored for
+                      // correctness under nesting; the flag is
+                      // cleared inside `execute_closure` once
+                      // this closure's captures are analysed.
+                      let saved_event_flag = self.in_event_handler_closure;
+
+                      self.in_event_handler_closure = true;
+
                       self.execute_closure(idx, children_end);
+
+                      self.in_event_handler_closure = saved_event_flag;
 
                       if let Some(saved) = saved_pending_decl {
                         self.pending_decl = saved;

@@ -168,6 +168,7 @@ pub const UI_EXCLUSIVE_RUNTIME_SYMBOLS: &[&str] = &[
   "_zo_state_get_str",
   "_zo_state_set",
   "_zo_state_set_str",
+  "_zo_state_arr_push",
 ];
 
 /// dyld load-time prefix for dylibs the compiler stages

@@ -17,7 +17,8 @@ use objc2_ui_kit::{
   UIApplication, UIApplicationDelegate, UIApplicationLaunchOptionsKey,
   UIButton, UIButtonType, UIColor, UIControlEvents, UIControlState, UIFont,
   UILabel, UIScene, UISceneConnectionOptions, UISceneDelegate, UISceneSession,
-  UIView, UIViewController, UIWindow, UIWindowScene, UIWindowSceneDelegate,
+  UITextBorderStyle, UITextField, UIView, UIViewController, UIWindow,
+  UIWindowScene, UIWindowSceneDelegate,
 };
 
 use zo_runtime_render::layout::{LayoutTree, Rect, collapse_text};
@@ -83,8 +84,11 @@ struct ViewHost {
 enum PlacedView {
   Button(Retained<UIButton>),
   Label(Retained<UILabel>),
+  /// An editable text input (`<input>` / `<textarea>`) wired to
+  /// fire `@input` on every edit and `@submit` on the return key.
+  Field(Retained<UITextField>),
   /// Reserved geometry for leaves the iOS path does not paint yet
-  /// (image, input).
+  /// (image).
   Other(Retained<UIView>),
 }
 
@@ -93,6 +97,7 @@ impl PlacedView {
     match self {
       Self::Button(button) => button.setFrame(frame),
       Self::Label(label) => label.setFrame(frame),
+      Self::Field(field) => field.setFrame(frame),
       Self::Other(view) => view.setFrame(frame),
     }
   }
@@ -105,6 +110,16 @@ impl PlacedView {
         button.setTitle_forState(Some(&text), UIControlState::Normal);
       }
       Self::Label(label) => label.setText(Some(&text)),
+      // A text field's content is the user's live edit — only
+      // overwrite it on a real programmatic change (e.g. the
+      // input clearing after Add), never echo it back mid-type.
+      Self::Field(field) => {
+        let current = field.text().map(|s| s.to_string()).unwrap_or_default();
+
+        if current != text.to_string() {
+          field.setText(Some(&text));
+        }
+      }
       Self::Other(_) => {}
     }
   }
@@ -163,78 +178,41 @@ define_class!(
   struct SceneDelegate;
 
   impl SceneDelegate {
-    /// Target-action for every `UIButton`. The sender's `tag` is the
-    /// widget id assigned at lowering; map it back to its click
-    /// handler, dispatch into compiled zo (which mutates state and
-    /// refreshes `shared`), then reconcile the view tree against the
-    /// new command stream.
+    /// `UIButton` tap → the widget's `@click` handler. The
+    /// sender's `tag` is the lowering-assigned widget id.
     #[unsafe(method(buttonTapped:))]
     fn button_tapped(&self, sender: &UIButton) {
-      let widget_id = sender.tag().to_string();
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Click,
+        EventPayload::default(),
+      );
+    }
 
-      RUNTIME.with(|r| {
-        let mut runtime = r.borrow_mut();
-        let Some(runtime) = runtime.as_mut() else {
-          return;
-        };
+    /// `UITextField` edit → `@input`, carrying the field's
+    /// current text as the payload.
+    #[unsafe(method(textChanged:))]
+    fn text_changed(&self, sender: &UITextField) {
+      let text = sender.text().map(|s| s.to_string()).unwrap_or_default();
 
-        // Resolve the handler under a short lock, then drop it
-        // before dispatching: the registry callback re-locks
-        // `shared` to refresh bindings, so holding it here would
-        // deadlock. Rebuild the event map per tap (cheap, n tiny)
-        // exactly as the desktop runtime does per frame.
-        let handler = {
-          let cmds = runtime.shared.lock().unwrap();
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Input,
+        EventPayload::with_value(text),
+      );
+    }
 
-          build_event_map(&cmds)
-            .get(&(widget_id, EventKind::Click))
-            .cloned()
-        };
+    /// `UITextField` return key → `@submit`, carrying the
+    /// field's text as the payload.
+    #[unsafe(method(textSubmitted:))]
+    fn text_submitted(&self, sender: &UITextField) {
+      let text = sender.text().map(|s| s.to_string()).unwrap_or_default();
 
-        if let Some(handler) = handler {
-          runtime.registry.dispatch(&handler, &EventPayload::default());
-        }
-
-        // The handler mutated `shared` in place; reconcile the view
-        // tree against it.
-        let cmds = runtime.shared.lock().unwrap().clone();
-        let Some(host) = runtime.host.as_mut() else {
-          return;
-        };
-
-        match host.tree.reconcile(&cmds) {
-          // Fast path: structure unchanged. Re-solve (Taffy only
-          // re-measures the dirtied leaves), re-frame every view, and
-          // rewrite text on just the changed ones.
-          Some(changed) => {
-            let bounds = host.container.bounds();
-            let rects = host.tree.solve((
-              bounds.size.width as f32,
-              bounds.size.height as f32,
-            ));
-
-            for (view, (_, rect)) in host.views.iter().zip(&rects) {
-              view.set_frame(frame_of(*rect));
-            }
-
-            for (index, text) in changed {
-              host.views[index].set_text(&text);
-            }
-          }
-          // Structure changed (items added/removed): rebuild the
-          // container's widgets once from the new stream.
-          None => {
-            clear_subviews(&host.container);
-
-            let mtm = MainThreadMarker::from(self);
-            let (tree, views) =
-              render_into(&cmds, &host.container, self, mtm);
-
-            host.tree = tree;
-            host.views = views;
-          }
-        }
-      });
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Submit,
+        EventPayload::with_value(text),
+      );
     }
   }
 
@@ -295,6 +273,79 @@ define_class!(
   // accessors stay optional (the window is owned via `WINDOW`).
   unsafe impl UIWindowSceneDelegate for SceneDelegate {}
 );
+
+impl SceneDelegate {
+  /// Resolve `(widget_id, kind)` to its handler, dispatch into
+  /// compiled zo (which mutates state and refreshes `shared`),
+  /// then reconcile the view tree against the new command stream.
+  /// Shared by the button-tap and text-field event selectors.
+  fn dispatch_widget_event(
+    &self,
+    widget_id: String,
+    kind: EventKind,
+    payload: EventPayload,
+  ) {
+    RUNTIME.with(|r| {
+      let mut runtime = r.borrow_mut();
+      let Some(runtime) = runtime.as_mut() else {
+        return;
+      };
+
+      // Resolve the handler under a short lock, then drop it
+      // before dispatching: the registry callback re-locks
+      // `shared` to refresh bindings, so holding it here would
+      // deadlock. Rebuild the event map per event (cheap, n tiny)
+      // exactly as the desktop runtime does per frame.
+      let handler = {
+        let cmds = runtime.shared.lock().unwrap();
+
+        build_event_map(&cmds).get(&(widget_id, kind)).cloned()
+      };
+
+      if let Some(handler) = handler {
+        runtime.registry.dispatch(&handler, &payload);
+      }
+
+      // The handler mutated `shared` in place; reconcile the view
+      // tree against it.
+      let cmds = runtime.shared.lock().unwrap().clone();
+      let Some(host) = runtime.host.as_mut() else {
+        return;
+      };
+
+      match host.tree.reconcile(&cmds) {
+        // Fast path: structure unchanged. Re-solve (Taffy only
+        // re-measures the dirtied leaves), re-frame every view,
+        // and rewrite text on just the changed ones.
+        Some(changed) => {
+          let bounds = host.container.bounds();
+          let rects = host
+            .tree
+            .solve((bounds.size.width as f32, bounds.size.height as f32));
+
+          for (view, (_, rect)) in host.views.iter().zip(&rects) {
+            view.set_frame(frame_of(*rect));
+          }
+
+          for (index, text) in changed {
+            host.views[index].set_text(&text);
+          }
+        }
+        // Structure changed (items added/removed): rebuild the
+        // container's widgets once from the new stream.
+        None => {
+          clear_subviews(&host.container);
+
+          let mtm = MainThreadMarker::from(self);
+          let (tree, views) = render_into(&cmds, &host.container, self, mtm);
+
+          host.tree = tree;
+          host.views = views;
+        }
+      }
+    });
+  }
+}
 
 /// Builds native views for solved leaves and frames them on a
 /// container. Stateless beyond its borrows — `place` returns the
@@ -383,6 +434,58 @@ impl<'a> ViewBuilder<'a> {
         self.container.addSubview(&button);
 
         PlacedView::Button(button)
+      }
+
+      UiCommand::Element {
+        tag: ElementTag::Input | ElementTag::Textarea,
+        attrs,
+        ..
+      } => {
+        let field =
+          UITextField::initWithFrame(UITextField::alloc(self.mtm), frame);
+
+        // A rounded border makes the (otherwise borderless) field
+        // visible, matching the desktop renderer's box.
+        field.setBorderStyle(UITextBorderStyle::RoundedRect);
+        field.setFont(Some(&font_of(style)));
+
+        if let Some(placeholder) = attr_text(attrs, "placeholder") {
+          field.setPlaceholder(Some(&NSString::from_str(&placeholder)));
+        }
+
+        if let Some(value) = attr_text(attrs, "value") {
+          field.setText(Some(&NSString::from_str(&value)));
+        }
+
+        // Same widget-id routing as the button — `textChanged:` /
+        // `textSubmitted:` read it back from `tag`.
+        if let Some(id) = widget_id(attrs) {
+          field.setTag(id);
+        }
+
+        // SAFETY: the scene delegate is live; `textChanged:` /
+        // `textSubmitted:` are registered selectors taking the
+        // sender. `EditingChanged` fires per edit (→ `@input`);
+        // `EditingDidEndOnExit` fires on the return key
+        // (→ `@submit`).
+        let target_object: &AnyObject = self.target.as_ref();
+
+        unsafe {
+          field.addTarget_action_forControlEvents(
+            Some(target_object),
+            sel!(textChanged:),
+            UIControlEvents::EditingChanged,
+          );
+          field.addTarget_action_forControlEvents(
+            Some(target_object),
+            sel!(textSubmitted:),
+            UIControlEvents::EditingDidEndOnExit,
+          );
+        }
+
+        self.container.addSubview(&field);
+
+        PlacedView::Field(field)
       }
 
       UiCommand::Element { tag, .. } if tag.is_text_tag() => {
@@ -502,6 +605,16 @@ fn widget_id(attrs: &[Attr]) -> Option<isize> {
     .as_num()
     .map(|n| n as isize)
     .or_else(|| attr.as_str().and_then(|s| s.parse().ok()))
+}
+
+/// The string value of attribute `name` (a `Prop` or `Dynamic`),
+/// used to seed a text field's placeholder / initial value.
+fn attr_text(attrs: &[Attr], name: &str) -> Option<String> {
+  attrs
+    .iter()
+    .find(|a| a.name() == name)
+    .and_then(|a| a.as_str())
+    .map(str::to_string)
 }
 
 /// Launch the UIKit run loop. Blocks until the app exits. The

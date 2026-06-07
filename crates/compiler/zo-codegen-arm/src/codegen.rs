@@ -17,8 +17,10 @@ use zo_register_allocation::{
   IO_SHARED_BUF_SLOTS, RegAlloc, RegisterClass, SpillKind,
   flat_struct_slots_of, resolve_ty,
 };
-use zo_sir::{BinOp, Insn, LoadSource, Sir, SpawnKind, UnOp};
+use zo_sir::{BinOp, Insn, ListItemCmd, LoadSource, Sir, SpawnKind, UnOp};
 use zo_ty::{Ty, TyId, TyTable, struct_leaf_words};
+use zo_ui_protocol::codec;
+use zo_ui_protocol::{Attr, LIST_ITEM_SENTINEL, UiCommand};
 use zo_value::{FunctionKind, ValueId};
 use zo_writer_macho::{CODE_OFFSET, DebugFrameEntry, MachO, TEXT_SECTION_BASE};
 
@@ -227,6 +229,54 @@ const SYM_STATE_SET: &str = "_zo_state_set";
 // can't hold a string value.
 const SYM_STATE_GET_STR: &str = "_zo_state_get_str";
 const SYM_STATE_SET_STR: &str = "_zo_state_set_str";
+// Reactive `[]str` arrays (a list binding's `items_var`) live in
+// the runtime's `ARR_STATE`; `arr.push(x)` lowers to this.
+const SYM_STATE_ARR_PUSH: &str = "_zo_state_arr_push";
+
+/// Synthetic-symbol base for per-list item-recipe blobs embedded
+/// in `template_data`. Sits below the enum-synthetic base
+/// (`0xE000_0000`) and above any interned / template symbol, so a
+/// recipe symbol never collides. Each list binding mints the next
+/// id via `next_recipe_blob`.
+const RECIPE_BLOB_SYM_BASE: u32 = 0xD000_0000;
+
+/// One reactive list binding, ready to emit into the
+/// `ZoRuntimeContext`'s `ListBindingAbi` array. `recipe_sym` keys
+/// the postcard `Vec<UiCommand>` item recipe in `template_data`
+/// (resolved to an address by the `string_fixups` machinery).
+struct ListBindingEntry {
+  /// Index of the placeholder `Text` command the rendered list
+  /// items replace.
+  cmd_idx: u32,
+  /// Reactive array slot whose elements drive the list.
+  items_slot: u32,
+  /// Symbol of the embedded item-recipe blob.
+  recipe_sym: Symbol,
+  /// Byte length of the recipe blob.
+  recipe_len: u32,
+}
+
+/// Lower a list binding's per-item recipe to a `UiCommand`
+/// sub-stream the runtime walks once per array element. The item
+/// value placeholder (`TextFromItem`) becomes a sentinel `Text`
+/// the runtime substitutes; everything else maps one-to-one.
+fn convert_list_recipe(recipe: &[ListItemCmd]) -> Vec<UiCommand> {
+  recipe
+    .iter()
+    .map(|step| match step {
+      ListItemCmd::Element { tag, attrs } => UiCommand::Element {
+        tag: tag.clone(),
+        attrs: attrs.clone(),
+        self_closing: false,
+      },
+      ListItemCmd::EndElement => UiCommand::EndElement,
+      ListItemCmd::Text(text) => UiCommand::Text(text.clone()),
+      ListItemCmd::TextFromItem => {
+        UiCommand::Text(LIST_ITEM_SENTINEL.to_string())
+      }
+    })
+    .collect()
+}
 
 /// Synthetic-symbol base for the per-template event
 /// dispatcher (`_zo_dispatch_N`). Paired 1:1 with
@@ -379,6 +429,23 @@ pub struct ARM64Gen<'a> {
   /// the `ZoRuntimeContext` at `#render` time. Built by the
   /// same pre-pass that populates `reactive_slots`.
   template_text_bindings: HashMap<ValueId, Vec<(u32, u32, bool)>>,
+  /// Reactive `[]str` array slots — a list binding's `items_var`.
+  /// `arr.push` on these lowers to `_zo_state_arr_push` (into the
+  /// runtime's `ARR_STATE`) instead of the local realloc path,
+  /// and scalar-state Load/Store skip them.
+  reactive_arr_slots: HashSet<Symbol>,
+  /// Per-template list bindings to emit into the
+  /// `ZoRuntimeContext`'s `ListBindingAbi` array at `#render`.
+  /// Built by the same pre-pass that populates `reactive_slots`.
+  template_list_bindings: HashMap<ValueId, Vec<ListBindingEntry>>,
+  /// Per-template attribute bindings — `(cmd_idx, attr_idx,
+  /// slot, is_str)` — to emit into the `ZoRuntimeContext`'s
+  /// `AttrBindingAbi` array. The runtime re-applies each on
+  /// every event so e.g. `input_val = ""` clears the input.
+  template_attr_bindings: HashMap<ValueId, Vec<(u32, u32, u32, bool)>>,
+  /// Monotonic counter minting each item-recipe blob's symbol
+  /// (`RECIPE_BLOB_SYM_BASE + n`).
+  next_recipe_blob: u32,
   /// Set of `FunDef` indices whose body touches a
   /// reactive `mut`. Codegen inserts `bl _zo_state_get` /
   /// `bl _zo_state_set` (and `bl _zo_state_init` for the
@@ -828,6 +895,10 @@ impl<'a> ARM64Gen<'a> {
       template_handlers: HashMap::default(),
       reactive_slots: HashMap::default(),
       template_text_bindings: HashMap::default(),
+      reactive_arr_slots: HashSet::default(),
+      template_list_bindings: HashMap::default(),
+      template_attr_bindings: HashMap::default(),
+      next_recipe_blob: 0,
       fns_needing_calls: HashSet::default(),
       has_templates: false,
       labels: HashMap::default(),
@@ -2009,6 +2080,9 @@ impl<'a> ARM64Gen<'a> {
     // render the decimal of the buffer pointer.
     self.reactive_slots.clear();
     self.template_text_bindings.clear();
+    self.reactive_arr_slots.clear();
+    self.template_list_bindings.clear();
+    self.template_attr_bindings.clear();
 
     let mut sym_first_store_ty: HashMap<Symbol, TyId> = HashMap::default();
 
@@ -2019,7 +2093,13 @@ impl<'a> ARM64Gen<'a> {
     }
 
     for insn in insns.iter() {
-      let Insn::Template { id, bindings, .. } = insn else {
+      let Insn::Template {
+        id,
+        commands,
+        bindings,
+        ..
+      } = insn
+      else {
         continue;
       };
 
@@ -2027,15 +2107,7 @@ impl<'a> ARM64Gen<'a> {
         Vec::with_capacity(bindings.text.len());
 
       for &(cmd_idx, sym) in &bindings.text {
-        let slot = if let Some(&s) = self.reactive_slots.get(&sym) {
-          s
-        } else {
-          let s = self.reactive_slots.len() as u32;
-
-          self.reactive_slots.insert(sym, s);
-          s
-        };
-
+        let slot = self.reactive_slot_for(sym);
         let is_str = sym_first_store_ty
           .get(&sym)
           .is_some_and(|t| t.0 == STR_TYPE_ID);
@@ -2044,6 +2116,78 @@ impl<'a> ARM64Gen<'a> {
       }
 
       self.template_text_bindings.insert(*id, entries);
+
+      // Attribute-bound `mut`s (e.g. `value={input_val}`) and
+      // computed-binding captures must survive across events, so
+      // they get reactive slots too — their writes then route
+      // through `zo_state_set*` instead of an event-local frame.
+      // Each attr binding is also recorded so the runtime can
+      // re-apply it (`AttrBindingAbi`); `attr_idx` is the
+      // attribute's position within its element's `attrs`.
+      let mut attr_entries: Vec<(u32, u32, u32, bool)> = Vec::new();
+
+      for (cmd_idx, attr) in &bindings.attrs {
+        let Attr::Dynamic { var, .. } = attr else {
+          continue;
+        };
+
+        let slot = self.reactive_slot_for(Symbol(*var));
+        let attr_idx = commands.get(*cmd_idx).and_then(|cmd| match cmd {
+          UiCommand::Element { attrs, .. } => attrs.iter().position(
+            |a| matches!(a, Attr::Dynamic { var: v, .. } if v == var),
+          ),
+          _ => None,
+        });
+
+        if let Some(attr_idx) = attr_idx {
+          let is_str = sym_first_store_ty
+            .get(&Symbol(*var))
+            .is_some_and(|t| t.0 == STR_TYPE_ID);
+
+          attr_entries.push((*cmd_idx as u32, attr_idx as u32, slot, is_str));
+        }
+      }
+
+      if !attr_entries.is_empty() {
+        self.template_attr_bindings.insert(*id, attr_entries);
+      }
+
+      for (_cmd_idx, computed) in &bindings.computed {
+        for &sym in &computed.captures {
+          self.reactive_slot_for(sym);
+        }
+      }
+
+      // List bindings: the `items_var` is a reactive `[]str`
+      // array (its slot lives in `ARR_STATE`). Embed the per-item
+      // recipe as a postcard blob and record the binding so
+      // `emit_render_call` can emit its `ListBindingAbi` entry.
+      let mut list_entries = Vec::with_capacity(bindings.list.len());
+
+      for (cmd_idx, list) in &bindings.list {
+        let items_slot = self.reactive_slot_for(list.items_var);
+
+        self.reactive_arr_slots.insert(list.items_var);
+
+        let recipe = convert_list_recipe(&list.item_template);
+        let recipe_bytes = codec::encode(&recipe).unwrap_or_default();
+        let recipe_len = recipe_bytes.len() as u32;
+        let recipe_sym = Symbol(RECIPE_BLOB_SYM_BASE + self.next_recipe_blob);
+
+        self.next_recipe_blob += 1;
+        self.template_data.push((recipe_sym, recipe_bytes));
+
+        list_entries.push(ListBindingEntry {
+          cmd_idx: *cmd_idx as u32,
+          items_slot,
+          recipe_sym,
+          recipe_len,
+        });
+      }
+
+      if !list_entries.is_empty() {
+        self.template_list_bindings.insert(*id, list_entries);
+      }
     }
 
     // Pre-pass companion: find every function whose body
@@ -2072,6 +2216,17 @@ impl<'a> ARM64Gen<'a> {
           }
           Insn::Store { name, .. } => {
             if self.reactive_slots.contains_key(name)
+              && let Some(start) = current_fn
+            {
+              self.fns_needing_calls.insert(start);
+            }
+          }
+          // A reactive `arr.push` lowers to `bl _zo_state_arr_push`,
+          // which clobbers X30 just like the scalar state helpers.
+          Insn::ArrayPush {
+            owner: Some(sym), ..
+          } => {
+            if self.reactive_arr_slots.contains(sym)
               && let Some(start) = current_fn
             {
               self.fns_needing_calls.insert(start);
@@ -2877,8 +3032,14 @@ impl<'a> ARM64Gen<'a> {
           // dylib's `zo_state_get(slot)` so closures and
           // main both pull from the process-global state
           // buffer instead of their respective stack
-          // frames.
-          if let Some(&state_slot) = self.reactive_slots.get(sym) {
+          // frames. Reactive ARRAY slots are excluded — their
+          // elements live in `ARR_STATE`, not the scalar buffer,
+          // so a bare array read stays a local load (the value
+          // is only consumed by a reactive `push`, which routes
+          // to the FFI on its own).
+          if let Some(&state_slot) = self.reactive_slots.get(sym)
+            && !self.reactive_arr_slots.contains(sym)
+          {
             if let Some(dst_reg) = self.alloc_reg(*dst) {
               self.emit_state_load(dst_reg, state_slot, ty_id.0 == STR_TYPE_ID);
             }
@@ -4041,8 +4202,13 @@ impl<'a> ARM64Gen<'a> {
         // dylib's `zo_state_set(slot, value)` so closure
         // and main-thread updates both land in the
         // process-global state buffer that
-        // `refresh_bindings` reads.
-        if let Some(&slot) = self.reactive_slots.get(name) {
+        // `refresh_bindings` reads. Reactive ARRAY slots are
+        // excluded — `arr.push` already routes to `ARR_STATE`
+        // via the FFI, and the `mut todos = []` initialiser's
+        // heap-pointer store stays a harmless local.
+        if let Some(&slot) = self.reactive_slots.get(name)
+          && !self.reactive_arr_slots.contains(name)
+        {
           let value_reg = match self.alloc_reg(*value) {
             Some(r) => r,
             None => return,
@@ -4435,6 +4601,21 @@ impl<'a> ARM64Gen<'a> {
         ty_id,
         owner,
       } => {
+        // Reactive `[]str` array: the elements live in the
+        // runtime's `ARR_STATE`, so push routes through the FFI
+        // (which copies the str + marks the slot dirty) instead
+        // of the local realloc path.
+        if let Some(sym) = owner
+          && self.reactive_arr_slots.contains(sym)
+          && let Some(&slot) = self.reactive_slots.get(sym)
+        {
+          let val_reg = self.alloc_reg(*value).unwrap_or(X1);
+
+          self.emit_state_arr_push(slot, val_reg);
+
+          return;
+        }
+
         let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
 
         // X16 = len, X17 = cap.
@@ -8722,12 +8903,13 @@ impl<'a> ARM64Gen<'a> {
   }
 
   /// Emit a call into the runtime dylib that opens the
-  /// eframe window. Builds a 32-byte `ZoRuntimeContext`
-  /// on the stack (template ptr via PC-relative `adr`,
-  /// template len as immediate, both callback fields
-  /// zero), sets `x0` to its address, and `bl`s
-  /// `_zo_run_native`. The call blocks until the user
-  /// closes the window.
+  /// window. Builds a 56-byte `ZoRuntimeContext` on the stack
+  /// (template ptr via PC-relative `adr`, template len as
+  /// immediate, the dispatcher / text-binding / list-binding
+  /// pointers, then the `TextBinding` + `ListBindingAbi`
+  /// arrays it points at), sets `x0` to its address, and `bl`s
+  /// `_zo_run_native`. The call blocks until the user closes
+  /// the window.
   ///
   /// We don't go through `emit_extern_call` here because
   /// the `sub sp` invalidates its `caller_save_base`
@@ -8758,24 +8940,57 @@ impl<'a> ARM64Gen<'a> {
       .cloned()
       .unwrap_or_default();
     let bindings_count = bindings.len();
+    // (cmd_idx, items_slot, recipe_sym, recipe_len) per list
+    // binding — cloned out so the emit loop can mutate `self`.
+    let list_bindings: Vec<(u32, u32, Symbol, u32)> = self
+      .template_list_bindings
+      .get(&value)
+      .map(|entries| {
+        entries
+          .iter()
+          .map(|e| (e.cmd_idx, e.items_slot, e.recipe_sym, e.recipe_len))
+          .collect()
+      })
+      .unwrap_or_default();
+    let list_count = list_bindings.len();
+    // (cmd_idx, attr_idx, slot, is_str) per attr binding.
+    let attr_bindings: Vec<(u32, u32, u32, bool)> = self
+      .template_attr_bindings
+      .get(&value)
+      .cloned()
+      .unwrap_or_default();
+    let attr_count = attr_bindings.len();
 
     // Stack layout (mirrors `ZoRuntimeContext` in
-    // `zo-runtime-native::ffi`):
+    // `zo-runtime-render::aot`):
     //   [sp +  0..8 ] template_ptr
     //   [sp +  8..16] template_len
     //   [sp + 16..24] handle_event
     //   [sp + 24..32] text_bindings_ptr
     //   [sp + 32..40] text_bindings_count
-    //   [sp + 40..40 + 16*N] text_bindings array — one
-    //         `#[repr(C)] struct TextBinding` per entry,
-    //         16 bytes: cmd_idx u32 @0, slot_id u32 @4,
-    //         is_str u32 @8, _pad u32 @12.
-    const CTX_BYTES: i16 = 40;
-    const BINDINGS_BASE: i16 = CTX_BYTES;
-    const BINDING_STRIDE: i16 = 16;
+    //   [sp + 40..48] list_bindings_ptr
+    //   [sp + 48..56] list_bindings_count
+    //   [sp + 56..64] attr_bindings_ptr
+    //   [sp + 64..72] attr_bindings_count
+    //   [sp + 72 .. +16*T] TextBinding[T] — 16B each:
+    //         cmd_idx u32 @0, slot_id u32 @4, is_str u32 @8,
+    //         _pad u32 @12.
+    //   [.. +24*L] ListBindingAbi[L] — 24B each: cmd_idx u32 @0,
+    //         items_slot u32 @4, recipe_ptr @8, recipe_len @16.
+    //   [.. +16*A] AttrBindingAbi[A] — 16B each: cmd_idx u32 @0,
+    //         attr_idx u32 @4, slot u32 @8, is_str u32 @12.
+    const CTX_BYTES: i16 = 72;
+    const TEXT_BASE: i16 = CTX_BYTES;
+    const TEXT_STRIDE: i16 = 16;
+    const LIST_STRIDE: i16 = 24;
+    const ATTR_STRIDE: i16 = 16;
 
-    let bindings_bytes = (bindings_count as i16) * BINDING_STRIDE;
-    let total = CTX_BYTES + bindings_bytes;
+    let text_bytes = (bindings_count as i16) * TEXT_STRIDE;
+    let list_base = TEXT_BASE + text_bytes;
+    let list_bytes = (list_count as i16) * LIST_STRIDE;
+    let attr_base = list_base + list_bytes;
+    let attr_bytes = (attr_count as i16) * ATTR_STRIDE;
+    let total = CTX_BYTES + text_bytes + list_bytes + attr_bytes;
     // Align up to 16; AArch64 needs sp 16-byte aligned.
     let stack_reserve = ((total + 15) & !15) as u16;
 
@@ -8819,7 +9034,7 @@ impl<'a> ARM64Gen<'a> {
       // emitted as two `i64` halves: low = cmd_idx |
       // slot_id<<32, high = is_str (with _pad=0).
       for (i, &(cmd_idx, slot_id, is_str)) in bindings.iter().enumerate() {
-        let entry_base = BINDINGS_BASE + (i as i16) * BINDING_STRIDE;
+        let entry_base = TEXT_BASE + (i as i16) * TEXT_STRIDE;
         let lo = (cmd_idx as u64) | ((slot_id as u64) << 32);
         let hi = is_str as u64;
 
@@ -8829,8 +9044,8 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_str(X9, SP, entry_base + 8);
       }
 
-      // text_bindings_ptr = SP + BINDINGS_BASE.
-      self.emitter.emit_add_imm(X9, SP, BINDINGS_BASE as u16);
+      // text_bindings_ptr = SP + TEXT_BASE.
+      self.emitter.emit_add_imm(X9, SP, TEXT_BASE as u16);
       self.emitter.emit_str(X9, SP, 24);
 
       // text_bindings_count.
@@ -8839,6 +9054,72 @@ impl<'a> ARM64Gen<'a> {
     } else {
       self.emitter.emit_str(XZR, SP, 24);
       self.emitter.emit_str(XZR, SP, 32);
+    }
+
+    if list_count > 0 {
+      // 24-byte `#[repr(C)] ListBindingAbi` per entry: low 8
+      // bytes = cmd_idx | items_slot<<32; recipe_ptr (ADR
+      // fixup) @8; recipe_len @16.
+      for (i, &(cmd_idx, items_slot, recipe_sym, recipe_len)) in
+        list_bindings.iter().enumerate()
+      {
+        let entry_base = list_base + (i as i16) * LIST_STRIDE;
+        let lo = (cmd_idx as u64) | ((items_slot as u64) << 32);
+
+        self.emit_mov_imm_64(X9, lo);
+        self.emitter.emit_str(X9, SP, entry_base);
+
+        // recipe_ptr — PC-relative ADR resolved against the
+        // embedded recipe blob via `string_fixups`.
+        let adr_pos = self.emitter.current_offset();
+
+        self.string_fixups.push((adr_pos, recipe_sym));
+        self.emitter.emit_adr(X9, 0);
+        self.emitter.emit_str(X9, SP, entry_base + 8);
+
+        self.emit_mov_imm_64(X9, recipe_len as u64);
+        self.emitter.emit_str(X9, SP, entry_base + 16);
+      }
+
+      // list_bindings_ptr = SP + list_base.
+      self.emitter.emit_add_imm(X9, SP, list_base as u16);
+      self.emitter.emit_str(X9, SP, 40);
+
+      // list_bindings_count.
+      self.emit_mov_imm_64(X9, list_count as u64);
+      self.emitter.emit_str(X9, SP, 48);
+    } else {
+      self.emitter.emit_str(XZR, SP, 40);
+      self.emitter.emit_str(XZR, SP, 48);
+    }
+
+    if attr_count > 0 {
+      // 16-byte `#[repr(C)] AttrBindingAbi` per entry, two i64
+      // halves: low = cmd_idx | attr_idx<<32; high = slot |
+      // is_str<<32.
+      for (i, &(cmd_idx, attr_idx, slot, is_str)) in
+        attr_bindings.iter().enumerate()
+      {
+        let entry_base = attr_base + (i as i16) * ATTR_STRIDE;
+        let lo = (cmd_idx as u64) | ((attr_idx as u64) << 32);
+        let hi = (slot as u64) | ((is_str as u64) << 32);
+
+        self.emit_mov_imm_64(X9, lo);
+        self.emitter.emit_str(X9, SP, entry_base);
+        self.emit_mov_imm_64(X9, hi);
+        self.emitter.emit_str(X9, SP, entry_base + 8);
+      }
+
+      // attr_bindings_ptr = SP + attr_base.
+      self.emitter.emit_add_imm(X9, SP, attr_base as u16);
+      self.emitter.emit_str(X9, SP, 56);
+
+      // attr_bindings_count.
+      self.emit_mov_imm_64(X9, attr_count as u64);
+      self.emitter.emit_str(X9, SP, 64);
+    } else {
+      self.emitter.emit_str(XZR, SP, 56);
+      self.emitter.emit_str(XZR, SP, 64);
     }
 
     // `MOV X0, SP` — AArch64 MOV (register) is `ORR Rd,
@@ -8902,6 +9183,7 @@ impl<'a> ARM64Gen<'a> {
       SYM_STATE_SET,
       SYM_STATE_GET_STR,
       SYM_STATE_SET_STR,
+      SYM_STATE_ARR_PUSH,
     ] {
       self
         .extern_dylib_paths
@@ -8974,6 +9256,38 @@ impl<'a> ARM64Gen<'a> {
     } else {
       SYM_STATE_SET
     });
+  }
+
+  /// Emit `mov x1, value; mov w0, slot; bl _zo_state_arr_push` —
+  /// the reactive `[]str` push. `value` is a zo `str` pointer
+  /// (length-prefixed); the runtime copies its bytes onto
+  /// `ARR_STATE[slot]` and marks the slot dirty so the list
+  /// re-renders. Mirrors `emit_state_store`'s X1-first ordering.
+  fn emit_state_arr_push(&mut self, slot: u32, value: Register) {
+    self.ensure_runtime_dylib_registered();
+
+    if value != X1 {
+      self.emitter.emit_mov_reg(X1, value);
+    }
+
+    self.emitter.emit_mov_imm(X0, slot as u16);
+    self.emit_extern_call(SYM_STATE_ARR_PUSH);
+  }
+
+  /// The reactive slot id for `sym`, minting a fresh one (the
+  /// next free index) when the symbol isn't bound yet. Slots
+  /// share one id space across scalar, string, and array state —
+  /// the runtime's `STATE` / `STR_STATE` / `ARR_STATE` are all
+  /// indexed by the same slot id.
+  fn reactive_slot_for(&mut self, sym: Symbol) -> u32 {
+    if let Some(&slot) = self.reactive_slots.get(&sym) {
+      slot
+    } else {
+      let slot = self.reactive_slots.len() as u32;
+
+      self.reactive_slots.insert(sym, slot);
+      slot
+    }
   }
 
   /// Generate a complete "Hello, World" executable.

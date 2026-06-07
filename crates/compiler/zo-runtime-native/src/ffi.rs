@@ -11,8 +11,9 @@
 use crate::runtime::Runtime;
 
 use zo_runtime_render::aot::{
-  SendPtr, ZoRuntimeContext, build_registry, decode_template,
-  refresh_bindings_from_global,
+  RegistryInputs, SendPtr, ZoRuntimeContext, build_registry,
+  decode_attr_bindings, decode_list_bindings, decode_template,
+  rebuild_with_lists,
 };
 use zo_runtime_render::render::RuntimeConfig;
 
@@ -43,7 +44,7 @@ pub unsafe extern "C" fn zo_run_native(ctx: *const ZoRuntimeContext) {
 
   let ctx_ref = unsafe { &*ctx };
 
-  let mut cmds = match unsafe { decode_template(ctx_ref) } {
+  let base = match unsafe { decode_template(ctx_ref) } {
     Ok(c) => c,
     Err(e) => {
       eprintln!("[zo-runtime] template decode error: {e:?}");
@@ -52,31 +53,41 @@ pub unsafe extern "C" fn zo_run_native(ctx: *const ZoRuntimeContext) {
     }
   };
 
-  // Initial refresh — the postcard payload bakes the
-  // initial value of every `mut` into its `Text`, so this
-  // is a no-op on the first frame, but keeps the
-  // refresh-after-event path simple (always go through the
-  // same code).
-  unsafe {
-    refresh_bindings_from_global(
+  let lists = unsafe { decode_list_bindings(ctx_ref) };
+  let attrs = unsafe { decode_attr_bindings(ctx_ref) };
+
+  // Initial frame: bake every `mut`'s value into its `Text`,
+  // apply attribute bindings, and splice each list's initial
+  // items over its placeholder. The postcard payload already
+  // carries the scalar initials, so the text bake is a no-op on
+  // the first frame; the splice brings a non-empty initial list
+  // onto the screen.
+  let initial = unsafe {
+    rebuild_with_lists(
+      &base,
       ctx_ref.text_bindings_ptr,
       ctx_ref.text_bindings_count,
-      &mut cmds,
-    );
-  }
+      &attrs,
+      &lists,
+    )
+  };
 
-  let shared = Arc::new(Mutex::new(cmds.clone()));
+  let shared = Arc::new(Mutex::new(initial));
   let mut runtime = Runtime::with_config(RuntimeConfig::default());
 
   runtime.set_shared_commands(Arc::clone(&shared));
 
   if let Some(dispatch) = ctx_ref.handle_event {
     runtime.set_events(build_registry(
-      &cmds,
       SendPtr(dispatch),
-      SendPtr(ctx_ref.text_bindings_ptr),
-      ctx_ref.text_bindings_count,
       shared,
+      RegistryInputs {
+        base,
+        lists,
+        attrs,
+        bindings_ptr: SendPtr(ctx_ref.text_bindings_ptr),
+        bindings_count: ctx_ref.text_bindings_count,
+      },
     ));
   }
 

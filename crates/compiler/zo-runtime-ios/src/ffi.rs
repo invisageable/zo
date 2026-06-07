@@ -1,8 +1,9 @@
 //! The `_zo_run_native` C-ABI entry point for iOS.
 
 use zo_runtime_render::aot::{
-  SendPtr, ZoRuntimeContext, build_registry, decode_template,
-  refresh_bindings_from_global,
+  RegistryInputs, SendPtr, ZoRuntimeContext, build_registry,
+  decode_attr_bindings, decode_list_bindings, decode_template,
+  rebuild_with_lists,
 };
 use zo_runtime_render::render::EventRegistry;
 
@@ -31,7 +32,7 @@ pub unsafe extern "C" fn zo_run_native(ctx: *const ZoRuntimeContext) {
 
   let ctx_ref = unsafe { &*ctx };
 
-  let mut cmds = match unsafe { decode_template(ctx_ref) } {
+  let base = match unsafe { decode_template(ctx_ref) } {
     Ok(c) => c,
     Err(e) => {
       eprintln!("[zo-runtime-ios] template decode error: {e:?}");
@@ -40,29 +41,40 @@ pub unsafe extern "C" fn zo_run_native(ctx: *const ZoRuntimeContext) {
     }
   };
 
-  // Bake initial reactive values into the command stream. The
-  // postcard payload already carries every `mut`'s initial value, so
-  // this is a no-op on the first frame — it keeps the
-  // refresh-after-tap path identical to startup.
-  unsafe {
-    refresh_bindings_from_global(
+  let lists = unsafe { decode_list_bindings(ctx_ref) };
+  let attrs = unsafe { decode_attr_bindings(ctx_ref) };
+
+  // Initial frame: bake every `mut`'s value into its `Text`,
+  // apply attribute bindings, and splice each list's initial
+  // items over its placeholder. The postcard payload already
+  // carries the scalar initials, so the text bake is a no-op on
+  // the first frame; the splice brings a non-empty initial list
+  // onto the screen.
+  let initial = unsafe {
+    rebuild_with_lists(
+      &base,
       ctx_ref.text_bindings_ptr,
       ctx_ref.text_bindings_count,
-      &mut cmds,
-    );
-  }
+      &attrs,
+      &lists,
+    )
+  };
 
-  let shared = Arc::new(Mutex::new(cmds.clone()));
+  let shared = Arc::new(Mutex::new(initial));
 
   // Build the registry only when the program registered a dispatcher;
   // a static template leaves it empty and taps no-op.
   let registry = match ctx_ref.handle_event {
     Some(dispatch) => build_registry(
-      &cmds,
       SendPtr(dispatch),
-      SendPtr(ctx_ref.text_bindings_ptr),
-      ctx_ref.text_bindings_count,
       Arc::clone(&shared),
+      RegistryInputs {
+        base,
+        lists,
+        attrs,
+        bindings_ptr: SendPtr(ctx_ref.text_bindings_ptr),
+        bindings_count: ctx_ref.text_bindings_count,
+      },
     ),
     None => EventRegistry::new(),
   };

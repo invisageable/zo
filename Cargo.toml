@@ -212,6 +212,7 @@ objc2-ui-kit = { version = "0.3", features = [
   "UIControl",
   "UIButton",
   "UILabel",
+  "UITextField",
   "UIScene",
   "UIWindowScene",
   "UISceneOptions",

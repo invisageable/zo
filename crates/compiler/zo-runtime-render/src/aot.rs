@@ -15,8 +15,8 @@ use crate::reactive::{
 };
 use crate::render::{EventHandler, EventRegistry};
 
-use zo_ui_protocol::UiCommand;
 use zo_ui_protocol::codec::{self, CodecError};
+use zo_ui_protocol::{LIST_ITEM_SENTINEL, UiCommand};
 
 use std::collections::HashSet;
 use std::slice;
@@ -27,6 +27,14 @@ static STATE: OnceLock<Mutex<Vec<i64>>> = OnceLock::new();
 
 /// The string-typed reactive state.
 static STR_STATE: OnceLock<Mutex<Vec<Vec<u8>>>> = OnceLock::new();
+
+/// The array-typed reactive state — one `Vec<String>` per slot,
+/// backing `mut []str` reactive arrays (the list-binding
+/// `items_var`). A compiled handler's `todos.push(x)` lowers to
+/// `zo_state_arr_push`, which the list refresh reads to re-render
+/// the `<ul>`. Slots share the one id space with `STATE` /
+/// `STR_STATE`; a given slot is only ever one kind.
+static ARR_STATE: OnceLock<Mutex<Vec<Vec<String>>>> = OnceLock::new();
 
 /// Slots written since the last drain. A state write marks its
 /// slot here; `drain_dirty` empties it after each event so the
@@ -39,6 +47,10 @@ fn state() -> &'static Mutex<Vec<i64>> {
 
 fn str_state() -> &'static Mutex<Vec<Vec<u8>>> {
   STR_STATE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn arr_state() -> &'static Mutex<Vec<Vec<String>>> {
+  ARR_STATE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 fn dirty() -> &'static Mutex<DirtySet> {
@@ -87,6 +99,37 @@ pub struct TextBinding {
   pub _pad: u32,
 }
 
+/// One reactive list binding in the AOT context. The placeholder
+/// `commands[cmd_idx]` is replaced by the rendered elements of
+/// reactive array slot `items_slot`, each emitted by walking the
+/// per-item recipe at `[recipe_ptr, recipe_ptr + recipe_len)` — a
+/// postcard `Vec<UiCommand>` whose item value is a sentinel
+/// `Text` (`LIST_ITEM_SENTINEL`). Field order + sizes are ABI:
+/// `cmd_idx`@0, `items_slot`@4, `recipe_ptr`@8, `recipe_len`@16
+/// (24 bytes, 8-aligned).
+#[repr(C)]
+pub struct ListBindingAbi {
+  pub cmd_idx: u32,
+  pub items_slot: u32,
+  pub recipe_ptr: *const u8,
+  pub recipe_len: usize,
+}
+
+/// One reactive attribute binding (`<input value={input_val}>`).
+/// The runtime re-applies `commands[cmd_idx].attrs[attr_idx]`'s
+/// value from state slot `slot` (`is_str` selects `STR_STATE`
+/// over `STATE`) via `UiCommand::set_attr`, so a program-side
+/// `input_val = ""` clears the input. Field order + sizes are
+/// ABI: `cmd_idx`@0, `attr_idx`@4, `slot`@8, `is_str`@12
+/// (16 bytes).
+#[repr(C)]
+pub struct AttrBindingAbi {
+  pub cmd_idx: u32,
+  pub attr_idx: u32,
+  pub slot: u32,
+  pub is_str: u32,
+}
+
 /// AOT entry-point context. Built in the compiled exe's
 /// stack frame by codegen and passed by reference to
 /// `_zo_run_native` at startup.
@@ -125,6 +168,21 @@ pub struct ZoRuntimeContext {
   pub text_bindings_ptr: *const TextBinding,
   /// Number of `TextBinding`s at `text_bindings_ptr`.
   pub text_bindings_count: usize,
+  /// Pointer to an array of `ListBindingAbi` records — the
+  /// reactive `<X>{arr.map(...)}</X>` lists. Null / count 0 = no
+  /// list bindings. Appended after the text fields, so an older
+  /// binary that doesn't set them is safe **only** while the
+  /// runtime never reads them; `_zo_run_native` reads them
+  /// solely when the program ships list bindings.
+  pub list_bindings_ptr: *const ListBindingAbi,
+  /// Number of `ListBindingAbi`s at `list_bindings_ptr`.
+  pub list_bindings_count: usize,
+  /// Pointer to an array of `AttrBindingAbi` records — reactive
+  /// element attributes (`value={input_val}`). Null / count 0 =
+  /// none. Read only when the program ships attr bindings.
+  pub attr_bindings_ptr: *const AttrBindingAbi,
+  /// Number of `AttrBindingAbi`s at `attr_bindings_ptr`.
+  pub attr_bindings_count: usize,
 }
 
 /// Send wrapper for a raw pointer or fn pointer. The exe's
@@ -171,6 +229,12 @@ pub extern "C" fn zo_state_init(count: u32) {
 
   if str_state.len() < count as usize {
     str_state.resize_with(count as usize, || encode_length_prefixed(b""));
+  }
+
+  let mut arr_state = arr_state().lock().unwrap();
+
+  if arr_state.len() < count as usize {
+    arr_state.resize_with(count as usize, Vec::new);
   }
 
   // Size the dirty set in lockstep (grow-only) so every
@@ -261,6 +325,261 @@ pub extern "C" fn zo_state_get_str(slot: u32) -> *const u8 {
     Some(buf) => buf.as_ptr(),
     None => EMPTY.as_ptr(),
   }
+}
+
+/// Push the length-prefixed string at `ptr` onto array slot
+/// `slot`, marking the slot dirty. The compiled `todos.push(x)`
+/// on a reactive `[]str` lowers to this — the runtime copies the
+/// bytes, so they outlive the closure frame, and the dirty mark
+/// drives the list re-render.
+///
+/// # Safety
+///
+/// `ptr` must be null (treated as the empty string) or a
+/// zo-format length-prefixed string pointer (`[len: u64][bytes]
+/// [null]`) that lives for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_state_arr_push(slot: u32, ptr: *const u8) {
+  let bytes: &[u8] = if ptr.is_null() {
+    b""
+  } else {
+    unsafe { read_length_prefixed(ptr) }
+  };
+  let item = String::from_utf8_lossy(bytes).into_owned();
+
+  {
+    let mut arr_state = arr_state().lock().unwrap();
+    let Some(slot_vec) = arr_state.get_mut(slot as usize) else {
+      return;
+    };
+
+    slot_vec.push(item);
+  }
+
+  dirty().lock().unwrap().mark(slot);
+}
+
+/// Number of elements in array slot `slot` (0 for an unset /
+/// out-of-range slot). The reactive `todos.len` read.
+#[unsafe(no_mangle)]
+pub extern "C" fn zo_state_arr_len(slot: u32) -> u64 {
+  let arr_state = arr_state().lock().unwrap();
+
+  arr_state.get(slot as usize).map_or(0, |v| v.len() as u64)
+}
+
+/// Snapshot the items of array slot `slot` for the list
+/// re-render — cloned so the renderer never holds the
+/// `ARR_STATE` lock while it walks the recipe. Empty for an
+/// unset / out-of-range slot.
+pub fn arr_slot_items(slot: u32) -> Vec<String> {
+  let arr_state = arr_state().lock().unwrap();
+
+  arr_state.get(slot as usize).cloned().unwrap_or_default()
+}
+
+/// Render `recipe` once per element of `items`, substituting the
+/// element value for each sentinel `Text` placeholder. The
+/// per-item building block the list re-render splices over a
+/// placeholder command. An empty `items` yields no commands —
+/// the list collapses to nothing, as it should.
+pub fn render_list(items: &[String], recipe: &[UiCommand]) -> Vec<UiCommand> {
+  let mut out = Vec::with_capacity(items.len() * recipe.len());
+
+  for item in items {
+    for cmd in recipe {
+      match cmd {
+        UiCommand::Text(text) if text == LIST_ITEM_SENTINEL => {
+          out.push(UiCommand::Text(item.clone()));
+        }
+        other => out.push(other.clone()),
+      }
+    }
+  }
+
+  out
+}
+
+/// A list binding decoded from the AOT context: the placeholder
+/// command index, the reactive array slot that drives it, and the
+/// per-item recipe (postcard-decoded once at startup). The
+/// runtime, post-codegen counterpart of the compile-time
+/// `zo_sir::ListBinding` — slot ids and a `UiCommand` recipe
+/// instead of symbols and `ListItemCmd`s.
+pub struct ListBindingDecoded {
+  pub cmd_idx: usize,
+  pub items_slot: u32,
+  pub recipe: Vec<UiCommand>,
+}
+
+/// Decode the context's `ListBindingAbi` array into owned
+/// `ListBinding`s, postcard-decoding each recipe once. A binding
+/// whose recipe fails to decode is skipped (defensive — a
+/// corrupt blob drops that one list, not the whole UI).
+///
+/// # Safety
+///
+/// `ctx.list_bindings_ptr` must be null or point to
+/// `ctx.list_bindings_count` valid `ListBindingAbi` entries whose
+/// `(recipe_ptr, recipe_len)` ranges are valid for the call.
+pub unsafe fn decode_list_bindings(
+  ctx: &ZoRuntimeContext,
+) -> Vec<ListBindingDecoded> {
+  if ctx.list_bindings_ptr.is_null() {
+    return Vec::new();
+  }
+
+  let abis = unsafe {
+    slice::from_raw_parts(ctx.list_bindings_ptr, ctx.list_bindings_count)
+  };
+  let mut out = Vec::with_capacity(abis.len());
+
+  for abi in abis {
+    let bytes =
+      unsafe { slice::from_raw_parts(abi.recipe_ptr, abi.recipe_len) };
+
+    if let Ok(recipe) = codec::decode(bytes) {
+      out.push(ListBindingDecoded {
+        cmd_idx: abi.cmd_idx as usize,
+        items_slot: abi.items_slot,
+        recipe,
+      });
+    }
+  }
+
+  out
+}
+
+/// One attribute binding decoded from the AOT context: the
+/// `Element` command, the attribute index within it, and the
+/// state slot driving its value.
+pub struct AttrBindingDecoded {
+  pub cmd_idx: usize,
+  pub attr_idx: usize,
+  pub slot: u32,
+  pub is_str: bool,
+}
+
+/// Decode the context's `AttrBindingAbi` array. Null pointer →
+/// no bindings.
+///
+/// # Safety
+///
+/// `ctx.attr_bindings_ptr` must be null or point to
+/// `ctx.attr_bindings_count` valid `AttrBindingAbi` entries.
+pub unsafe fn decode_attr_bindings(
+  ctx: &ZoRuntimeContext,
+) -> Vec<AttrBindingDecoded> {
+  if ctx.attr_bindings_ptr.is_null() {
+    return Vec::new();
+  }
+
+  let abis = unsafe {
+    slice::from_raw_parts(ctx.attr_bindings_ptr, ctx.attr_bindings_count)
+  };
+
+  abis
+    .iter()
+    .map(|abi| AttrBindingDecoded {
+      cmd_idx: abi.cmd_idx as usize,
+      attr_idx: abi.attr_idx as usize,
+      slot: abi.slot,
+      is_str: abi.is_str != 0,
+    })
+    .collect()
+}
+
+/// Re-apply each attribute binding whose slot passes `should_fire`
+/// — read the slot's current value and `set_attr` it on the bound
+/// element's attribute. The element already carries the attr name
+/// (it's `commands[cmd_idx].attrs[attr_idx]`), so no name blob
+/// crosses the ABI. A program-side `input_val = ""` clears the
+/// input this way.
+fn apply_attr_bindings(
+  cmds: &mut [UiCommand],
+  attrs: &[AttrBindingDecoded],
+  should_fire: impl Fn(u32) -> bool,
+) {
+  for attr in attrs {
+    if !should_fire(attr.slot) {
+      continue;
+    }
+
+    let Some(value) = state_slot_text(attr.slot, attr.is_str) else {
+      continue;
+    };
+
+    // Resolve the attr name (immutable peek), then set it.
+    let name = match cmds.get(attr.cmd_idx) {
+      Some(UiCommand::Element { attrs: a, .. }) => {
+        a.get(attr.attr_idx).map(|x| x.name().to_string())
+      }
+      _ => None,
+    };
+
+    if let Some(name) = name
+      && let Some(cmd) = cmds.get_mut(attr.cmd_idx)
+    {
+      cmd.set_attr(&name, &value);
+    }
+  }
+}
+
+/// Rebuild the command stream from the static `base` template:
+/// bake every text binding from the global state, re-apply every
+/// attribute binding, then splice each list's rendered items over
+/// its placeholder. Used for the initial frame and whenever a list
+/// slot changed — the splice shifts tail indices, so the fine-
+/// grained in-place path can't apply there.
+///
+/// Lists splice front-to-back with a running offset (mirrors the
+/// `zo run` list applier); the current template shapes carry no
+/// binding past a list anchor, so a single forward pass is exact.
+///
+/// # Safety
+///
+/// `text_bindings_ptr` must be null or point to
+/// `text_bindings_count` valid `TextBinding` entries.
+pub unsafe fn rebuild_with_lists(
+  base: &[UiCommand],
+  text_bindings_ptr: *const TextBinding,
+  text_bindings_count: usize,
+  attrs: &[AttrBindingDecoded],
+  lists: &[ListBindingDecoded],
+) -> Vec<UiCommand> {
+  let mut cmds = base.to_vec();
+
+  unsafe {
+    refresh_bindings_from_global(
+      text_bindings_ptr,
+      text_bindings_count,
+      &mut cmds,
+    );
+  }
+
+  // Attr bindings apply before the splice — they target the base
+  // commands (e.g. the `<input>`), all of which sit before any
+  // list anchor in the current shapes.
+  apply_attr_bindings(&mut cmds, attrs, |_| true);
+
+  let mut offset: isize = 0;
+
+  for list in lists {
+    let target = (list.cmd_idx as isize + offset) as usize;
+
+    if target >= cmds.len() {
+      continue;
+    }
+
+    let items = arr_slot_items(list.items_slot);
+    let rendered = render_list(&items, &list.recipe);
+    let new_len = rendered.len();
+
+    cmds.splice(target..target + 1, rendered);
+    offset += new_len as isize - 1;
+  }
+
+  cmds
 }
 
 /// Refresh every reactive `commands[cmd_idx]` from
@@ -424,25 +743,49 @@ fn state_slot_text(slot: u32, is_str: bool) -> Option<String> {
   }
 }
 
+/// Per-program inputs threaded into [`build_registry`] beyond the
+/// dispatcher and shared buffer — grouped so the call stays
+/// within the argument budget.
+pub struct RegistryInputs {
+  /// The static template (placeholders unbaked). The dedup walk
+  /// reads it for `Event` commands, and the handler rebuilds the
+  /// command stream from it whenever a list slot changes.
+  pub base: Vec<UiCommand>,
+  /// Decoded list bindings (empty for a list-free template).
+  pub lists: Vec<ListBindingDecoded>,
+  /// Decoded attribute bindings (empty when none).
+  pub attrs: Vec<AttrBindingDecoded>,
+  /// The `TextBinding` array pointer + count.
+  pub bindings_ptr: SendPtr<*const TextBinding>,
+  pub bindings_count: usize,
+}
+
 /// Build an `EventRegistry` whose callbacks dispatch through
 /// `ctx.handle_event` AND, after the dispatcher returns, refresh
 /// only the reactive bindings whose state slots the handler
-/// actually wrote. Walks `cmds` left-to-right, assigns each
-/// unique handler name a sequential `u32` index — the codegen-
-/// side dispatcher uses the same dedupe-by-first-seen-name
-/// scheme, so the indices line up automatically.
+/// actually wrote. Walks the base template left-to-right,
+/// assigns each unique handler name a sequential `u32` index —
+/// the codegen-side dispatcher uses the same dedupe-by-first-
+/// seen-name scheme, so the indices line up automatically.
 ///
 /// The `TextBinding` array is folded once into a [`BindingGraph`]
 /// reverse index; each handler then drains the dirty set written
 /// by `zo_state_set` and refreshes only those slots' commands —
-/// O(written), not O(all bindings).
+/// O(written), not O(all bindings). A write to a list's items
+/// slot instead rebuilds the whole stream (the splice shifts
+/// indices, so the fine-grained path can't apply there).
 pub fn build_registry(
-  cmds: &[UiCommand],
   dispatch: SendPtr<unsafe extern "C" fn(u32, u32, *const u8)>,
-  bindings_ptr: SendPtr<*const TextBinding>,
-  bindings_count: usize,
   shared_cmds: Arc<Mutex<Vec<UiCommand>>>,
+  inputs: RegistryInputs,
 ) -> EventRegistry {
+  let RegistryInputs {
+    base,
+    lists,
+    attrs,
+    bindings_ptr,
+    bindings_count,
+  } = inputs;
   let mut registry = EventRegistry::new();
   let mut seen: HashSet<String> = HashSet::new();
   let mut handler_idx: u32 = 0;
@@ -453,8 +796,11 @@ pub fn build_registry(
     unsafe { build_text_binding_graph(bindings_ptr.0, bindings_count) };
   let graph = Arc::new(graph);
   let is_str = Arc::new(is_str);
+  let base = Arc::new(base);
+  let lists = Arc::new(lists);
+  let attrs = Arc::new(attrs);
 
-  for cmd in cmds {
+  for cmd in base.iter() {
     let UiCommand::Event {
       handler,
       event_kind,
@@ -471,18 +817,22 @@ pub fn build_registry(
     let idx = handler_idx;
     let kind_u32 = *event_kind as u32;
     // Capture `SendPtr` directly — the wrapper is Send, the bare
-    // fn pointer isn't. The graph / is_str are plain `Arc`s
-    // (Send + Sync), so they cross into the closure freely.
+    // fn pointer isn't. The graph / is_str / base / lists are
+    // plain `Arc`s (Send + Sync), so they cross in freely.
     let dispatch_send = dispatch;
+    let bindings_send = bindings_ptr;
     let cmds_arc = Arc::clone(&shared_cmds);
     let graph = Arc::clone(&graph);
     let is_str = Arc::clone(&is_str);
+    let base = Arc::clone(&base);
+    let lists = Arc::clone(&lists);
+    let attrs = Arc::clone(&attrs);
     let cb: EventHandler = Box::new(move |payload| {
       // RFC 2229 disjoint captures would otherwise pull
-      // `dispatch_send.0` directly into the closure type,
-      // defeating `SendPtr`'s wrapper-level `Send`. Reference
-      // the binding whole to force a whole-binding capture.
-      let _ = &dispatch_send;
+      // `dispatch_send.0` / `bindings_send.0` directly into the
+      // closure type, defeating `SendPtr`'s wrapper-level `Send`.
+      // Reference each binding whole to force whole captures.
+      let _ = (&dispatch_send, &bindings_send);
 
       // `event_holder` IS the `Event { value: str }` struct
       // — one 8-byte field holding a pointer to the
@@ -503,23 +853,44 @@ pub fn build_registry(
         )
       };
 
-      // The dispatcher's `zo_state_set` calls marked every
-      // written slot; drain them and refresh only those slots'
-      // commands in place. A no-op write (slot rewritten to the
-      // same value) leaves the command stream byte-identical.
+      // The dispatcher's `zo_state_set` / `zo_state_arr_push`
+      // calls marked every written slot. Drain them: a write to a
+      // list's items slot reshapes the stream (rebuild from
+      // base); otherwise patch only the dirtied text/attr
+      // commands in place — a no-op write leaves them identical.
       let mut written = Vec::new();
 
       drain_dirty(&mut written);
 
+      let hits_list = lists.iter().any(|l| written.contains(&l.items_slot));
       let mut cmds = cmds_arc.lock().unwrap();
-      let mut touched = DirtyCommands::with_capacity(cmds.len());
 
-      refresh_dirty(&graph, &written, &[], &mut cmds, &mut touched, |slot| {
-        state_slot_text(
-          slot,
-          is_str.get(slot as usize).copied().unwrap_or(false),
-        )
-      });
+      if hits_list {
+        *cmds = unsafe {
+          rebuild_with_lists(
+            base.as_slice(),
+            bindings_send.0,
+            bindings_count,
+            attrs.as_slice(),
+            lists.as_slice(),
+          )
+        };
+      } else {
+        let mut touched = DirtyCommands::with_capacity(cmds.len());
+
+        refresh_dirty(&graph, &written, &[], &mut cmds, &mut touched, |slot| {
+          state_slot_text(
+            slot,
+            is_str.get(slot as usize).copied().unwrap_or(false),
+          )
+        });
+
+        // Re-apply attribute bindings whose slot the handler
+        // wrote (e.g. `value={input_val}` after `input_val = ""`).
+        apply_attr_bindings(&mut cmds, attrs.as_slice(), |slot| {
+          written.contains(&slot)
+        });
+      }
     });
 
     registry.register(handler.clone(), cb);
@@ -541,6 +912,10 @@ mod tests {
       handle_event: None,
       text_bindings_ptr: std::ptr::null(),
       text_bindings_count: 0,
+      list_bindings_ptr: std::ptr::null(),
+      list_bindings_count: 0,
+      attr_bindings_ptr: std::ptr::null(),
+      attr_bindings_count: 0,
     }
   }
 
@@ -775,6 +1150,239 @@ mod tests {
   }
 
   #[test]
+  fn arr_state_push_len_items_and_dirty() {
+    // Slot 410 is unique to this test — the global ARR_STATE is
+    // process-wide, but nothing else touches 410.
+    zo_state_init(420);
+
+    let mut scratch = Vec::new();
+    drain_dirty(&mut scratch);
+    scratch.clear();
+
+    let a = encode_length_prefixed(b"alpha");
+    let b = encode_length_prefixed(b"beta");
+
+    unsafe {
+      zo_state_arr_push(410, a.as_ptr());
+      zo_state_arr_push(410, b.as_ptr());
+    }
+
+    assert_eq!(zo_state_arr_len(410), 2);
+    assert_eq!(
+      arr_slot_items(410),
+      vec!["alpha".to_string(), "beta".to_string()]
+    );
+
+    drain_dirty(&mut scratch);
+    assert!(scratch.contains(&410), "array push marks its slot dirty");
+
+    // Out-of-range array ops are safe no-ops.
+    unsafe { zo_state_arr_push(999_999, a.as_ptr()) };
+    assert_eq!(zo_state_arr_len(999_999), 0);
+    assert!(arr_slot_items(999_999).is_empty());
+  }
+
+  #[test]
+  fn render_list_substitutes_sentinel_per_item() {
+    use zo_ui_protocol::LIST_ITEM_SENTINEL;
+
+    // Recipe for `<li>{t}</li>`.
+    let li = || UiCommand::Element {
+      tag: ElementTag::Li,
+      attrs: vec![],
+      self_closing: false,
+    };
+    let recipe = vec![
+      li(),
+      UiCommand::Text(LIST_ITEM_SENTINEL.to_string()),
+      UiCommand::EndElement,
+    ];
+
+    let items = vec!["a".to_string(), "b".to_string()];
+
+    assert_eq!(
+      render_list(&items, &recipe),
+      vec![
+        li(),
+        UiCommand::Text("a".into()),
+        UiCommand::EndElement,
+        li(),
+        UiCommand::Text("b".into()),
+        UiCommand::EndElement,
+      ]
+    );
+
+    // Empty array → the list collapses to nothing.
+    assert!(render_list(&[], &recipe).is_empty());
+  }
+
+  #[test]
+  fn list_binding_abi_layout_matches_codegen_pack() {
+    // Codegen emits 24 bytes per entry: cmd_idx@0, items_slot@4,
+    // recipe_ptr@8, recipe_len@16. If this drifts the runtime
+    // decodes the wrong slot / a garbage recipe pointer.
+    use std::mem::{align_of, offset_of, size_of};
+
+    assert_eq!(size_of::<ListBindingAbi>(), 24);
+    assert_eq!(align_of::<ListBindingAbi>(), 8);
+    assert_eq!(offset_of!(ListBindingAbi, cmd_idx), 0);
+    assert_eq!(offset_of!(ListBindingAbi, items_slot), 4);
+    assert_eq!(offset_of!(ListBindingAbi, recipe_ptr), 8);
+    assert_eq!(offset_of!(ListBindingAbi, recipe_len), 16);
+  }
+
+  fn li() -> UiCommand {
+    UiCommand::Element {
+      tag: ElementTag::Li,
+      attrs: vec![],
+      self_closing: false,
+    }
+  }
+
+  /// `<li>{t}</li>` recipe with the per-item sentinel.
+  fn li_recipe() -> Vec<UiCommand> {
+    use zo_ui_protocol::LIST_ITEM_SENTINEL;
+
+    vec![
+      li(),
+      UiCommand::Text(LIST_ITEM_SENTINEL.to_string()),
+      UiCommand::EndElement,
+    ]
+  }
+
+  #[test]
+  fn decode_list_bindings_round_trip() {
+    let recipe = li_recipe();
+    let recipe_bytes = codec::encode(&recipe).unwrap();
+    let abis = [ListBindingAbi {
+      cmd_idx: 3,
+      items_slot: 7,
+      recipe_ptr: recipe_bytes.as_ptr(),
+      recipe_len: recipe_bytes.len(),
+    }];
+    let template = codec::encode(&[UiCommand::Text("x".into())]).unwrap();
+    let ctx = ZoRuntimeContext {
+      template_ptr: template.as_ptr(),
+      template_len: template.len(),
+      handle_event: None,
+      text_bindings_ptr: std::ptr::null(),
+      text_bindings_count: 0,
+      list_bindings_ptr: abis.as_ptr(),
+      list_bindings_count: abis.len(),
+      attr_bindings_ptr: std::ptr::null(),
+      attr_bindings_count: 0,
+    };
+
+    let decoded = unsafe { decode_list_bindings(&ctx) };
+
+    assert_eq!(decoded.len(), 1);
+    assert_eq!(decoded[0].cmd_idx, 3);
+    assert_eq!(decoded[0].items_slot, 7);
+    assert_eq!(decoded[0].recipe, recipe);
+
+    // Null list pointer → no bindings.
+    let empty = empty_ctx_with_template(template.as_ptr(), template.len());
+    assert!(unsafe { decode_list_bindings(&empty) }.is_empty());
+  }
+
+  #[test]
+  fn rebuild_with_lists_splices_array_items() {
+    // Array slot 420 is unique to this test.
+    zo_state_init(430);
+
+    unsafe {
+      zo_state_arr_push(420, encode_length_prefixed(b"buy milk").as_ptr());
+      zo_state_arr_push(420, encode_length_prefixed(b"walk dog").as_ptr());
+    }
+
+    let ul = || UiCommand::Element {
+      tag: ElementTag::Ul,
+      attrs: vec![],
+      self_closing: false,
+    };
+    // `<ul>{placeholder}</ul>` — the list anchor at index 1.
+    let base =
+      vec![ul(), UiCommand::Text(String::new()), UiCommand::EndElement];
+    let lists = vec![ListBindingDecoded {
+      cmd_idx: 1,
+      items_slot: 420,
+      recipe: li_recipe(),
+    }];
+
+    let rebuilt =
+      unsafe { rebuild_with_lists(&base, std::ptr::null(), 0, &[], &lists) };
+
+    assert_eq!(
+      rebuilt,
+      vec![
+        ul(),
+        li(),
+        UiCommand::Text("buy milk".into()),
+        UiCommand::EndElement,
+        li(),
+        UiCommand::Text("walk dog".into()),
+        UiCommand::EndElement,
+        UiCommand::EndElement,
+      ]
+    );
+  }
+
+  #[test]
+  fn attr_binding_abi_layout_matches_codegen_pack() {
+    // Codegen emits 16 bytes per entry: cmd_idx@0, attr_idx@4,
+    // slot@8, is_str@12.
+    use std::mem::{align_of, offset_of, size_of};
+
+    assert_eq!(size_of::<AttrBindingAbi>(), 16);
+    assert_eq!(align_of::<AttrBindingAbi>(), 4);
+    assert_eq!(offset_of!(AttrBindingAbi, cmd_idx), 0);
+    assert_eq!(offset_of!(AttrBindingAbi, attr_idx), 4);
+    assert_eq!(offset_of!(AttrBindingAbi, slot), 8);
+    assert_eq!(offset_of!(AttrBindingAbi, is_str), 12);
+  }
+
+  #[test]
+  fn apply_attr_bindings_sets_value_from_state() {
+    use zo_ui_protocol::{Attr, PropValue};
+
+    // Slot 430 = the input's `value` (a string), set to "typed".
+    zo_state_init(440);
+    zo_state_set_str_slot(430, b"typed");
+
+    let mut cmds = vec![UiCommand::Element {
+      tag: ElementTag::Input,
+      attrs: vec![Attr::Dynamic {
+        name: "value".into(),
+        var: 0,
+        initial: PropValue::Str(String::new()),
+      }],
+      self_closing: true,
+    }];
+    let attrs = vec![AttrBindingDecoded {
+      cmd_idx: 0,
+      attr_idx: 0,
+      slot: 430,
+      is_str: true,
+    }];
+
+    apply_attr_bindings(&mut cmds, &attrs, |_| true);
+
+    if let UiCommand::Element { attrs: a, .. } = &cmds[0] {
+      assert_eq!(a[0].as_str(), Some("typed"), "value attr repatched");
+    } else {
+      panic!("expected Element");
+    }
+
+    // A slot the filter rejects is left untouched.
+    zo_state_set_str_slot(430, b"later");
+    apply_attr_bindings(&mut cmds, &attrs, |_| false);
+
+    if let UiCommand::Element { attrs: a, .. } = &cmds[0] {
+      assert_eq!(a[0].as_str(), Some("typed"), "filtered slot unchanged");
+    }
+  }
+
+  #[test]
   fn out_of_range_write_does_not_mark_dirty() {
     zo_state_init(8);
 
@@ -817,11 +1425,15 @@ mod tests {
 
   fn registered_handlers(cmds: &[UiCommand]) -> Vec<String> {
     let registry = build_registry(
-      cmds,
       SendPtr(noop_dispatch as _),
-      SendPtr(std::ptr::null()),
-      0,
       Arc::new(Mutex::new(vec![])),
+      RegistryInputs {
+        base: cmds.to_vec(),
+        lists: Vec::new(),
+        attrs: Vec::new(),
+        bindings_ptr: SendPtr(std::ptr::null()),
+        bindings_count: 0,
+      },
     );
     let mut out: Vec<String> = cmds
       .iter()

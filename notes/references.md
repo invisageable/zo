@@ -181,3 +181,8 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
 **-benchmark**
 
   - **[benchmarksgame](https://github.com/madnight/benchmarksgame)** — Fabian Beuke
+
+**signals**
+
+  - **[alien-signals-rs](https://github.com/ohkami-rs/alien-signals-rs)** — kanarus
+  - **[samara-signals](https://github.com/wuzekang/samara/tree/main/crates/signals)** — wuzekang
