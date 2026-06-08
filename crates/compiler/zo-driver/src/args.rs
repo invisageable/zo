@@ -9,8 +9,8 @@ pub struct Args {
   /// The source file(s) to process.
   #[arg(required = true)]
   pub files: Vec<PathBuf>,
-  /// The compilation target.
-  #[arg(short, long, default_value = "arm64-apple-darwin")]
+  /// The compilation platform.
+  #[arg(short, long, default_value = "native")]
   pub target: ArgsTarget,
   /// The intermediate representations flags (tokens, tree, sir, asm).
   #[arg(long, value_delimiter = ',')]
@@ -57,18 +57,26 @@ pub struct Args {
   /// The compilation metrics flag.
   #[arg(short, long)]
   pub metrics: bool,
-  /// Render templates in a webview.
-  #[arg(long)]
-  pub(crate) web: bool,
   /// Watch file changes.
   #[arg(long)]
   pub watch: bool,
 }
 
-/// Represents an [`ArgsTarget`] instance.
+/// The compilation platform. The friendly names — `native`,
+/// `webview`, `ios` — are the primary surface; the bare triples
+/// stay as advanced cross-compile aliases.
 #[derive(clap::ValueEnum, Clone, Debug, Copy)]
 #[clap(rename_all = "kebab-case")]
 pub enum ArgsTarget {
+  /// Host desktop, egui render. The default.
+  #[value(name = "native")]
+  Native,
+  /// Host desktop app embedding a system webview.
+  #[value(name = "webview")]
+  Webview,
+  /// iOS — the Simulator today (device deferred).
+  #[value(name = "ios")]
+  Ios,
   #[value(name = "arm64-apple-darwin")]
   Arm64AppleDarwin,
   #[value(name = "aarch64-pc-windows-msvc")]
@@ -83,25 +91,40 @@ pub enum ArgsTarget {
   X8664UnknownLinuxGnu,
   #[value(name = "wasm32-unknown-unknown")]
   Wasm32UnknownUnknown,
-  #[value(name = "ios", alias = "arm64-apple-ios")]
-  Ios,
-  #[value(name = "ios-sim", alias = "arm64-apple-ios-sim")]
-  IosSim,
   #[value(name = "android", alias = "aarch64-linux-android")]
   Android,
 }
+
+impl ArgsTarget {
+  /// Whether `run` drives the iOS Simulator — it produces an `.app`
+  /// and boots/installs/launches it rather than executing the binary
+  /// in-process.
+  pub fn is_ios(self) -> bool {
+    matches!(self, Self::Ios)
+  }
+
+  /// Whether templates render through a webview rather than the
+  /// native egui window.
+  pub fn is_webview(self) -> bool {
+    matches!(self, Self::Webview)
+  }
+}
+
 impl From<ArgsTarget> for Target {
   fn from(target: ArgsTarget) -> Self {
     match target {
-      ArgsTarget::Arm64AppleDarwin => Target::Arm64AppleDarwin,
-      ArgsTarget::Arm64PcWindowsMsvc => Target::Arm64PcWindowsMsvc,
-      ArgsTarget::Arm64UnknownLinuxGnu => Target::Arm64UnknownLinuxGnu,
+      // `native`/`webview` are host desktop apps — same host codegen
+      // target, differing only in how `run` renders.
+      ArgsTarget::Native | ArgsTarget::Webview => Self::host(),
+      // The user types `ios`; the runnable iOS today is the Simulator.
+      ArgsTarget::Ios => Self::Arm64AppleIosSim,
+      ArgsTarget::Arm64AppleDarwin => Self::Arm64AppleDarwin,
+      ArgsTarget::Arm64PcWindowsMsvc => Self::Arm64PcWindowsMsvc,
+      ArgsTarget::Arm64UnknownLinuxGnu => Self::Arm64UnknownLinuxGnu,
       ArgsTarget::X8664AppleDarwin => Self::X8664AppleDarwin,
       ArgsTarget::X8664PcWindowsMsvc => Self::X8664PcWindowsMsvc,
       ArgsTarget::X8664UnknownLinuxGnu => Self::X8664UnknownLinuxGnu,
       ArgsTarget::Wasm32UnknownUnknown => Self::Wasm32UnknownUnknown,
-      ArgsTarget::Ios => Self::Arm64AppleIos,
-      ArgsTarget::IosSim => Self::Arm64AppleIosSim,
       ArgsTarget::Android => Self::Aarch64LinuxAndroid,
     }
   }

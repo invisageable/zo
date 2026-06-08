@@ -8150,6 +8150,7 @@ dependencies = [
  "notify-debouncer-mini",
  "num_cpus",
  "zo-analyzer",
+ "zo-bundler",
  "zo-codegen-backend",
  "zo-compiler",
  "zo-error",

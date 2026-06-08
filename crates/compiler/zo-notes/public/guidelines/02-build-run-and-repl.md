@@ -55,7 +55,7 @@ iT WiLL PRiNTS:
 
 THAT'S iT, YOU SHOULD SEE A NATiVE APP ON YOUR SCREEN.
 
-> *This command is only for `native` app, if you want to build for `web` you should add the `--web` flag.*
+> *This command renders a native window by default. For a webview, pass `--target webview`.*
 
 <p align="center">
   <img width="340" src="../assets/preview/preview-zo-hello-template-native.png" />

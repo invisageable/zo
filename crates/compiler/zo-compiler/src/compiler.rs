@@ -5,6 +5,7 @@ use crate::constants::{
 use crate::stage::Stage;
 
 use zo_analyzer::{Analyzer, AnalyzerConfig, SemanticResult};
+use zo_bundler::ios;
 use zo_codegen::codegen::Codegen;
 use zo_codegen_backend::Target;
 use zo_dce::Dce;
@@ -2428,10 +2429,10 @@ fn bundle_ios(target: Target, output_path: &std::path::Path, sir: &Sir) {
     .join(profile)
     .join("libzo_runtime.dylib");
   let app_dir = output_path.with_extension("app");
-  let bundle_id = format!("house.compilords.{name}");
+  let bundle_id = ios::bundle_id(name);
 
   let stylesheets = sir.stylesheets();
-  let spec = zo_bundler::ios::BundleSpec {
+  let spec = ios::BundleSpec {
     binary: output_path,
     runtime_dylib: &runtime_dylib,
     app_dir: &app_dir,
@@ -2441,7 +2442,7 @@ fn bundle_ios(target: Target, output_path: &std::path::Path, sir: &Sir) {
     stylesheets: &stylesheets,
   };
 
-  if let Err(error) = zo_bundler::ios::bundle(&spec) {
+  if let Err(error) = ios::bundle(&spec) {
     eprintln!("zo: iOS bundle failed: {error}");
   }
 }

@@ -6,6 +6,8 @@
 //! linker and rustc respectively), which the Simulator accepts — so M1
 //! does no re-signing and writes no `_CodeSignature` seal.
 
+pub mod simulator;
+
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -64,6 +66,12 @@ pub fn bundle(spec: &BundleSpec) -> io::Result<()> {
   }
 
   Ok(())
+}
+
+/// The reverse-DNS bundle identifier for a program named `name`,
+/// e.g. `house.compilords.counter`.
+pub fn bundle_id(name: &str) -> String {
+  format!("house.compilords.{name}")
 }
 
 /// Local image source paths the program's stylesheets reference,

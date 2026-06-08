@@ -13,6 +13,17 @@ pub(crate) struct Build {
 
 impl Build {
   fn build(&self) -> Result<(), Error> {
+    // Packaging a desktop webview app isn't wired yet; `run --target
+    // webview` previews it in the meantime.
+    if self.args.target.is_webview() {
+      eprintln!(
+        "Error: `build --target webview` (desktop app packaging) is \
+         not yet implemented; use `run --target webview` to preview.",
+      );
+
+      std::process::exit(crate::constants::EXIT_CODE_ERROR);
+    }
+
     let source_files: Vec<_> = self
       .args
       .files

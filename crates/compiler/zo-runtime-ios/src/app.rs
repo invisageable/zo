@@ -25,8 +25,8 @@ use objc2_foundation::{
   NSProcessInfo, NSString,
 };
 use objc2_ui_kit::{
-  UIApplication, UIApplicationDelegate, UIApplicationLaunchOptionsKey, UIButton,
-  UIButtonConfiguration, UIButtonType, UIColor, UIControlEvents,
+  UIApplication, UIApplicationDelegate, UIApplicationLaunchOptionsKey,
+  UIButton, UIButtonConfiguration, UIButtonType, UIColor, UIControlEvents,
   UIControlState, UIFont, UIGlassEffect, UIGlassEffectStyle, UIImage,
   UIImageView, UILabel, UIScene, UISceneConnectionOptions, UISceneDelegate,
   UISceneSession, UITextBorderStyle, UITextField, UIView, UIViewContentMode,

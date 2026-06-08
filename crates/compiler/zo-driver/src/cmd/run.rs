@@ -2,6 +2,8 @@ use crate::args;
 use crate::cmd::Handle;
 use crate::constants::EXIT_CODE_ERROR;
 
+use zo_bundler::ios;
+use zo_bundler::ios::simulator::Simulator;
 use zo_compiler::{Analyzed, Compiler};
 use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
@@ -49,6 +51,9 @@ struct ReactiveContext<'a> {
 pub(crate) struct Run {
   #[command(flatten)]
   pub(crate) args: args::Args,
+  /// The iOS Simulator device for `run --target ios`.
+  #[arg(long, default_value = "iPhone 17 Pro")]
+  pub(crate) device: String,
 }
 
 impl Run {
@@ -71,6 +76,21 @@ impl Run {
 
     let (semantic, tokenization, parsing, session, file_table) =
       compiler.analyze_source(&source, input_path);
+
+    // iOS runs through the `.app` the Simulator launches — never
+    // in-process. Build it from this analysis and hand off to the
+    // Simulator instead of the in-process runtime / temp-binary paths.
+    if self.args.target.is_ios() {
+      let analyzed = Analyzed {
+        semantic,
+        tokenization,
+        parsing,
+        session,
+        file_table,
+      };
+
+      return self.run_ios(&mut compiler, &analyzed, input_path);
+    }
 
     // Collect the set of template ValueIds targeted by `#render`
     // directives. Templates are component definitions —
@@ -151,7 +171,7 @@ impl Run {
 
     // Template path: launch runtime.
     if has_dom_directive && !ui_commands.is_empty() {
-      let graphics = if self.args.web {
+      let graphics = if self.args.target.is_webview() {
         Graphics::Web
       } else {
         Graphics::Native
@@ -304,6 +324,51 @@ impl Run {
         }
         _ => {}
       }
+    }
+
+    Ok(())
+  }
+
+  /// Build the iOS `.app` from the already-analyzed program and hand
+  /// it to the Simulator: boot, install, launch.
+  fn run_ios(
+    &self,
+    compiler: &mut Compiler,
+    analyzed: &Analyzed,
+    input_path: &std::path::Path,
+  ) -> Result<(), Error> {
+    let Some(name) = input_path.file_stem().and_then(|s| s.to_str()) else {
+      eprintln!(
+        "Error: cannot derive an app name from {}",
+        input_path.display(),
+      );
+
+      std::process::exit(EXIT_CODE_ERROR);
+    };
+
+    // Build the `.app` into a per-run directory so its path is stable
+    // and isolated from concurrent runs.
+    let out_dir =
+      std::env::temp_dir().join(format!("zo_run_ios_{}", std::process::id()));
+
+    let _ = std::fs::create_dir_all(&out_dir);
+
+    let output_path = out_dir.join(name);
+
+    compiler.compile_analyzed(
+      analyzed,
+      self.args.target.into(),
+      &output_path,
+    )?;
+
+    let app = output_path.with_extension("app");
+    let bundle_id = ios::bundle_id(name);
+    let simulator = Simulator::new(&self.device);
+
+    if let Err(error) = simulator.launch(&app, &bundle_id) {
+      eprintln!("Error launching iOS Simulator: {error}");
+
+      std::process::exit(EXIT_CODE_ERROR);
     }
 
     Ok(())
