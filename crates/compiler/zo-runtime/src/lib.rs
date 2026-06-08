@@ -36,6 +36,12 @@ pub mod vec;
 #[cfg(feature = "ui")]
 pub use runtime::Runtime;
 
+/// The static-bundle web server, for `zo run --target web`. Lives in
+/// the web runtime; the desktop backends (and thus this re-export) are
+/// gated off iOS, where the UIKit binary never reaches the host.
+#[cfg(all(feature = "ui", not(target_os = "ios")))]
+pub use zo_runtime_web::{Browsering, Server};
+
 /// Force-link the iOS UIKit backend's `_zo_run_native` into this
 /// cdylib. The desktop dispatcher references `zo-runtime-native`,
 /// which co-locates and thereby keeps its entry symbol; on iOS the

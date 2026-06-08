@@ -1,8 +1,10 @@
-//! The wry webview runtime — loads and serves the program's UI in a
-//! desktop webview. Rendering itself is codegen (`zo-codegen-web`);
-//! this crate is the *runtime* that displays the result and, for now,
-//! drives host-side reactivity.
+//! The web runtime — runs the program's UI from the codegen output
+//! (`zo-codegen-web`). Two paths: a desktop webview (wry) that displays
+//! the bundle and drives host-side reactivity, and a static file server
+//! that serves the `public/` bundle to the system browser.
 
 pub mod runtime;
+pub mod serve;
 
 pub use runtime::Runtime;
+pub use serve::{Browsering, Server};

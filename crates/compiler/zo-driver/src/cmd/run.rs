@@ -7,7 +7,7 @@ use zo_bundler::ios::simulator::Simulator;
 use zo_compiler::{Analyzed, Compiler};
 use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
-use zo_runtime::Runtime;
+use zo_runtime::{Runtime, Server};
 use zo_runtime_render::reactive::{
   ResolvedComputedBindings, apply_computed_bindings, apply_list_bindings,
 };
@@ -77,10 +77,11 @@ impl Run {
     let (semantic, tokenization, parsing, session, file_table) =
       compiler.analyze_source(&source, input_path);
 
-    // iOS runs through the `.app` the Simulator launches — never
-    // in-process. Build it from this analysis and hand off to the
-    // Simulator instead of the in-process runtime / temp-binary paths.
-    if self.args.target.is_ios() {
+    // iOS and web both build an artifact and hand off to a Runtimer —
+    // the Simulator for iOS, a local server + browser for web. Neither
+    // uses the in-process command/event runtime below, so they branch
+    // out here on the shared analysis.
+    if self.args.target.is_ios() || self.args.target.is_web() {
       let analyzed = Analyzed {
         semantic,
         tokenization,
@@ -89,7 +90,11 @@ impl Run {
         file_table,
       };
 
-      return self.run_ios(&mut compiler, &analyzed, input_path);
+      return if self.args.target.is_web() {
+        self.run_web(&mut compiler, &analyzed)
+      } else {
+        self.run_ios(&mut compiler, &analyzed, input_path)
+      };
     }
 
     // Collect the set of template ValueIds targeted by `#render`
@@ -367,6 +372,33 @@ impl Run {
 
     if let Err(error) = simulator.launch(&app, &bundle_id) {
       eprintln!("Error launching iOS Simulator: {error}");
+
+      std::process::exit(EXIT_CODE_ERROR);
+    }
+
+    Ok(())
+  }
+
+  /// Build the `public/` bundle from this analysis, then serve it on
+  /// localhost and open the browser. Blocks until the process is
+  /// killed (Ctrl-C), like the in-process window paths.
+  fn run_web(
+    &self,
+    compiler: &mut Compiler,
+    analyzed: &Analyzed,
+  ) -> Result<(), Error> {
+    // Build into a per-run `public/` dir so its path is stable and
+    // isolated from concurrent runs.
+    let public = std::env::temp_dir()
+      .join(format!("zo_run_web_{}", std::process::id()))
+      .join("public");
+
+    let _ = std::fs::create_dir_all(&public);
+
+    compiler.compile_analyzed(analyzed, self.args.target.into(), &public)?;
+
+    if let Err(error) = Server::new(&public).serve() {
+      eprintln!("Error serving web bundle: {error}");
 
       std::process::exit(EXIT_CODE_ERROR);
     }

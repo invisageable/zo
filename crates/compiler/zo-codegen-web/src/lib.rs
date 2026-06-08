@@ -57,8 +57,8 @@ impl WebGen {
     // Emit in-page reactivity (state + handlers + binding graph) for
     // the browser. `None` for a static page — no `window.ipc` host
     // bridge, since the bundle runs with no host.
-    let reactive =
-      ReactiveJs::new(sir, interner).emit(&sir.text_bindings(interner), &commands);
+    let reactive = ReactiveJs::new(sir, interner)
+      .emit(&sir.text_bindings(interner), &commands);
 
     let body = self.render_body_inner(&commands);
     let html = self.document(&body, reactive.as_deref());
@@ -146,7 +146,8 @@ impl WebGen {
     });
 
     let body = self.render_body_inner(commands);
-    let script = needs_interactivity.then(|| include_str!("../assets/bridge.js"));
+    let script =
+      needs_interactivity.then_some(include_str!("../assets/bridge.js"));
 
     self.document(&body, script)
   }

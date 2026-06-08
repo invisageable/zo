@@ -57,8 +57,7 @@ impl<'a> ReactiveJs<'a> {
         continue;
       }
 
-      if let Some((body, written)) =
-        self.transpile_handler(handler, &mut_vars)
+      if let Some((body, written)) = self.transpile_handler(handler, &mut_vars)
       {
         handlers.push((widget_id.clone(), body));
 
