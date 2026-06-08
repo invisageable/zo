@@ -7985,6 +7985,7 @@ dependencies = [
  "zo-codegen-arm",
  "zo-codegen-backend",
  "zo-codegen-clif",
+ "zo-codegen-web",
  "zo-error",
  "zo-executor",
  "zo-interner",
@@ -8051,6 +8052,18 @@ dependencies = [
  "zo-interner",
  "zo-sir",
  "zo-ty",
+ "zo-value",
+]
+
+[[package]]
+name = "zo-codegen-web"
+version = "0.4.0"
+dependencies = [
+ "zo-codegen-backend",
+ "zo-interner",
+ "zo-sir",
+ "zo-ty",
+ "zo-ui-protocol",
  "zo-value",
 ]
 
@@ -8485,6 +8498,7 @@ dependencies = [
  "rustc-hash 2.1.2",
  "winit",
  "wry",
+ "zo-codegen-web",
  "zo-runtime-render",
  "zo-ui-protocol",
 ]

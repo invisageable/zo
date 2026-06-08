@@ -1,6 +1,7 @@
 use zo_codegen_arm::ARM64Gen;
 use zo_codegen_backend::{Artifact, Backend, LinkObject, Target};
 use zo_codegen_clif::CliftGen;
+use zo_codegen_web::WebGen;
 use zo_interner::{Interner, Symbol};
 use zo_module_resolver::{AbstractDef, AbstractImpl};
 use zo_sir::Sir;
@@ -29,6 +30,7 @@ pub struct AbstractState {
 enum Concrete<'a> {
   Arm64(Box<ARM64Gen<'a>>),
   Clift(CliftGen<'a>),
+  Web(WebGen),
 }
 
 /// Represents the [`Codegen`] dispatcher.
@@ -77,6 +79,7 @@ impl Codegen {
         Concrete::Clift(CliftGen::new(interner, self.target))
       }
       Target::Wasm32UnknownUnknown => todo!("wasm backend not yet wired"),
+      Target::Web => Concrete::Web(WebGen::new()),
     }
   }
 
@@ -112,9 +115,13 @@ impl Codegen {
 
         LinkObject::Object(artifact.code)
       }
+      Concrete::Web(mut codegen) => {
+        LinkObject::Web(codegen.generate(interner, sir))
+      }
     }
   }
 
+  // TODO: returns `Option<Artifact>`.
   /// Generates the [`Artifact`].
   pub fn generate_artifact(
     &self,
@@ -126,9 +133,13 @@ impl Codegen {
     match self.make_backend(interner, type_view, abstract_state) {
       Concrete::Arm64(mut codegen) => codegen.generate(sir),
       Concrete::Clift(mut codegen) => codegen.generate(sir),
+      Concrete::Web(_) => {
+        unreachable!("web target produces no machine-code artifact")
+      }
     }
   }
 
+  // TODO: returns `Option<String>`.
   /// Generates assembly text for display. ARM returns
   /// disassembled ARM64; Cranelift returns CLIF IR text (pre-
   /// machine-code — equivalently useful for debugging the
@@ -144,6 +155,7 @@ impl Codegen {
     match self.make_backend(interner, type_view, abstract_state) {
       Concrete::Arm64(mut codegen) => codegen.generate_asm(sir),
       Concrete::Clift(mut codegen) => codegen.generate_asm(sir),
+      Concrete::Web(_) => unreachable!("web target produces no assembly"),
     }
   }
 }

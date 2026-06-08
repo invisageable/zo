@@ -77,6 +77,9 @@ pub enum ArgsTarget {
   /// iOS — the Simulator today (device deferred).
   #[value(name = "ios")]
   Ios,
+  /// The browser — a static `public/` bundle, no host process.
+  #[value(name = "web")]
+  Web,
   #[value(name = "arm64-apple-darwin")]
   Arm64AppleDarwin,
   #[value(name = "aarch64-pc-windows-msvc")]
@@ -108,6 +111,12 @@ impl ArgsTarget {
   pub fn is_webview(self) -> bool {
     matches!(self, Self::Webview)
   }
+
+  /// Whether `build`/`run` emit a static `public/` web bundle rather
+  /// than a binary.
+  pub fn is_web(self) -> bool {
+    matches!(self, Self::Web)
+  }
 }
 
 impl From<ArgsTarget> for Target {
@@ -118,6 +127,7 @@ impl From<ArgsTarget> for Target {
       ArgsTarget::Native | ArgsTarget::Webview => Self::host(),
       // The user types `ios`; the runnable iOS today is the Simulator.
       ArgsTarget::Ios => Self::Arm64AppleIosSim,
+      ArgsTarget::Web => Self::Web,
       ArgsTarget::Arm64AppleDarwin => Self::Arm64AppleDarwin,
       ArgsTarget::Arm64PcWindowsMsvc => Self::Arm64PcWindowsMsvc,
       ArgsTarget::Arm64UnknownLinuxGnu => Self::Arm64UnknownLinuxGnu,

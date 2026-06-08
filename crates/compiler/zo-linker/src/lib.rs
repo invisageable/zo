@@ -19,7 +19,7 @@ mod linker_macho;
 use std::io;
 use std::path::Path;
 
-use zo_codegen_backend::{LinkObject, Target};
+use zo_codegen_backend::{LinkObject, Target, WebBundle};
 
 pub use error::LinkError;
 pub use linker::link_to_executable;
@@ -63,6 +63,11 @@ pub fn link(
 
       Ok(RuntimeKind::None)
     }
+    LinkObject::Web(bundle) => {
+      write_web_bundle(&bundle, output_path).map_err(LinkError::Io)?;
+
+      Ok(RuntimeKind::None)
+    }
   }
 }
 
@@ -82,6 +87,23 @@ pub fn write_executable(bytes: &[u8], output_path: &Path) -> io::Result<()> {
 
     perms.set_mode(0o755);
     std::fs::set_permissions(output_path, perms)?;
+  }
+
+  Ok(())
+}
+
+/// Materialise a [`WebBundle`] under `out_dir`, each file at its
+/// relative path. The web "link" step is pure I/O — there is no
+/// machine code to relocate.
+fn write_web_bundle(bundle: &WebBundle, out_dir: &Path) -> io::Result<()> {
+  for (relative, contents) in &bundle.files {
+    let path = out_dir.join(relative);
+
+    if let Some(parent) = path.parent() {
+      std::fs::create_dir_all(parent)?;
+    }
+
+    std::fs::write(&path, contents)?;
   }
 
   Ok(())

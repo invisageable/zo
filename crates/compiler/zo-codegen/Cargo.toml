@@ -13,6 +13,7 @@ doctest = false
 zo-codegen-arm = { workspace = true }
 zo-codegen-backend = { workspace = true }
 zo-codegen-clif = { workspace = true }
+zo-codegen-web = { workspace = true }
 zo-error = { workspace = true }
 zo-interner = { workspace = true }
 zo-module-resolver = { workspace = true }

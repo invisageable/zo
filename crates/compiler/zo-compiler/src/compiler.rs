@@ -1815,17 +1815,28 @@ impl Compiler {
         }
       }
 
-      // Binary destination:
-      // 1. explicit `-o <file>` wins, always.
+      // Output destination:
+      // 1. explicit `-o <path>` wins, always.
       // 2. else if `--out-dir <dir>` is set, `<dir>/<stem>`.
       // 3. else next to the source, like `rustc foo.rs`.
-      let binary_path = match (&output_path, out_dir) {
-        (Some(p), _) => p.clone(),
-        (None, Some(dir)) => {
-          let stem = path.file_stem().unwrap_or(path.as_os_str());
-          dir.join(stem)
+      //
+      // Web emits a `public/` *directory* bundle rather than a
+      // `<stem>` file, so its default lands at `<source-dir>/public`.
+      let binary_path = if matches!(target, Target::Web) {
+        match (&output_path, out_dir) {
+          (Some(p), _) => p.clone(),
+          (None, Some(dir)) => dir.join("public"),
+          (None, None) => path.with_file_name("public"),
         }
-        (None, None) => path.with_extension(""),
+      } else {
+        match (&output_path, out_dir) {
+          (Some(p), _) => p.clone(),
+          (None, Some(dir)) => {
+            let stem = path.file_stem().unwrap_or(path.as_os_str());
+            dir.join(stem)
+          }
+          (None, None) => path.with_extension(""),
+        }
       };
 
       let asm_path = should_emit_asm.then(|| resolve_emit_path(path, "asm"));
@@ -1942,22 +1953,25 @@ impl Compiler {
     // symbol (`#render` / render) is referenced. Vendored
     // `#link` dylibs (raylib, …) are staged separately by
     // basename from the SIR.
-    if matches!(
-      lowering.target,
-      Target::Arm64AppleIos | Target::Arm64AppleIosSim
-    ) {
-      bundle_ios(
-        lowering.target,
-        lowering.output_path,
-        &lowering.semantic.sir,
-      );
-    } else {
-      stage_runtime_artifacts(
-        runtime,
-        &lowering.semantic.sir,
-        &lowering.session.interner,
-        lowering.output_path,
-      );
+    match lowering.target {
+      // Web emits a self-contained file bundle — the linker already
+      // wrote it; there is no runtime dylib to colocate.
+      Target::Web => {}
+      Target::Arm64AppleIos | Target::Arm64AppleIosSim => {
+        bundle_ios(
+          lowering.target,
+          lowering.output_path,
+          &lowering.semantic.sir,
+        );
+      }
+      _ => {
+        stage_runtime_artifacts(
+          runtime,
+          &lowering.semantic.sir,
+          &lowering.session.interner,
+          lowering.output_path,
+        );
+      }
     }
 
     self.profiler.end_phase(LINKER_NAME);

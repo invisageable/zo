@@ -1,6 +1,6 @@
 //! Web runtime for zo applications using wry webview
 
-use crate::renderer::HtmlRenderer;
+use zo_codegen_web::WebGen;
 
 use zo_runtime_render::render::{
   EventPayload, EventRegistry, RuntimeConfig, build_event_map,
@@ -54,7 +54,7 @@ impl Runtime {
     use wry::WebView;
 
     let commands = self.commands.lock().unwrap().clone();
-    let mut html_renderer = HtmlRenderer::new();
+    let mut html_renderer = WebGen::new();
     let html = html_renderer.render_to_html(&commands);
 
     struct App {
@@ -70,7 +70,7 @@ impl Runtime {
       /// length-mismatch fallback's `render_body_inner`
       /// doesn't allocate a fresh `String` buffer +
       /// `event_map` each event.
-      renderer: HtmlRenderer,
+      renderer: WebGen,
       proxy: EventLoopProxy<String>,
       // WebView must drop before Window.
       webview: Option<WebView>,
@@ -347,7 +347,7 @@ fn parse_ipc_event(event: &str) -> Option<(&str, EventKind, EventPayload)> {
 /// - **Length mismatch** (`new.len() != old.len()`) — list
 ///   bindings splice multiple commands into a single
 ///   placeholder slot, so the new buffer is longer. Trigger
-///   a full body re-render via `HtmlRenderer::render_to_html`
+///   a full body re-render via `WebGen::render_to_html`
 ///   so the new content reaches the DOM. Same shape the
 ///   native renderer uses (every frame reads the full shared
 ///   buffer).
@@ -358,7 +358,7 @@ fn parse_ipc_event(event: &str) -> Option<(&str, EventKind, EventPayload)> {
 ///   program-side clear (`input_val = ""`) actually empties
 ///   the field.
 fn build_patch_js(
-  renderer: &mut HtmlRenderer,
+  renderer: &mut WebGen,
   old: &[UiCommand],
   new: &[UiCommand],
 ) -> String {
@@ -656,7 +656,7 @@ mod tests {
     let old = vec![text("hello"), text("world")];
     let new = old.clone();
 
-    assert_eq!(build_patch_js(&mut HtmlRenderer::new(), &old, &new), "");
+    assert_eq!(build_patch_js(&mut WebGen::new(), &old, &new), "");
   }
 
   #[test]
@@ -664,7 +664,7 @@ mod tests {
     let old = vec![text("hello"), text("world")];
     let new = vec![text("hello"), text("zo")];
 
-    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
+    let js = build_patch_js(&mut WebGen::new(), &old, &new);
 
     // Only the second command changed — expect one patch on
     // idx=1 with the new content.
@@ -691,7 +691,7 @@ mod tests {
       Attr::str_prop("src", "/b.png"),
     ])];
 
-    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
+    let js = build_patch_js(&mut WebGen::new(), &old, &new);
 
     assert!(js.contains("setAttribute"), "should setAttribute: {js}");
     assert!(js.contains("src"), "should target src attr: {js}");
@@ -718,7 +718,7 @@ mod tests {
       },
     ])];
 
-    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
+    let js = build_patch_js(&mut WebGen::new(), &old, &new);
 
     assert!(js.contains("setAttribute"), "should setAttribute: {js}");
     assert!(js.contains("width"), "should target width attr: {js}");
@@ -738,7 +738,7 @@ mod tests {
       Attr::str_prop("src", "/b.png"),
     ])];
 
-    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
+    let js = build_patch_js(&mut WebGen::new(), &old, &new);
 
     assert_eq!(
       js.matches("setAttribute").count(),
@@ -760,7 +760,7 @@ mod tests {
       img(vec![Attr::str_prop("src", "/d.png")]),
     ];
 
-    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
+    let js = build_patch_js(&mut WebGen::new(), &old, &new);
 
     // Two attr changes (idx 0 and idx 2), no text change.
     assert_eq!(

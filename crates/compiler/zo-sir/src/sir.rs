@@ -1,4 +1,4 @@
-use zo_interner::Symbol;
+use zo_interner::{Interner, Symbol};
 use zo_span::Span;
 use zo_token::Token;
 use zo_ty::Mutability;
@@ -264,6 +264,79 @@ impl Sir {
     }
 
     sheets
+  }
+
+  /// The `UiCommand` stream of every template a `#render` directive
+  /// targets, concatenated in instruction order. The one extractor
+  /// shared by the run path (`Runtimer`) and the web build
+  /// (`Compiler::compile_web`), so both agree on which templates
+  /// render. Filesystem image resolution is the caller's job.
+  pub fn ui_commands(&self, interner: &Interner) -> Vec<UiCommand> {
+    let mut targets: Vec<ValueId> = Vec::new();
+
+    for insn in &self.instructions {
+      if let Insn::Directive { name, value, .. } = insn
+        && zo_ui_protocol::is_render_directive(interner.get(*name))
+      {
+        targets.push(*value);
+      }
+    }
+
+    let mut commands = Vec::new();
+
+    for insn in &self.instructions {
+      if let Insn::Template {
+        id,
+        commands: template_commands,
+        ..
+      } = insn
+        && targets.contains(id)
+      {
+        commands.extend_from_slice(template_commands);
+      }
+    }
+
+    commands
+  }
+
+  /// The reactive text bindings of every `#render`-targeted template,
+  /// rebased into the concatenated command-stream index space that
+  /// [`ui_commands`](Self::ui_commands) produces. Each entry is
+  /// `(command_index, state_var)` — the `UiCommand::Text` at
+  /// `command_index` re-renders from `state_var` on every change.
+  pub fn text_bindings(&self, interner: &Interner) -> Vec<(usize, Symbol)> {
+    let mut targets: Vec<ValueId> = Vec::new();
+
+    // TODO: duplicate from `ui_commands`.
+    for insn in &self.instructions {
+      if let Insn::Directive { name, value, .. } = insn
+        && zo_ui_protocol::is_render_directive(interner.get(*name))
+      {
+        targets.push(*value);
+      }
+    }
+
+    let mut out = Vec::new();
+    let mut base = 0;
+
+    for insn in &self.instructions {
+      if let Insn::Template {
+        id,
+        commands,
+        bindings,
+        ..
+      } = insn
+        && targets.contains(id)
+      {
+        for (cmd_idx, var) in &bindings.text {
+          out.push((base + cmd_idx, *var));
+        }
+
+        base += commands.len();
+      }
+    }
+
+    out
   }
 
   /// Creates a new [`SirBuilder`] instance.
@@ -1478,5 +1551,55 @@ impl UnOp {
     };
 
     UNOPS[kind as usize]
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn ui_commands_collects_only_targeted_templates() {
+    let mut interner = Interner::new();
+    let render = interner.intern("render");
+    let other = interner.intern("other");
+
+    let mut sir = Sir::new();
+
+    sir.instructions = vec![
+      // `#render` points at the template at ValueId(7).
+      Insn::Directive {
+        name: render,
+        value: ValueId(7),
+        ty_id: TyId(0),
+      },
+      // A non-render directive at ValueId(9) — must be ignored.
+      Insn::Directive {
+        name: other,
+        value: ValueId(9),
+        ty_id: TyId(0),
+      },
+      // The targeted template contributes its commands.
+      Insn::Template {
+        id: ValueId(7),
+        name: None,
+        ty_id: TyId(0),
+        commands: vec![UiCommand::Text("hello".into())],
+        bindings: TemplateBindings::default(),
+      },
+      // An untargeted template must be excluded.
+      Insn::Template {
+        id: ValueId(9),
+        name: None,
+        ty_id: TyId(0),
+        commands: vec![UiCommand::Text("ignored".into())],
+        bindings: TemplateBindings::default(),
+      },
+    ];
+
+    assert_eq!(
+      sir.ui_commands(&interner),
+      vec![UiCommand::Text("hello".into())],
+    );
   }
 }

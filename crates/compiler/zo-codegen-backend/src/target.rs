@@ -22,6 +22,10 @@ pub enum Target {
   Arm64AppleIosSim,
   /// arm64 Android (ELF, bionic libc).
   Aarch64LinuxAndroid,
+  /// Static web bundle (a `public/` of HTML/CSS/JS). Not machine
+  /// code — `Compiler::compile_web` renders it instead of routing
+  /// through codegen / the linker.
+  Web,
 }
 
 impl Target {
@@ -62,6 +66,7 @@ impl Target {
       Self::Arm64AppleIos => "arm64-apple-ios",
       Self::Arm64AppleIosSim => "arm64-apple-ios-sim",
       Self::Aarch64LinuxAndroid => "aarch64-linux-android",
+      Self::Web => "web",
     }
   }
 
@@ -76,6 +81,9 @@ impl Target {
       Self::Wasm32UnknownUnknown => "wasm",
       Self::Arm64AppleIos | Self::Arm64AppleIosSim => "app",
       Self::Aarch64LinuxAndroid => "apk",
+      // Web emits a `public/` directory, not a `<stem>.ext` file, so
+      // there is no output extension.
+      Self::Web => "",
     }
   }
 
