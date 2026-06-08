@@ -2396,25 +2396,11 @@ fn stage_runtime_artifacts(
 /// desktop `deps/` staging — an iOS binary loads its runtime from
 /// `App.app/Frameworks/`, never a sibling `deps/`.
 ///
-/// The runtime dylib is the cross-compiled
-/// `target/<rust-triple>/<profile>/libzo_runtime.dylib`, a sibling of
-/// the compiler's own `target/<profile>/` (where `current_exe` lives).
+/// The runtime dylib is the cross-compiled `libzo_runtime.dylib`,
+/// resolved from the install sysroot (`~/.zo/lib/runtime/<triple>/`)
+/// first, then the in-repo `target/<triple>/<profile>/` build.
 fn bundle_ios(target: Target, output_path: &std::path::Path, sir: &Sir) {
   let Some(name) = output_path.file_stem().and_then(|s| s.to_str()) else {
-    return;
-  };
-
-  let Ok(zo_binary) = std::env::current_exe() else {
-    return;
-  };
-
-  let Some(profile_dir) = zo_binary.parent() else {
-    return;
-  };
-
-  let (Some(target_root), Some(profile)) =
-    (profile_dir.parent(), profile_dir.file_name())
-  else {
     return;
   };
 
@@ -2424,10 +2410,17 @@ fn bundle_ios(target: Target, output_path: &std::path::Path, sir: &Sir) {
     _ => return,
   };
 
-  let runtime_dylib = target_root
-    .join(triple)
-    .join(profile)
-    .join("libzo_runtime.dylib");
+  let Some(runtime_dylib) = zo_host_paths::first_existing_runtime_dylib(triple)
+  else {
+    eprintln!(
+      "zo: iOS runtime not found for {triple}; expected at \
+       ~/.zo/lib/runtime/{triple}/libzo_runtime.dylib or \
+       target/{triple}/<profile>/libzo_runtime.dylib",
+    );
+
+    return;
+  };
+
   let app_dir = output_path.with_extension("app");
   let bundle_id = ios::bundle_id(name);
 
