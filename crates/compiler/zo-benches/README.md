@@ -28,27 +28,27 @@ iNSTALL ALL PROGRAMMiNG LANGUAGES REQUiRED:
 
 WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 
-#### ackermann.
+#### hello.
 
-@RUN: `just zo_bench ackermann`
+@RUN: `just zo_bench hello`
 
-| Compiler | Run 1    | Run 2   | Run 3   | Run 4   | Run 5   | Average     | Speed vs zo       |
-| :------- | :------- | :------ | :------ | :------ | :------ | :---------- | :---------------- |
-| **zo**   | 7.59ms   | 6.43ms  | 6.04ms  | 5.89ms  | 5.62ms  | **6.32ms**  | **1.0x**          |
-| clang    | 66.67ms  | 41.95ms | 38.26ms | 40.30ms | 36.71ms | **44.78ms** | **7.1x slower**   |
-| go       | 265.33ms | 63.85ms | 66.68ms | 65.32ms | 65.51ms | **105.34ms** | **16.7x slower** |
-| rustc    | 78.54ms  | 67.90ms | 66.90ms | 62.96ms | 63.91ms | **68.04ms** | **10.8x slower**  |
-| odin     | 82.21ms  | 69.02ms | 69.69ms | 68.28ms | 67.13ms | **71.27ms** | **11.3x slower**  |
+| Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      | Speed vs zo      |
+| :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
+| **zo**   | 6.39ms   | 5.75ms   | 5.66ms   | 4.90ms   | 5.11ms   | **5.56ms**   | **1.0x**         |
+| clang    | 53.08ms  | 41.28ms  | 42.00ms  | 42.99ms  | 42.01ms  | **44.27ms**  | **8.0x slower**  |
+| go       | 88.89ms  | 84.18ms  | 88.98ms  | 87.95ms  | 109.92ms | **91.98ms**  | **16.5x slower** |
+| rustc    | 75.72ms  | 62.08ms  | 61.88ms  | 76.28ms  | 59.24ms  | **67.04ms**  | **12.1x slower** |
+| odin     | 153.82ms | 151.34ms | 159.92ms | 166.96ms | 152.00ms | **156.81ms** | **28.2x slower** |
 
 **-AWTY—are-we-tiny-yet?**
 
 | Compiler | Size      |
 | :------- | :-------- |
 | **zo**   | 32.2 KB   |
-| clang    | 32.7 KB   |
-| odin     | 71.7 KB   |
-| rustc    | 453.3 KB  |
-| go       | 1708.3 KB |
+| clang    | 32.6 KB   |
+| odin     | 319.6 KB  |
+| rustc    | 455.5 KB  |
+| go       | 2434.0 KB |
 
 #### arithmetic.
 
@@ -58,8 +58,8 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
 | **zo**   | 8.06ms   | 7.16ms   | 6.17ms   | 6.21ms   | 5.82ms   | **6.68ms**   | **1.0x**         |
 | clang    | 56.41ms  | 47.04ms  | 45.73ms  | 42.27ms  | 40.70ms  | **46.43ms**  | **7.0x slower**  |
-| go       | 147.84ms | 88.28ms  | 86.15ms  | 88.62ms  | 87.28ms  | **99.63ms**  | **14.9x slower** |
 | rustc    | 70.99ms  | 62.33ms  | 60.93ms  | 61.11ms  | 61.72ms  | **63.42ms**  | **9.5x slower**  |
+| go       | 147.84ms | 88.28ms  | 86.15ms  | 88.62ms  | 87.28ms  | **99.63ms**  | **14.9x slower** |
 | odin     | 162.77ms | 174.88ms | 154.65ms | 147.32ms | 149.02ms | **157.73ms** | **23.6x slower** |
 
 **-AWTY—are-we-tiny-yet?**
@@ -72,6 +72,28 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | rustc    | 456.3 KB  |
 | go       | 2434.0 KB |
 
+#### ackermann.
+
+@RUN: `just zo_bench ackermann`
+
+| Compiler | Run 1    | Run 2   | Run 3   | Run 4   | Run 5   | Average     | Speed vs zo       |
+| :------- | :------- | :------ | :------ | :------ | :------ | :---------- | :---------------- |
+| **zo**   | 7.59ms   | 6.43ms  | 6.04ms  | 5.89ms  | 5.62ms  | **6.32ms**  | **1.0x**          |
+| clang    | 66.67ms  | 41.95ms | 38.26ms | 40.30ms | 36.71ms | **44.78ms** | **7.1x slower**   |
+| rustc    | 78.54ms  | 67.90ms | 66.90ms | 62.96ms | 63.91ms | **68.04ms** | **10.8x slower**  |
+| odin     | 82.21ms  | 69.02ms | 69.69ms | 68.28ms | 67.13ms | **71.27ms** | **11.3x slower**  |
+| go       | 265.33ms | 63.85ms | 66.68ms | 65.32ms | 65.51ms | **105.34ms** | **16.7x slower** |
+
+**-AWTY—are-we-tiny-yet?**
+
+| Compiler | Size      |
+| :------- | :-------- |
+| **zo**   | 32.2 KB   |
+| clang    | 32.7 KB   |
+| odin     | 71.7 KB   |
+| rustc    | 453.3 KB  |
+| go       | 1708.3 KB |
+
 #### fannkuch-redux.
 
 @RUN: `just zo_bench fannkuch-redux`
@@ -80,8 +102,8 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
 | **zo**   | 20.76ms  | 6.11ms   | 5.61ms   | 5.92ms   | 6.63ms   | **9.00ms**   | **1.0x**         |
 | clang    | 198.26ms | 43.91ms  | 43.16ms  | 42.13ms  | 42.63ms  | **74.02ms**  | **8.2x slower**  |
-| go       | 338.87ms | 89.28ms  | 112.25ms | 92.47ms  | 89.40ms  | **144.46ms** | **16.0x slower** |
 | rustc    | 190.97ms | 85.23ms  | 85.02ms  | 83.93ms  | 83.91ms  | **105.81ms** | **11.8x slower** |
+| go       | 338.87ms | 89.28ms  | 112.25ms | 92.47ms  | 89.40ms  | **144.46ms** | **16.0x slower** |
 | odin     | 334.21ms | 158.38ms | 180.47ms | 163.95ms | 159.07ms | **199.22ms** | **22.1x slower** |
 | gleam    | 243.75ms | 206.82ms | 212.79ms | 212.39ms | 217.76ms | **218.70ms** | **24.3x slower** |
 
@@ -117,28 +139,6 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | rustc    | 457.5 KB  |
 | go       | 2434.1 KB |
 
-#### hello.
-
-@RUN: `just zo_bench hello`
-
-| Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      | Speed vs zo      |
-| :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
-| **zo**   | 6.39ms   | 5.75ms   | 5.66ms   | 4.90ms   | 5.11ms   | **5.56ms**   | **1.0x**         |
-| clang    | 53.08ms  | 41.28ms  | 42.00ms  | 42.99ms  | 42.01ms  | **44.27ms**  | **8.0x slower**  |
-| go       | 88.89ms  | 84.18ms  | 88.98ms  | 87.95ms  | 109.92ms | **91.98ms**  | **16.5x slower** |
-| rustc    | 75.72ms  | 62.08ms  | 61.88ms  | 76.28ms  | 59.24ms  | **67.04ms**  | **12.1x slower** |
-| odin     | 153.82ms | 151.34ms | 159.92ms | 166.96ms | 152.00ms | **156.81ms** | **28.2x slower** |
-
-**-AWTY—are-we-tiny-yet?**
-
-| Compiler | Size      |
-| :------- | :-------- |
-| **zo**   | 32.2 KB   |
-| clang    | 32.6 KB   |
-| odin     | 319.6 KB  |
-| rustc    | 455.5 KB  |
-| go       | 2434.0 KB |
-
 #### mandelbrot.
 
 @RUN: `just zo_bench mandelbrot`
@@ -170,8 +170,8 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
 | **zo**   | 20.22ms  | 4.78ms   | 4.31ms   | 4.52ms   | 4.93ms   | **7.75ms**   | **1.0x**         |
 | clang    | 56.26ms  | 44.06ms  | 42.37ms  | 39.05ms  | 41.75ms  | **44.70ms**  | **5.8x slower**  |
-| go       | 91.92ms  | 87.01ms  | 88.67ms  | 86.80ms  | 87.27ms  | **88.33ms**  | **11.4x slower** |
 | rustc    | 87.94ms  | 70.30ms  | 68.92ms  | 66.66ms  | 65.60ms  | **71.88ms**  | **9.3x slower**  |
+| go       | 91.92ms  | 87.01ms  | 88.67ms  | 86.80ms  | 87.27ms  | **88.33ms**  | **11.4x slower** |
 | odin     | 280.14ms | 155.56ms | 151.32ms | 147.46ms | 156.76ms | **178.25ms** | **23.0x slower** |
 | gleam    | 242.19ms | 211.24ms | 207.36ms | 205.27ms | 205.45ms | **214.30ms** | **27.7x slower** |
 
@@ -193,8 +193,8 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- | :--------------- |
 | **zo**   | 7.84ms   | 6.87ms   | 6.47ms   | 7.51ms   | 7.45ms   | **7.23ms**   | **1.0x**         |
 | clang    | 48.50ms  | 47.76ms  | 44.37ms  | 45.77ms  | 45.31ms  | **46.34ms**  | **6.4x slower**  |
-| go       | 92.07ms  | 93.46ms  | 121.81ms | 91.77ms  | 93.89ms  | **98.60ms**  | **13.6x slower** |
 | rustc    | 94.83ms  | 94.09ms  | 96.04ms  | 93.05ms  | 93.06ms  | **94.21ms**  | **13.0x slower** |
+| go       | 92.07ms  | 93.46ms  | 121.81ms | 91.77ms  | 93.89ms  | **98.60ms**  | **13.6x slower** |
 | odin     | 181.35ms | 162.48ms | 163.04ms | 167.07ms | 165.51ms | **167.89ms** | **23.2x slower** |
 | gleam    | 212.21ms | 213.47ms | 211.22ms | 217.17ms | 216.32ms | **214.08ms** | **29.6x slower** |
 

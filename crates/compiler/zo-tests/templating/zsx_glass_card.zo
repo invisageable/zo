@@ -1,0 +1,40 @@
+-- test-build-pass: a glass card over an image backdrop.
+--
+-- The `.card` <div> declares `material: glass`, so it paints a frosted
+-- glass panel behind its children — refracting the body photo — on
+-- every runtime. A title and the counter buttons ride on the glass.
+
+$: {
+  body {
+    background-image: url("crates/compiler/zo-tests/assets/images/iOS-7-dark-mod-iphone-wallpaper-ar72014.jpeg");
+  }
+
+  .card {
+    material: glass;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 300px;
+    height: 380px;
+    gap: 24px;
+    padding: 32px;
+  }
+
+  .title {
+    color: white;
+    font-size: 32px;
+  }
+}
+
+fun main() {
+  imu view: </> ::= <>
+    <div class="card">
+      <h1 class="title">liquid glass</h1>
+      <button>-</button>
+      <button>+</button>
+    </div>
+  </>;
+
+  #render view;
+}

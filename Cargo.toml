@@ -228,11 +228,19 @@ objc2-ui-kit = { version = "0.3", features = [
   "UIVisualEffectView",
   "UIGlassEffect",
   "UIButtonConfiguration",
-  "UICornerConfiguration",
-  "UICornerRadius",
   "UIImage",
   "UIImageView",
   "objc2-core-foundation",
+  "objc2-quartz-core",
+  "objc2-core-graphics",
+] }
+# The glass panel's specular rim is drawn on the effect view's
+# `CALayer` (`setBorderColor` takes a `CGColor`), so quartz-core needs
+# its `objc2-core-graphics` feature — `objc2-ui-kit` pulls quartz-core
+# but only with default features, so enable it here for the whole graph.
+objc2-quartz-core = { version = "0.3", features = [
+  "CALayer",
+  "objc2-core-graphics",
 ] }
 num_cpus = "1.17.0"
 parking_lot = { version = "0.12.5", features = ["nightly"] }
