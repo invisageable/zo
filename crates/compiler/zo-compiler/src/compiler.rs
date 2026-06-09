@@ -20,8 +20,8 @@ use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
 use zo_reporter::{
-  DiagnosticFormat, ErrorAggregator, Reporter, json, rationale,
-  render_errors_to_stderr, report_error, xml,
+  DiagnosticFormat, ErrorAggregator, ErrorRenderer, RenderConfig, Reporter,
+  json, rationale, report_error, xml,
 };
 use zo_session::Session;
 use zo_sir::{Insn, Sir};
@@ -155,6 +155,11 @@ pub struct DiagnosticsConfig {
   /// `true` → emit `severity: "note"` rationale entries
   /// explaining compiler decisions (DCE'd functions, …).
   pub explain_decisions: bool,
+  /// `true` → render human diagnostics (and, in time, the build
+  /// banner) with ANSI color. The driver decides this once via
+  /// `zo_reporter::color::enabled` so `--no-color` / `NO_COLOR` /
+  /// a non-TTY stderr all suppress it. Ignored by machine formats.
+  pub use_colors: bool,
 }
 
 impl Default for DiagnosticsConfig {
@@ -163,6 +168,7 @@ impl Default for DiagnosticsConfig {
       format: DiagnosticFormat::Human,
       snippet_context: 2,
       explain_decisions: false,
+      use_colors: true,
     }
   }
 }
@@ -229,6 +235,11 @@ pub struct Compiler {
   /// consulted for a machine format. Defaults to the driver's
   /// `--snippet-context` flag value (2 unless overridden).
   snippet_context: usize,
+  /// Whether human diagnostics render with ANSI color. The
+  /// driver sets this from the color decision; library callers
+  /// default to `true` (current behavior). Drives the human
+  /// renderer and the profiler banner.
+  use_colors: bool,
   /// When `true`, `test fun` functions are pinned as DCE
   /// roots so the synthesized test harness can call them.
   test_mode: bool,
@@ -606,6 +617,7 @@ impl Compiler {
       module_table: HashMap::default(),
       emit_format: DiagnosticFormat::Human,
       snippet_context: 2,
+      use_colors: true,
       test_mode: false,
       webviewing: Webviewing::No,
     }
@@ -623,6 +635,7 @@ impl Compiler {
       module_table: HashMap::default(),
       emit_format: DiagnosticFormat::Human,
       snippet_context: 2,
+      use_colors: true,
       test_mode: false,
       webviewing: Webviewing::No,
     }
@@ -655,7 +668,25 @@ impl Compiler {
   pub fn configure_diagnostics(&mut self, cfg: DiagnosticsConfig) {
     self.emit_format = cfg.format;
     self.snippet_context = cfg.snippet_context;
+    self.use_colors = cfg.use_colors;
     rationale::enable_rationale(cfg.explain_decisions);
+  }
+
+  /// Renders human diagnostics to stderr honoring this compiler's
+  /// color decision. Both report sites route through it so
+  /// `--no-color` / `NO_COLOR` / a non-TTY stderr suppress color
+  /// identically.
+  fn render_human(
+    &self,
+    aggregator: &ErrorAggregator,
+    files: &[(PathBuf, String)],
+  ) -> std::io::Result<()> {
+    let renderer = ErrorRenderer::with_config(RenderConfig {
+      use_colors: self.use_colors,
+      ..RenderConfig::default()
+    });
+
+    renderer.render(aggregator, files)
   }
 
   /// Scans a parse tree for `Token::Load` introducer nodes
@@ -2020,9 +2051,7 @@ impl Compiler {
         DiagnosticFormat::Xml => {
           xml::to_stdout(&aggregator, file_table, self.snippet_context)
         }
-        DiagnosticFormat::Human => {
-          render_errors_to_stderr(&aggregator, file_table)
-        }
+        DiagnosticFormat::Human => self.render_human(&aggregator, file_table),
       };
 
       aggregator.clear();
@@ -2049,7 +2078,7 @@ impl Compiler {
     // consumer is parsing. Suppress; the timing data is
     // human-only.
     if !self.emit_format.is_machine() {
-      self.profiler.summary(target.name());
+      self.profiler.summary(target.name(), self.use_colors);
     }
 
     Ok(())
@@ -2232,7 +2261,7 @@ impl Compiler {
       aggregator.add_errors(errors);
       aggregator.add_details(self.reporter.details());
 
-      let _ = render_errors_to_stderr(&aggregator, &file_table);
+      let _ = self.render_human(&aggregator, &file_table);
 
       aggregator.clear();
 

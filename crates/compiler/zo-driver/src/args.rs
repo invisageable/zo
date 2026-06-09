@@ -57,9 +57,28 @@ pub struct Args {
   /// The compilation metrics flag.
   #[arg(short, long)]
   pub metrics: bool,
+  /// Disable ANSI color in diagnostics and the build banner.
+  /// Color also turns off on its own when stderr is not a
+  /// terminal, when `NO_COLOR` is set, or when `TERM=dumb`;
+  /// `FORCE_COLOR` overrides those. This flag forces it off.
+  #[arg(long)]
+  pub no_color: bool,
   /// Watch file changes.
   #[arg(long)]
   pub watch: bool,
+}
+
+impl Args {
+  /// Whether ANSI color should reach the human (stderr) channel —
+  /// diagnostics and the build banner. Honors `--no-color`,
+  /// `NO_COLOR`, `FORCE_COLOR`, `TERM`, and the TTY check through
+  /// the one decision point in `zo-reporter`.
+  pub fn use_colors(&self) -> bool {
+    zo_reporter::color::enabled(
+      zo_reporter::color::Stream::Stderr,
+      self.no_color,
+    )
+  }
 }
 
 /// The compilation platform. The friendly names — `native`,

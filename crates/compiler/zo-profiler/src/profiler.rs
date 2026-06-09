@@ -170,8 +170,14 @@ impl Profiler {
     QUOTES[index]
   }
 
-  /// Prints the profiling summary.
-  pub fn summary(&self, target_name: &str) {
+  /// Prints the profiling summary — zo's Cargo-style build
+  /// status — to stderr.
+  ///
+  /// @note — `_use_colors` is the human-channel color decision,
+  /// threaded for the banner's styling. The banner is plain text,
+  /// so it is unused; the wiring keeps the color-suppression
+  /// contract ready for when the banner gains color.
+  pub fn summary(&self, target_name: &str, _use_colors: bool) {
     let mut buffer = Buffer::new();
 
     buffer.newline();

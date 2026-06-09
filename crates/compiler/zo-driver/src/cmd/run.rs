@@ -71,6 +71,7 @@ impl Run {
       format: self.args.format.into(),
       snippet_context: self.args.snippet_context,
       explain_decisions: self.args.explain_decisions,
+      use_colors: self.args.use_colors(),
     });
 
     let (semantic, tokenization, parsing, session, file_table) =

@@ -1,5 +1,6 @@
 pub mod aggregator;
 pub mod collector;
+pub mod color;
 pub mod fixes;
 pub mod format;
 pub mod json;
