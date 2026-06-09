@@ -160,6 +160,10 @@ pub struct DiagnosticsConfig {
   /// `zo_reporter::color::enabled` so `--no-color` / `NO_COLOR` /
   /// a non-TTY stderr all suppress it. Ignored by machine formats.
   pub use_colors: bool,
+  /// `true` → suppress the build-status banner (the `-q` /
+  /// `--quiet` flag). Errors and diagnostics still print;
+  /// machine formats are unaffected.
+  pub quiet: bool,
 }
 
 impl Default for DiagnosticsConfig {
@@ -169,6 +173,7 @@ impl Default for DiagnosticsConfig {
       snippet_context: 2,
       explain_decisions: false,
       use_colors: true,
+      quiet: false,
     }
   }
 }
@@ -240,6 +245,9 @@ pub struct Compiler {
   /// default to `true` (current behavior). Drives the human
   /// renderer and the profiler banner.
   use_colors: bool,
+  /// Whether to suppress the build-status banner (the `--quiet`
+  /// flag). Errors and diagnostics still print.
+  quiet: bool,
   /// When `true`, `test fun` functions are pinned as DCE
   /// roots so the synthesized test harness can call them.
   test_mode: bool,
@@ -618,6 +626,7 @@ impl Compiler {
       emit_format: DiagnosticFormat::Human,
       snippet_context: 2,
       use_colors: true,
+      quiet: false,
       test_mode: false,
       webviewing: Webviewing::No,
     }
@@ -636,6 +645,7 @@ impl Compiler {
       emit_format: DiagnosticFormat::Human,
       snippet_context: 2,
       use_colors: true,
+      quiet: false,
       test_mode: false,
       webviewing: Webviewing::No,
     }
@@ -669,6 +679,7 @@ impl Compiler {
     self.emit_format = cfg.format;
     self.snippet_context = cfg.snippet_context;
     self.use_colors = cfg.use_colors;
+    self.quiet = cfg.quiet;
     rationale::enable_rationale(cfg.explain_decisions);
   }
 
@@ -2077,7 +2088,7 @@ impl Compiler {
     // is active, that bleed corrupts the structured stream a
     // consumer is parsing. Suppress; the timing data is
     // human-only.
-    if !self.emit_format.is_machine() {
+    if !self.emit_format.is_machine() && !self.quiet {
       self.profiler.summary(target.name(), self.use_colors);
     }
 

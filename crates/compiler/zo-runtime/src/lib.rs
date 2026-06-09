@@ -40,7 +40,7 @@ pub use runtime::Runtime;
 /// the web runtime; the desktop backends (and thus this re-export) are
 /// gated off iOS, where the UIKit binary never reaches the host.
 #[cfg(all(feature = "ui", not(target_os = "ios")))]
-pub use zo_runtime_web::{Browsering, Server};
+pub use zo_runtime_web::{Browsering, Quiet, Server};
 
 /// Force-link the iOS UIKit backend's `_zo_run_native` into this
 /// cdylib. The desktop dispatcher references `zo-runtime-native`,

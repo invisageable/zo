@@ -1,66 +1,5 @@
 # zo.
 
-[![invisage/zo](https://img.shields.io/badge/github-invisageable/zo-black?logo=github)](https://github.com/invisageable/zo)
-![license: MIT/APACHE](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
-[![CI](https://github.com/invisageable/zo/workflows/CI/badge.svg)](https://github.com/invisageable/zo/actions)
-[![Discord](https://img.shields.io/badge/discord-compilords-7289DA?logo=discord)](https://discord.gg/JaNc4Nk5xw)
----
-
-> *Turn your thoughts into type-safe software and Ui instantly.*
-
-[home](https://github.com/invisageable/zo) — [install](#get-started) — [how-to](./crates/compiler/zo-how-to) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [license](#license)
-
-[https://zo.compilords.house](https://zo.compilords.house)
-
-## usage.
-
-**-zsx-counter**
-
-  ```zo
-  fun main() {
-    mut count: int = 0;
-
-    imu counter: </> ::= <>
-      <button @click={fn() => count -= 1}>-</button>
-      {count}
-      <button @click={fn() => count += 1}>+</button>
-    </>;
-
-    #render counter;
-  }
-  ```
-
-<p align="center">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui.png">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-web.png">
-</p>
-
-ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS (NATiVE, WEB, ANDROiD OR iOS) — SAME SOURCE.
-
-**-concurrency**
-
-  ```zo
-  fun producer_a(tx: Tx<int>) { tx.send(10); }
-  fun producer_b(tx: Tx<int>) { tx.send(20); }                                   
-                                                                                  
-  fun main() {                                                                   
-    nursery {                                                                    
-      imu (tx1, rx1) := channel(1);
-      imu (tx2, rx2) := channel(1);                                              
-    
-      spawn producer_a(tx1);                                                     
-      spawn producer_b(tx2);
-                                                                                  
-      select {    
-        rx1 => fn(value: int) => showln("chan1: {value}"),
-        rx2 => fn(value: int) => showln("chan2: {value}"),                       
-      }
-    }                                                                            
-  }
-  ```
-
-SUCCESFULLY BUiLD AN EXECUTABLE AND DiSPLAY A CLEAR OUTPUT ABOUT THE COMPiLATiON PROCESS:
-
   ```
   [zo] lines processed (including blank lines and comments) — 31.
   │
@@ -84,6 +23,79 @@ SUCCESFULLY BUiLD AN EXECUTABLE AND DiSPLAY A CLEAR OUTPUT ABOUT THE COMPiLATiON
 
   chan1: 10
   ```
+
+[![invisage/zo](https://img.shields.io/badge/github-invisageable/zo-black?logo=github)](https://github.com/invisageable/zo)
+![license: MIT/APACHE](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+[![CI](https://github.com/invisageable/zo/workflows/CI/badge.svg)](https://github.com/invisageable/zo/actions)
+[![Discord](https://img.shields.io/badge/discord-compilords-7289DA?logo=discord)](https://discord.gg/JaNc4Nk5xw)
+---
+
+> *Turn your thoughts into type-safe software and Ui instantly.*
+
+[home](https://zo.compilords.house) — [install](#get-started) — [how-to](./crates/compiler/zo-how-to) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [license](#license)
+
+[https://zo.compilords.house](https://zo.compilords.house)
+
+## usage.
+
+**-zsx-counter**
+
+  ```zo
+  fun main() {
+    mut count: int = 0;
+
+    imu counter: </> ::= <>
+      <button @click={fn() => count -= 1}>-</button>
+      {count}
+      <button @click={fn() => count += 1}>+</button>
+    </>;
+
+    #render counter;
+  }
+  ```
+
+ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS (NATiVE, WEB, ANDROiD OR iOS) — SAME SOURCE.
+
+<p align="center">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-web.png">
+</p>
+
+> *Work in progress. zo supports desktop (ARM64), iOS (desktop, iphone, visionpro, watch), web (bundled or webview). We plan to supports more — on desktop (Linux, Windows) and on Android.*
+
+TESTiNG MACHiNE:
+
+```
+Operating System  — Darwin 26.5.1 (ARM64)
+Kernel Version    — 25.5.0
+CPU               — Apple M3 Pro (12 cores)
+Total Memory      — 18.0 GB
+Available Memory  — 9.4 GB
+```
+
+**-concurrency**
+
+  ```zo
+  fun producer_a(tx: Tx<int>) { tx.send(10); }
+  fun producer_b(tx: Tx<int>) { tx.send(20); }                                   
+                                                                                  
+  fun main() {                                                                   
+    nursery {                                                                    
+      imu (tx1, rx1) := channel(1);
+      imu (tx2, rx2) := channel(1);                                              
+    
+      spawn producer_a(tx1);                                                     
+      spawn producer_b(tx2);
+                                                                                  
+      select {    
+        rx1 => fn(value: int) => showln("chan1: {value}"),
+        rx2 => fn(value: int) => showln("chan2: {value}"),                       
+      }
+    }                                                                            
+  }
+  ```
+
+GREEN THREADS (OR OS THREAD). NO FUNCTiON COLORiNG. NURSERY SCOPE. MULTiPLE BRANCHES MANAGEMENT. GOOD PERFORMANCE.
 
 **-provider**
 
@@ -112,7 +124,9 @@ SUCCESFULLY BUiLD AN EXECUTABLE AND DiSPLAY A CLEAR OUTPUT ABOUT THE COMPiLATiON
   }
   ```
 
-zo SUPPORTS [`raylib`](https://www.raylib.com).
+DO GRAPHiCS USiNG [`raylib`](https://www.raylib.com).
+
+> *[More examples](./crates/compiler/zo-tests) — *
 
 ## why zo?
 
@@ -124,7 +138,7 @@ zo RESOLVES THESE COMPROMiSES BY COMPiLiNG A SiNGLE, DECLARATiVE CODEBASE TO NAT
 
 > *« Rust makes you wait. C makes you think. zo just lets you build. » — i10e*
 
-### benchmarks.
+### benchmark.
 
 | Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      |
 | :------- | :------- | :------- | :------- | :------- | :------- | :----------- |
@@ -206,6 +220,10 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 | [fret-vscode](./crates/packager/fret-vscode) | THE fret VS CODE EXTENSiON. |
 | [zo](./crates/compiler/zo)                   | THE zo COMPiLER.            |
 | [zo-vscode](./crates/compiler/zo-vscode)     | THE zo VS CODE EXTENSiON.   |
+
+**-gallery**
+
+...
 
 > *More crates are coming. The architecture is modular and composable. Be gentle.*
 

@@ -10,4 +10,4 @@ pub mod serve;
 
 pub use ffi::zo_run_web;
 pub use runtime::Runtime;
-pub use serve::{Browsering, Server};
+pub use serve::{Browsering, Quiet, Server};

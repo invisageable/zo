@@ -57,6 +57,10 @@ pub struct Args {
   /// The compilation metrics flag.
   #[arg(short, long)]
   pub metrics: bool,
+  /// Suppress the build-status banner and status
+  /// confirmations. Errors and diagnostics still print.
+  #[arg(short, long)]
+  pub quiet: bool,
   /// Disable ANSI color in diagnostics and the build banner.
   /// Color also turns off on its own when stderr is not a
   /// terminal, when `NO_COLOR` is set, or when `TERM=dumb`;

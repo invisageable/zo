@@ -35,6 +35,25 @@ pub enum Browsering {
   No,
 }
 
+/// Whether [`Server::serve`] prints its serving / Ctrl-C status
+/// lines.
+#[derive(Clone, Copy, Default)]
+pub enum Quiet {
+  /// Suppress the status lines — the `--quiet` flag. Request
+  /// errors still print.
+  Yes,
+  /// Print the serving URL and the Ctrl-C hint — the default.
+  #[default]
+  No,
+}
+
+impl From<bool> for Quiet {
+  /// Maps a `--quiet` flag (`true` → suppress) to the enum.
+  fn from(quiet: bool) -> Self {
+    if quiet { Self::Yes } else { Self::No }
+  }
+}
+
 /// A static file server rooted at one `public/` bundle directory.
 #[derive(Clone)]
 pub struct Server {
@@ -42,6 +61,8 @@ pub struct Server {
   root: PathBuf,
   /// Whether starting the server opens the browser.
   browsering: Browsering,
+  /// Whether the serving / Ctrl-C status lines are suppressed.
+  quiet: Quiet,
 }
 
 impl Server {
@@ -51,12 +72,20 @@ impl Server {
     Self {
       root: dir.to_path_buf(),
       browsering: Browsering::default(),
+      quiet: Quiet::default(),
     }
   }
 
   /// Override whether starting the server opens the browser.
   pub fn with_browsering(mut self, browsering: Browsering) -> Self {
     self.browsering = browsering;
+    self
+  }
+
+  /// Override whether the serving / Ctrl-C status lines are
+  /// suppressed.
+  pub fn with_quiet(mut self, quiet: Quiet) -> Self {
+    self.quiet = quiet;
     self
   }
 
@@ -68,8 +97,10 @@ impl Server {
     let listener = TcpListener::bind(LOOPBACK)?;
     let url = format!("http://127.0.0.1:{}/", listener.local_addr()?.port());
 
-    eprintln!("zo web — serving {} at {url}", self.root.display());
-    eprintln!("zo web — press Ctrl-C to stop.");
+    if let Quiet::No = self.quiet {
+      eprintln!("zo web — serving {} at {url}", self.root.display());
+      eprintln!("zo web — press Ctrl-C to stop.");
+    }
 
     if let Browsering::Yes = self.browsering {
       Self::open_in_browser(&url);

@@ -72,6 +72,7 @@ impl Run {
       snippet_context: self.args.snippet_context,
       explain_decisions: self.args.explain_decisions,
       use_colors: self.args.use_colors(),
+      quiet: self.args.quiet,
     });
 
     let (semantic, tokenization, parsing, session, file_table) =
@@ -182,11 +183,13 @@ impl Run {
         Graphics::Native
       };
 
-      println!(
-        "Running template with {} UI commands \
-         ({graphics:?} mode)...",
-        ui_commands.len(),
-      );
+      if !self.args.quiet {
+        eprintln!(
+          "Running template with {} UI commands \
+           ({graphics:?} mode)...",
+          ui_commands.len(),
+        );
+      }
 
       // Collect handler names from Event commands.
       let mut handler_names: Vec<String> = Vec::new();
@@ -397,7 +400,8 @@ impl Run {
 
     compiler.compile_analyzed(analyzed, self.args.target.into(), &public)?;
 
-    if let Err(error) = Server::new(&public).serve() {
+    let server = Server::new(&public).with_quiet(self.args.quiet.into());
+    if let Err(error) = server.serve() {
       eprintln!("Error serving web bundle: {error}");
 
       std::process::exit(EXIT_CODE_ERROR);

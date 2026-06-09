@@ -65,6 +65,7 @@ impl Build {
       snippet_context: self.args.snippet_context,
       explain_decisions: self.args.explain_decisions,
       use_colors: self.args.use_colors(),
+      quiet: self.args.quiet,
     });
 
     compiler
@@ -136,7 +137,9 @@ impl Build {
 
     let _ = std::fs::remove_dir_all(&staging);
 
-    eprintln!("zo — built {}", app.display());
+    if !self.args.quiet {
+      eprintln!("zo — built {}", app.display());
+    }
 
     Ok(())
   }
