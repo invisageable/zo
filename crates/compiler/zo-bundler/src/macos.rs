@@ -10,7 +10,7 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Everything needed to lay down one macOS `.app`.
 pub struct BundleSpec<'a> {
@@ -24,6 +24,11 @@ pub struct BundleSpec<'a> {
   pub name: &'a str,
   /// Bundle identifier, e.g. `house.compilords.counter`.
   pub bundle_id: &'a str,
+  /// Local files the program references (`<img>` srcs, CSS
+  /// `background-image`s). Copied into `Contents/Resources/` by
+  /// basename, where the webview runtime resolves them for a relocated
+  /// bundle.
+  pub assets: &'a [PathBuf],
 }
 
 /// Build a runnable `.app` from `spec`. Overwrites any existing bundle
@@ -51,6 +56,21 @@ pub fn bundle(spec: &BundleSpec) -> io::Result<()> {
   // executable's own directory, so the dylib lands beside it in
   // `deps/`.
   fs::copy(spec.runtime_dylib, deps.join("libzo_runtime.dylib"))?;
+
+  // Referenced assets land in `Contents/Resources/<basename>`, the
+  // location the webview runtime falls back to when a baked `src` no
+  // longer resolves on the running machine.
+  if !spec.assets.is_empty() {
+    let resources = contents.join("Resources");
+
+    fs::create_dir_all(&resources)?;
+
+    for asset in spec.assets {
+      if let Some(name) = asset.file_name() {
+        fs::copy(asset, resources.join(name))?;
+      }
+    }
+  }
 
   fs::write(contents.join("Info.plist"), info_plist(spec))?;
   fs::write(contents.join("PkgInfo"), b"APPL????")?;

@@ -4,8 +4,11 @@ use crate::cmd::Handle;
 
 use zo_bundler::macos;
 use zo_codegen_backend::Webviewing;
-use zo_compiler::{Compiler, DiagnosticsConfig, Stage};
+use zo_compiler::{Analyzed, Compiler, DiagnosticsConfig, Stage};
 use zo_error::Error;
+use zo_interner::Interner;
+use zo_sir::Sir;
+use zo_ui_protocol::{Attr, ElementTag, PropValue, UiCommand};
 
 use std::path::{Path, PathBuf};
 
@@ -67,7 +70,10 @@ impl Build {
   }
 
   /// Compile the program for the webview runtime, then package the
-  /// binary and its runtime dylib into a double-clickable `.app`.
+  /// binary, its runtime dylib, and referenced assets into a
+  /// double-clickable `.app`. Analyzes first (like `run --target ios`)
+  /// so the referenced images can be collected from the SIR before
+  /// codegen consumes it.
   fn bundle_webview(
     &self,
     compiler: &mut Compiler,
@@ -84,19 +90,30 @@ impl Build {
 
     compiler.set_webviewing(Webviewing::Yes);
 
+    let (semantic, tokenization, parsing, session, file_table) =
+      compiler.analyze_source(&source_files[0].1, source);
+
+    // Collect referenced local images before the analysis is consumed —
+    // resolved against the source's directory, the same base the
+    // in-process run path uses.
+    let base_dir = source.parent().unwrap_or_else(|| Path::new("."));
+    let assets = webview_assets(&semantic.sir, &session.interner, base_dir);
+
+    let analyzed = Analyzed {
+      semantic,
+      tokenization,
+      parsing,
+      session,
+      file_table,
+    };
+
     let staging = std::env::temp_dir()
       .join(format!("zo_build_webview_{}", std::process::id()));
     let binary = staging.join(name);
 
     let _ = std::fs::create_dir_all(&staging);
 
-    compiler.compile(
-      source_files,
-      self.args.target.into(),
-      &[],
-      &Some(binary.clone()),
-      None,
-    )?;
+    compiler.compile_analyzed(&analyzed, self.args.target.into(), &binary)?;
 
     let runtime_dylib = staging.join("deps").join("libzo_runtime.dylib");
     let bundle_id = zo_bundler::bundle_id(name);
@@ -107,6 +124,7 @@ impl Build {
       app_dir: &app,
       name,
       bundle_id: &bundle_id,
+      assets: &assets,
     };
 
     if let Err(error) = macos::bundle(&spec) {
@@ -135,6 +153,68 @@ impl Build {
     };
 
     base.with_extension("app")
+  }
+}
+
+/// The program's referenced local image files — `<img>` srcs and CSS
+/// `background-image`s — resolved to absolute paths against `base_dir`.
+/// Remote URLs and missing files are skipped. The bundler copies these
+/// into the `.app`'s resources.
+fn webview_assets(
+  sir: &Sir,
+  interner: &Interner,
+  base_dir: &Path,
+) -> Vec<PathBuf> {
+  let mut assets: Vec<PathBuf> = Vec::new();
+
+  for command in sir.ui_commands(interner) {
+    let UiCommand::Element {
+      tag: ElementTag::Img,
+      attrs,
+      ..
+    } = command
+    else {
+      continue;
+    };
+
+    for attr in &attrs {
+      let value = match attr {
+        Attr::Prop { name, value } if name == "src" => value,
+        Attr::Dynamic { name, initial, .. } if name == "src" => initial,
+        _ => continue,
+      };
+
+      if let PropValue::Str(src) = value {
+        push_asset(src, base_dir, &mut assets);
+      }
+    }
+  }
+
+  for css in sir.stylesheets() {
+    for url in zo_ui_protocol::style::css::parse(css).images {
+      push_asset(&url, base_dir, &mut assets);
+    }
+  }
+
+  assets
+}
+
+/// Resolve `src` against `base_dir` and add it to `assets` when it's a
+/// local file that exists (skipping remote URLs and duplicates).
+fn push_asset(src: &str, base_dir: &Path, assets: &mut Vec<PathBuf>) {
+  if src.starts_with("http://") || src.starts_with("https://") {
+    return;
+  }
+
+  let path = Path::new(src);
+  let absolute = if path.is_absolute() {
+    path.to_path_buf()
+  } else {
+    base_dir.join(path)
+  };
+
+  if absolute.is_file() && !assets.contains(&absolute) {
+    assets.push(absolute);
   }
 }
 
