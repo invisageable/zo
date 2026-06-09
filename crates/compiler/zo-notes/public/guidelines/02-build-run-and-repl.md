@@ -7,20 +7,27 @@
 GET THE FULL LiST OF COMMANDS ViA `zo --help`
 
   ```
-  The zo Programming Language
+  The zo compiler
 
   Usage: zo <COMMAND>
 
   Commands:
-    build  builds a program
+    build  build a program into an executable
     repl   read eval print and loop a program (not implemented yet)
-    run    runs a program
+    run    build and run a program
     test   compile and run test functions
     help   Print this message or the help of the given subcommand(s)
 
   Options:
-    -h, --help  Print help
+    -h, --help     Print help
     -V, --version  Print version
+
+  Examples:
+    zo run app.zo                   build and run a program
+    zo build app.zo --target web    build a static web bundle
+    zo run app.zo --target ios      run in the iOS Simulator
+
+  For newcomers go to https://zo.compilords.house/initiation
   ```
 
 **-programming-mode**

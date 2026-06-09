@@ -4,7 +4,7 @@ mod run;
 mod test;
 
 use crate::args;
-use crate::constants::{EXIT_CODE_ERROR, EXIT_CODE_SUCCESS};
+use crate::constants::{EXIT_CODE_ERROR, EXIT_CODE_IO, EXIT_CODE_SUCCESS};
 use crate::watch;
 
 use zo_error::Error;
@@ -73,7 +73,7 @@ pub(crate) fn read_source(path: &Path) -> String {
   if !path.exists() {
     eprintln!("Error: File not found: {}", path.display());
 
-    process::exit(EXIT_CODE_ERROR);
+    process::exit(EXIT_CODE_IO);
   }
 
   match std::fs::read_to_string(path) {
@@ -81,7 +81,7 @@ pub(crate) fn read_source(path: &Path) -> String {
     Err(error) => {
       eprintln!("Error reading file {}: {error}", path.display());
 
-      process::exit(EXIT_CODE_ERROR);
+      process::exit(EXIT_CODE_IO);
     }
   }
 }

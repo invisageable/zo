@@ -5,7 +5,7 @@ use clap::Parser;
 /// Represents a [`Driver`] instance.
 #[derive(Debug, Parser)]
 #[clap(
-  name = "\nzo",
+  name = "zo",
   about = "The zo compiler",
   author = "compilords",
   version,

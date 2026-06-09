@@ -1,6 +1,6 @@
 use crate::args;
 use crate::cmd::Handle;
-use crate::constants::EXIT_CODE_ERROR;
+use crate::constants::{EXIT_CODE_ERROR, EXIT_CODE_USAGE};
 
 use zo_bundler::ios::simulator::Simulator;
 use zo_compiler::{Analyzed, Compiler};
@@ -59,7 +59,7 @@ impl Run {
   fn run(&self) -> Result<(), Error> {
     if self.args.files.is_empty() {
       eprintln!("Error: No input files specified");
-      std::process::exit(EXIT_CODE_ERROR);
+      std::process::exit(EXIT_CODE_USAGE);
     }
 
     let input_path = &self.args.files[0];

@@ -87,7 +87,7 @@ impl Build {
     let Some(name) = app.file_stem().and_then(|s| s.to_str()) else {
       eprintln!("Error: cannot derive an app name from {}", app.display());
 
-      std::process::exit(crate::constants::EXIT_CODE_ERROR);
+      std::process::exit(crate::constants::EXIT_CODE_USAGE);
     };
 
     compiler.set_webviewing(Webviewing::Yes);
@@ -132,7 +132,7 @@ impl Build {
     if let Err(error) = macos::bundle(&spec) {
       eprintln!("Error bundling webview app: {error}");
 
-      std::process::exit(crate::constants::EXIT_CODE_ERROR);
+      std::process::exit(crate::constants::EXIT_CODE_BUNDLE);
     }
 
     let _ = std::fs::remove_dir_all(&staging);

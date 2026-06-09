@@ -106,6 +106,8 @@ impl Server {
       Self::open_in_browser(&url);
     }
 
+    Self::install_stop_handler();
+
     for stream in listener.incoming() {
       match stream {
         Ok(stream) => {
@@ -248,6 +250,39 @@ impl Server {
       eprintln!("zo web — could not open browser ({error}); visit {url}");
     }
   }
+
+  /// Install a SIGINT (Ctrl-C) handler that prints a short stopping
+  /// line and exits with `130` (128 + SIGINT). The default action
+  /// already exits promptly; this only adds the word so the serve
+  /// session ends cleanly instead of in silence.
+  #[cfg(unix)]
+  fn install_stop_handler() {
+    extern "C" fn on_sigint(_signal: libc::c_int) {
+      // Async-signal-safe: one `write(2)` of a fixed byte string,
+      // then `_exit` — no allocation and no stdio lock a signal
+      // could interrupt mid-hold and deadlock on. The em dash is
+      // its UTF-8 bytes (byte strings are ASCII-only).
+      const STOPPING: &[u8] = b"\nzo web \xe2\x80\x94 stopping.\n";
+
+      unsafe {
+        libc::write(
+          libc::STDERR_FILENO,
+          STOPPING.as_ptr().cast(),
+          STOPPING.len(),
+        );
+        libc::_exit(130);
+      }
+    }
+
+    unsafe {
+      libc::signal(libc::SIGINT, on_sigint as *const () as libc::sighandler_t);
+    }
+  }
+
+  /// No-op on non-Unix — the platform's default Ctrl-C handling
+  /// applies.
+  #[cfg(not(unix))]
+  fn install_stop_handler() {}
 }
 
 #[cfg(test)]
@@ -331,5 +366,58 @@ mod tests {
     for (file, expected) in cases {
       assert_eq!(Server::content_type(Path::new(file)), expected);
     }
+  }
+
+  /// Ctrl-C (SIGINT) prints the stopping line and exits with `130`.
+  /// Driven through a child process: re-running this test binary with
+  /// the guard env installs the handler and blocks; the parent signals
+  /// it and checks the exit code and message. The handler `_exit`s, so
+  /// it can only be observed across a process boundary.
+  #[cfg(unix)]
+  #[test]
+  fn sigint_prints_stopping_and_exits_130() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    const GUARD: &str = "ZO_SERVE_SIGINT_CHILD";
+    const TEST: &str = "serve::tests::sigint_prints_stopping_and_exits_130";
+
+    // Child role: install the handler, then block until the signal.
+    // `pause` returns only after a handler that itself returns; ours
+    // `_exit`s, so this blocks until SIGINT ends the process.
+    if std::env::var_os(GUARD).is_some() {
+      Server::install_stop_handler();
+
+      unsafe {
+        libc::pause();
+      }
+
+      return;
+    }
+
+    // Parent role: re-run just this test as a guarded child.
+    let exe = std::env::current_exe().expect("test binary path");
+    let child = Command::new(exe)
+      .args(["--exact", TEST])
+      .env(GUARD, "1")
+      .stdout(Stdio::null())
+      .stderr(Stdio::piped())
+      .spawn()
+      .expect("spawn child");
+
+    // Let the child reach `install_stop_handler` before signalling.
+    std::thread::sleep(Duration::from_millis(500));
+
+    unsafe {
+      libc::kill(child.id() as libc::pid_t, libc::SIGINT);
+    }
+
+    let output = child.wait_with_output().expect("await child");
+
+    assert_eq!(output.status.code(), Some(130), "exit code");
+    assert!(
+      String::from_utf8_lossy(&output.stderr).contains("stopping"),
+      "stderr should carry the stopping line",
+    );
   }
 }
