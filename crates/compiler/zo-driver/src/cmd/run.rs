@@ -50,9 +50,12 @@ struct ReactiveContext<'a> {
 pub(crate) struct Run {
   #[command(flatten)]
   pub(crate) args: args::Args,
-  /// The iOS Simulator device for `run --target ios`.
-  #[arg(long, default_value = "iPhone 17 Pro")]
-  pub(crate) device: String,
+  /// The Simulator device for `run --target ios` — a device name
+  /// (e.g. "Apple Vision Pro") or UDID, resolved against the devices
+  /// the machine actually has. Omitted: the booted device wins, else
+  /// the newest iPhone.
+  #[arg(long)]
+  pub(crate) device: Option<String>,
 }
 
 impl Run {
@@ -354,6 +357,30 @@ impl Run {
       std::process::exit(EXIT_CODE_ERROR);
     };
 
+    // Resolve the device against the machine's actual simulators
+    // before the build — a bad `--device` should fail fast, not after
+    // codegen.
+    let devices = match zo_bundler::ios::device::detect() {
+      Ok(devices) => devices,
+      Err(error) => {
+        eprintln!("Error listing Simulator devices: {error}");
+
+        std::process::exit(EXIT_CODE_ERROR);
+      }
+    };
+
+    // An empty `--device ""` means auto-select.
+    let requested = self.device.as_deref().filter(|name| !name.is_empty());
+
+    let device = match zo_bundler::ios::device::resolve(&devices, requested) {
+      Ok(device) => device,
+      Err(error) => {
+        eprintln!("Error: {error}");
+
+        std::process::exit(EXIT_CODE_ERROR);
+      }
+    };
+
     // Build the `.app` into a per-run directory so its path is stable
     // and isolated from concurrent runs.
     let out_dir =
@@ -371,7 +398,14 @@ impl Run {
 
     let app = output_path.with_extension("app");
     let bundle_id = zo_bundler::bundle_id(name);
-    let simulator = Simulator::new(&self.device);
+    let simulator = Simulator::new(&device.udid);
+
+    if !self.args.quiet {
+      eprintln!(
+        "Launching on {} ({} {})...",
+        device.name, device.os, device.os_version,
+      );
+    }
 
     if let Err(error) = simulator.launch(&app, &bundle_id) {
       eprintln!("Error launching iOS Simulator: {error}");

@@ -199,7 +199,7 @@ pub(crate) const SECTION_ALIGN_4BYTE: u32 = 2; // 2^2 = 4 bytes alignment
 /// @note — each entry is an `nlist_64` (16 bytes) whose
 /// `n_value`/`n_strx` fields dyld reads as aligned words;
 /// `symoff` must land on an 8-byte boundary or dyld rejects
-/// the whole `__LINKEDIT` with "mis-aligned LINKEDIT content
+/// the whole `__LINKEDIT` with "misaligned LINKEDIT content
 /// 'symbol table'" and drops every bind it described.
 pub(crate) const LINKEDIT_SYMTAB_ALIGN: u32 = 8;
 
@@ -214,7 +214,7 @@ pub(crate) const LINKEDIT_U32_TABLE_ALIGN: u32 = 4;
 /// Alignment, in bytes, of the `LC_CODE_SIGNATURE` blob.
 ///
 /// @note — the embedded SuperBlob's `dataoff` must be
-/// 16-byte aligned; `dyld_info`/AMFI report "mis-aligned code
+/// 16-byte aligned; `dyld_info`/AMFI report "misaligned code
 /// signature" and refuse the signature otherwise.
 pub(crate) const LINKEDIT_CODE_SIGNATURE_ALIGN: u32 = 16;
 

@@ -6,6 +6,7 @@
 //! linker and rustc respectively), which the Simulator accepts — so M1
 //! does no re-signing and writes no `_CodeSignature` seal.
 
+pub mod device;
 pub mod simulator;
 
 use std::fs;

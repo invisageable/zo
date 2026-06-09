@@ -35,7 +35,7 @@
   for mut n := 0..3 => n += 1;
   ```
 
-## infinie loop
+## infinite loop
 
   ```zo
   mut x: int = 0;

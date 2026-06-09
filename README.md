@@ -58,10 +58,13 @@ ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS (NATiVE, WEB, 
 
 <p align="center">
   <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui.png">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-web.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-webview.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-vision-home.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-vision-app.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-iphone.png">
 </p>
 
-> *Work in progress. zo supports desktop (ARM64), iOS (desktop, iphone, visionpro, watch), web (bundled or webview). We plan to supports more — on desktop (Linux, Windows) and on Android.*
+> *Work in progress. zo supports desktop (ARM64), MacOS (iOS, visionOS, tvOS, watchOS), web (bundled or webview). We plan to supports more — on desktop (Linux, Windows) and on Android.*
 
 TESTiNG MACHiNE:
 

@@ -1,6 +1,6 @@
 -- tests-run-pass: parenthesized mut-self method call,
 -- cast int->float, then an FP binop. Regression for the
--- executor mis-parsing `(recv.method(x)) - y` as a tuple
+-- executor misparsing `(recv.method(x)) - y` as a tuple
 -- of the receiver + args instead of dispatching the call.
 
 load core::random::*;

@@ -9,6 +9,9 @@
 pub mod ios;
 pub mod macos;
 
+#[cfg(test)]
+mod tests;
+
 use std::fs;
 use std::io;
 use std::path::Path;

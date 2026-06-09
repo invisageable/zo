@@ -719,7 +719,7 @@ fn solve(
       // assignment gate: a local declared inside a branch
       // (`if c { imu t := … }`) is never defined on the sibling
       // path, so it stays dead there and its scope-exit drop
-      // elides instead of being mis-read as a path-dependent free.
+      // elides instead of being misread as a path-dependent free.
       let new_in = if preds.is_empty() {
         entry_seed.clone()
       } else {

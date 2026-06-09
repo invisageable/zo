@@ -1085,7 +1085,7 @@ fn attach_target(
       PlacedView::GlassBackdrop(panel) => (panel.content(), frame),
       // Layout never nests a leaf under a non-glass surface, so this
       // would be a builder/runtime mismatch — fail loud rather than
-      // mis-place against an offset frame.
+      // misplace against an offset frame.
       _ => panic!("nesting parent {p} is not a glass container"),
     },
     None => (Retained::from(container), frame),

@@ -139,10 +139,10 @@ zo_run program:
 build_ios_runtime:
   cargo build -p zo-runtime --target aarch64-apple-ios-sim
 
-# zo: Run a zo program in the iOS Simulator
+# zo: Run a zo program in the iOS Simulator (device auto-selects when omitted)
 [group("zo")]
-zo_run_ios program device="iPhone 17 Pro": build_ios_runtime
-  cargo run --bin zo -- run {{program}} --target ios --device "{{device}}"
+zo_run_ios program device="": build_ios_runtime
+  cargo run --bin zo -- run "{{program}}" --target ios --device "{{device}}"
 
 # Run all zo crates tests
 [group('zo')]

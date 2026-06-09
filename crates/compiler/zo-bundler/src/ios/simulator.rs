@@ -1,23 +1,24 @@
 //! Driving the iOS Simulator from the compiler: boot a device,
 //! install the freshly built `.app`, and launch it.
 //!
-//! `zo run --target ios` builds a [`Simulator`] for the chosen device
-//! and calls [`Simulator::launch`], so the developer never reaches for
+//! `zo run --target ios` resolves a device through
+//! [`crate::ios::device`], builds a [`Simulator`] for it, and calls
+//! [`Simulator::launch`] — so the developer never reaches for
 //! `xcrun simctl` by hand.
 
 use std::io;
 use std::path::Path;
 use std::process::Command;
 
-/// One iOS Simulator device, addressed by its name (e.g.
-/// `iPhone 17 Pro`).
+/// One Simulator device, addressed by a `simctl` specifier — a UDID
+/// (preferred, unambiguous) or a device name.
 pub struct Simulator {
-  /// The `simctl` device specifier — a device name or `booted`.
+  /// The `simctl` device specifier.
   device: String,
 }
 
 impl Simulator {
-  /// A simulator handle for `device` (a `simctl` device name).
+  /// A simulator handle for `device` (a `simctl` device specifier).
   pub fn new(device: &str) -> Self {
     Self {
       device: device.to_string(),

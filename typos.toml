@@ -5,10 +5,14 @@ extend-exclude = [
   "**/*.md",
   "notes/",
   "apps/site/messages/",
+  "apps/site/public/docs/",
+  "crates/compiler/zo-vscode/out/",
 ]
 
 [default.extend-words]
 eazy = "eazy"
+# Apple's Unique Device Identifier — not a UUID misspelling.
+udid = "udid"
 
 [default.extend-identifiers]
 bitcase = "bitcase"
