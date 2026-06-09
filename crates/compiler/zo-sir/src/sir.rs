@@ -272,16 +272,7 @@ impl Sir {
   /// (`Compiler::compile_web`), so both agree on which templates
   /// render. Filesystem image resolution is the caller's job.
   pub fn ui_commands(&self, interner: &Interner) -> Vec<UiCommand> {
-    let mut targets: Vec<ValueId> = Vec::new();
-
-    for insn in &self.instructions {
-      if let Insn::Directive { name, value, .. } = insn
-        && zo_ui_protocol::is_render_directive(interner.get(*name))
-      {
-        targets.push(*value);
-      }
-    }
-
+    let targets = self.render_targets(interner);
     let mut commands = Vec::new();
 
     for insn in &self.instructions {
@@ -299,15 +290,12 @@ impl Sir {
     commands
   }
 
-  /// The reactive text bindings of every `#render`-targeted template,
-  /// rebased into the concatenated command-stream index space that
-  /// [`ui_commands`](Self::ui_commands) produces. Each entry is
-  /// `(command_index, state_var)` — the `UiCommand::Text` at
-  /// `command_index` re-renders from `state_var` on every change.
-  pub fn text_bindings(&self, interner: &Interner) -> Vec<(usize, Symbol)> {
-    let mut targets: Vec<ValueId> = Vec::new();
+  /// The template `ValueId`s a `#render` directive targets — the shared
+  /// filter behind [`ui_commands`](Self::ui_commands) and
+  /// [`bindings`](Self::bindings).
+  fn render_targets(&self, interner: &Interner) -> Vec<ValueId> {
+    let mut targets = Vec::new();
 
-    // TODO: duplicate from `ui_commands`.
     for insn in &self.instructions {
       if let Insn::Directive { name, value, .. } = insn
         && zo_ui_protocol::is_render_directive(interner.get(*name))
@@ -316,7 +304,17 @@ impl Sir {
       }
     }
 
-    let mut out = Vec::new();
+    targets
+  }
+
+  /// Every reactive binding of every `#render`-targeted template,
+  /// rebased into the concatenated command-stream index space that
+  /// [`ui_commands`](Self::ui_commands) produces. Each `cmd_idx` indexes
+  /// the same stream, so a consumer pairs bindings with commands without
+  /// re-deriving per-template offsets.
+  pub fn bindings(&self, interner: &Interner) -> TemplateBindings {
+    let targets = self.render_targets(interner);
+    let mut out = TemplateBindings::default();
     let mut base = 0;
 
     for insn in &self.instructions {
@@ -329,7 +327,19 @@ impl Sir {
         && targets.contains(id)
       {
         for (cmd_idx, var) in &bindings.text {
-          out.push((base + cmd_idx, *var));
+          out.text.push((base + cmd_idx, *var));
+        }
+
+        for (cmd_idx, attr) in &bindings.attrs {
+          out.attrs.push((base + cmd_idx, attr.clone()));
+        }
+
+        for (cmd_idx, computed) in &bindings.computed {
+          out.computed.push((base + cmd_idx, computed.clone()));
+        }
+
+        for (cmd_idx, list) in &bindings.list {
+          out.list.push((base + cmd_idx, list.clone()));
         }
 
         base += commands.len();
@@ -1289,7 +1299,7 @@ pub enum Insn {
   /// argument). This is how a non-capturing `Fn()` value
   /// becomes a real runtime pointer; without it a `Fn()`
   /// operand lowers to the `u32::MAX` sentinel and silently
-  /// mis-lowers across an FFI boundary.
+  /// lowers wrong across an FFI boundary.
   ///
   /// Codegen reuses the same user-function-address fixup as
   /// `TaskSpawn`: an ADR placeholder patched to the callee's

@@ -1,0 +1,11 @@
+-- test-build-pass: reactive list binding.
+
+fun main() {
+  mut items: []str = [];
+  imu view: </> ::= <>
+    <button @click={fn() => items.push("hi")}>add</button>
+    <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>
+  </>;
+
+  #render view;
+}

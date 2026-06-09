@@ -56,7 +56,6 @@ Hand-writing a `pub ffi` line per function — and keeping each one in sync with
 Wrap any Rust crate in a small shim that exports plain C functions:
 
   ```rust
-  // crates/compiler/zo-provider-undoredo/src/lib.rs
   #[unsafe(no_mangle)]
   pub extern "C" fn undo_stack_new() -> i64 { /* ... */ }
   ```

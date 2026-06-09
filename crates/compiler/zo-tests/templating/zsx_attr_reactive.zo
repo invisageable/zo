@@ -1,0 +1,11 @@
+-- test-build-pass: reactive dynamic attribute binding.
+
+fun main() {
+  mut n: int = 0;
+  imu view: </> ::= <>
+    <button @click={fn() => n += 1}>+</button>
+    <p title={n}>{n}</p>
+  </>;
+
+  #render view;
+}

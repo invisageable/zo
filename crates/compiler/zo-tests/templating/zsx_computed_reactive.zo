@@ -1,0 +1,11 @@
+-- test-build-pass: reactive computed {expr} binding.
+
+fun main() {
+  mut n: int = 0;
+  imu view: </> ::= <>
+    <button @click={fn() => n += 1}>+</button>
+    <p>{n * 2}</p>
+  </>;
+
+  #render view;
+}

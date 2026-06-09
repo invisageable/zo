@@ -8062,6 +8062,7 @@ dependencies = [
  "zo-codegen-backend",
  "zo-interner",
  "zo-sir",
+ "zo-span",
  "zo-ty",
  "zo-ui-protocol",
  "zo-value",

@@ -35,7 +35,7 @@
   <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-web.png">
 </p>
 
-ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS (NATiVE GPU, WEB, ANDROiD OR iOS) — SAME SOURCE.
+ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS (NATiVE, WEB, ANDROiD OR iOS) — SAME SOURCE.
 
 **-concurrency**
 
