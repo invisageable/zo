@@ -7,7 +7,7 @@ use crate::stage::Stage;
 use zo_analyzer::{Analyzer, AnalyzerConfig, SemanticResult};
 use zo_bundler::ios;
 use zo_codegen::codegen::Codegen;
-use zo_codegen_backend::Target;
+use zo_codegen_backend::{Target, Webviewing};
 use zo_dce::Dce;
 use zo_error::{Error, ErrorKind, Severity};
 use zo_interner::Symbol;
@@ -232,6 +232,11 @@ pub struct Compiler {
   /// When `true`, `test fun` functions are pinned as DCE
   /// roots so the synthesized test harness can call them.
   test_mode: bool,
+  /// Whether `#render` lowers to the webview runtime entry (wry) rather
+  /// than the native one (eframe). Set by the driver for a
+  /// `--target webview` build; native and webview share a host triple,
+  /// so this is the one bit that distinguishes them at codegen.
+  webviewing: Webviewing,
 }
 
 /// Merges `other` into `into`. Used to fold the `exported`
@@ -602,6 +607,7 @@ impl Compiler {
       emit_format: DiagnosticFormat::Human,
       snippet_context: 2,
       test_mode: false,
+      webviewing: Webviewing::No,
     }
   }
 
@@ -618,11 +624,19 @@ impl Compiler {
       emit_format: DiagnosticFormat::Human,
       snippet_context: 2,
       test_mode: false,
+      webviewing: Webviewing::No,
     }
   }
 
   pub fn set_test_mode(&mut self, enabled: bool) {
     self.test_mode = enabled;
+  }
+
+  /// Select the webview runtime entry for `#render` lowering. The
+  /// driver sets this for a `--target webview` build so the emitted
+  /// binary calls `_zo_run_web` (wry) instead of `_zo_run_native`.
+  pub fn set_webviewing(&mut self, webviewing: Webviewing) {
+    self.webviewing = webviewing;
   }
 
   /// Collected errors from the last compilation.
@@ -1876,7 +1890,8 @@ impl Compiler {
     }
 
     self.profiler.start_phase(CODEGEN_NAME);
-    let codegen = Codegen::new(lowering.target);
+    let codegen =
+      Codegen::new(lowering.target).with_webviewing(self.webviewing);
 
     // ARM64Gen consults this view to drive the generic
     // AAPCS FFI path; CLIF ignores it.
@@ -2174,7 +2189,7 @@ impl Compiler {
       .any(|error| matches!(error.severity(), Severity::Error));
 
     if !has_hard_error {
-      let codegen = Codegen::new(target);
+      let codegen = Codegen::new(target).with_webviewing(self.webviewing);
       let type_view =
         Some((session.ty_checker.tys(), &session.ty_checker.ty_table));
       let abstract_state = Some(zo_codegen::AbstractState {
@@ -2436,7 +2451,7 @@ fn bundle_ios(target: Target, output_path: &std::path::Path, sir: &Sir) {
   };
 
   let app_dir = output_path.with_extension("app");
-  let bundle_id = ios::bundle_id(name);
+  let bundle_id = zo_bundler::bundle_id(name);
 
   let stylesheets = sir.stylesheets();
   let spec = ios::BundleSpec {

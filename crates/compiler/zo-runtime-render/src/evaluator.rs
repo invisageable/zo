@@ -94,6 +94,14 @@ pub struct HandlerEvaluator {
   /// ValueIds and Symbols are minted by independent
   /// counters and could collide otherwise.
   locals: HashMap<u32, Val>,
+  /// Reactive state vars (`Symbol` → state-cell slot) the handler
+  /// may read or write without capturing them. An event handler that
+  /// only writes a template mutable leaves it free — `identify_captures`
+  /// drops it when it's already a known binding, so the body reads it as
+  /// a bare `Load Local`. Resolving those against the shared cells (not
+  /// just captured params) is what keeps a write effective regardless of
+  /// whether the closure happened to capture the var.
+  state_syms: Vec<(Symbol, usize)>,
 }
 
 impl HandlerEvaluator {
@@ -101,7 +109,17 @@ impl HandlerEvaluator {
     Self {
       regs: HashMap::default(),
       locals: HashMap::default(),
+      state_syms: Vec::new(),
     }
+  }
+
+  /// Make the reactive state vars resolvable by symbol, so a handler's
+  /// `Load`/`Store` of a free (uncaptured) template mutable hits its
+  /// state cell. Each entry is `(var, slot)` into the `state` cells
+  /// passed to [`execute`](Self::execute).
+  pub fn with_state_syms(mut self, state_syms: Vec<(Symbol, usize)>) -> Self {
+    self.state_syms = state_syms;
+    self
   }
 
   /// Execute a closure handler body from SIR instructions.
@@ -200,6 +218,16 @@ impl HandlerEvaluator {
         }
 
         break;
+      }
+    }
+
+    // Reactive state the handler writes without capturing (a template
+    // mutable an event closure mutates but doesn't capture) resolves by
+    // symbol against the same cells — captured params already mapped
+    // above win, so this only adds the free ones.
+    for &(sym, slot) in &self.state_syms {
+      if !params.iter().any(|(s, _)| *s == sym) {
+        params.push((sym, slot));
       }
     }
 
@@ -571,6 +599,102 @@ mod tests {
     eval.execute(&sir.instructions, name, &state, &capture_map, &[], None);
 
     assert_eq!(state[0].get(), StateValue::Int(6));
+  }
+
+  /// A closure that mutates `count` without capturing it (the `+` of a
+  /// counter — the executor leaves a post-binding event closure's
+  /// template mutable free). Body: `Load Local(count); count + 1; Store
+  /// count` with `capture_count = 0`.
+  fn make_free_counter_closure(
+    sir: &mut Sir,
+    interner: &mut zo_interner::Interner,
+  ) -> Symbol {
+    let name = interner.intern("__closure_free_inc");
+    let count_sym = interner.intern("count");
+
+    sir.emit(Insn::FunDef {
+      name,
+      params: Vec::new(),
+      return_ty: int_ty(),
+      body_start: 1,
+      kind: FunctionKind::Closure { capture_count: 0 },
+      pubness: Pubness::No,
+      self_kind: SelfKind::None,
+      link_name: None,
+      owning_pack: None,
+      span: Span::ZERO,
+      is_test: false,
+    });
+
+    let load_dst = ValueId(sir.next_value_id);
+    sir.next_value_id += 1;
+    sir.emit(Insn::Load {
+      dst: load_dst,
+      src: LoadSource::Local(count_sym),
+      ty_id: int_ty(),
+    });
+
+    let const_dst = ValueId(sir.next_value_id);
+    sir.next_value_id += 1;
+    sir.emit(Insn::ConstInt {
+      dst: const_dst,
+      value: 1,
+      ty_id: int_ty(),
+    });
+
+    let binop_dst = ValueId(sir.next_value_id);
+    sir.next_value_id += 1;
+    sir.emit(Insn::BinOp {
+      dst: binop_dst,
+      op: BinOp::Add,
+      lhs: load_dst,
+      rhs: const_dst,
+      ty_id: int_ty(),
+    });
+
+    sir.emit(Insn::Store {
+      name: count_sym,
+      value: binop_dst,
+      ty_id: int_ty(),
+    });
+
+    sir.emit(Insn::Return {
+      value: None,
+      ty_id: int_ty(),
+    });
+
+    name
+  }
+
+  #[test]
+  fn free_reactive_mutable_resolves_via_state_syms() {
+    let mut sir = Sir::new();
+    let mut interner = zo_interner::Interner::new();
+
+    let name = make_free_counter_closure(&mut sir, &mut interner);
+    let count = interner.intern("count");
+
+    // With the state map, the free `count` resolves to slot 0 and the
+    // write lands in the cell.
+    let state = vec![StateCell::new(StateValue::Int(5))];
+    let mut eval = HandlerEvaluator::new().with_state_syms(vec![(count, 0)]);
+
+    eval.execute(&sir.instructions, name, &state, &[], &[], None);
+
+    assert_eq!(
+      state[0].get(),
+      StateValue::Int(6),
+      "a free reactive mutable must write its state cell",
+    );
+
+    // Without the state map, the store has nowhere to land and the cell
+    // is untouched — the exact symptom of the `+`-button bug.
+    let state = vec![StateCell::new(StateValue::Int(5))];
+    let mut eval = HandlerEvaluator::new();
+
+    eval.execute(&sir.instructions, name, &state, &[], &[], None);
+
+    assert_eq!(state[0].get(), StateValue::Int(5));
   }
 
   #[test]

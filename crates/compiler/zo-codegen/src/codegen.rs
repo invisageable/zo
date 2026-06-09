@@ -1,5 +1,5 @@
 use zo_codegen_arm::ARM64Gen;
-use zo_codegen_backend::{Artifact, Backend, LinkObject, Target};
+use zo_codegen_backend::{Artifact, Backend, LinkObject, Target, Webviewing};
 use zo_codegen_clif::CliftGen;
 use zo_codegen_web::WebGen;
 use zo_interner::{Interner, Symbol};
@@ -36,12 +36,24 @@ enum Concrete<'a> {
 /// Represents the [`Codegen`] dispatcher.
 pub struct Codegen {
   target: Target,
+  /// Whether `#render` lowers to the webview runtime entry (wry) rather
+  /// than the native one (eframe). Set for a `--target webview` build.
+  webviewing: Webviewing,
 }
 
 impl Codegen {
   /// Creates a new [`Codegen`] instance.
   pub const fn new(target: Target) -> Self {
-    Self { target }
+    Self {
+      target,
+      webviewing: Webviewing::No,
+    }
+  }
+
+  /// Select the webview runtime entry for `#render` lowering.
+  pub const fn with_webviewing(mut self, webviewing: Webviewing) -> Self {
+    self.webviewing = webviewing;
+    self
   }
 
   /// Instantiates the backend matching `self.target`. The
@@ -62,7 +74,7 @@ impl Codegen {
       | Target::Arm64UnknownLinuxGnu
       | Target::Arm64AppleIos
       | Target::Arm64AppleIosSim => {
-        let mut arm = ARM64Gen::new(interner);
+        let mut arm = ARM64Gen::new(interner).with_webviewing(self.webviewing);
         if let Some((tys, ty_table)) = type_view {
           arm = arm.with_type_view(tys, ty_table);
         }

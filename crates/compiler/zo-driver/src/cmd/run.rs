@@ -2,7 +2,6 @@ use crate::args;
 use crate::cmd::Handle;
 use crate::constants::EXIT_CODE_ERROR;
 
-use zo_bundler::ios;
 use zo_bundler::ios::simulator::Simulator;
 use zo_compiler::{Analyzed, Compiler};
 use zo_error::{Error, ErrorKind};
@@ -367,7 +366,7 @@ impl Run {
     )?;
 
     let app = output_path.with_extension("app");
-    let bundle_id = ios::bundle_id(name);
+    let bundle_id = zo_bundler::bundle_id(name);
     let simulator = Simulator::new(&self.device);
 
     if let Err(error) = simulator.launch(&app, &bundle_id) {
@@ -504,6 +503,16 @@ impl Run {
       register_slot(lb.items_var, &mut state_slots);
     }
 
+    // Every reactive var keyed to its cell slot, so a handler that
+    // mutates a template mutable without capturing it (the `+` of a
+    // counter — the executor leaves a post-binding closure's mutable
+    // free) still writes the right cell.
+    let state_syms: Vec<(Symbol, usize)> = state_slots
+      .iter()
+      .enumerate()
+      .map(|(slot_idx, (sym, _, _))| (*sym, slot_idx))
+      .collect();
+
     // Register closure handlers.
     for insn in instructions {
       let (name, capture_count, params) = match insn {
@@ -592,11 +601,13 @@ impl Run {
       let closure_sym = *name;
       let computed_binds_clone = computed_binds.clone();
       let list_binds_clone = list_binds.clone();
+      let state_syms_clone = state_syms.clone();
 
       registry.register(
         fun_name,
         Box::new(move |payload| {
-          let mut eval = zo_runtime_render::evaluator::HandlerEvaluator::new();
+          let mut eval = zo_runtime_render::evaluator::HandlerEvaluator::new()
+            .with_state_syms(state_syms_clone.clone());
 
           eval.execute(
             &sir,

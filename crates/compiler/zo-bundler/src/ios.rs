@@ -47,7 +47,7 @@ pub fn bundle(spec: &BundleSpec) -> io::Result<()> {
   let exe = spec.app_dir.join(spec.name);
 
   fs::copy(spec.binary, &exe)?;
-  set_executable(&exe)?;
+  crate::set_executable(&exe)?;
 
   fs::write(spec.app_dir.join("Info.plist"), info_plist(spec))?;
   fs::write(spec.app_dir.join("PkgInfo"), b"APPL????")?;
@@ -66,12 +66,6 @@ pub fn bundle(spec: &BundleSpec) -> io::Result<()> {
   }
 
   Ok(())
-}
-
-/// The reverse-DNS bundle identifier for a program named `name`,
-/// e.g. `house.compilords.counter`.
-pub fn bundle_id(name: &str) -> String {
-  format!("house.compilords.{name}")
 }
 
 /// Local image source paths the program's stylesheets reference,
@@ -156,20 +150,4 @@ fn info_plist(spec: &BundleSpec) -> String {
     platform = platform,
     dt_platform = dt_platform,
   )
-}
-
-/// Mark the copied executable `rwxr-xr-x` — `fs::copy` drops the bit
-/// on some filesystems and the Simulator refuses a non-executable.
-fn set_executable(path: &Path) -> io::Result<()> {
-  #[cfg(unix)]
-  {
-    use std::os::unix::fs::PermissionsExt;
-
-    let mut perms = fs::metadata(path)?.permissions();
-
-    perms.set_mode(0o755);
-    fs::set_permissions(path, perms)?;
-  }
-
-  Ok(())
 }
