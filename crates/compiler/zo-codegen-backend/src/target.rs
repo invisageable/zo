@@ -22,9 +22,9 @@ pub enum Target {
   Arm64AppleIosSim,
   /// arm64 Android (ELF, bionic libc).
   Aarch64LinuxAndroid,
-  /// Static web bundle (a `public/` of HTML/CSS/JS). Not machine
-  /// code — `Compiler::compile_web` renders it instead of routing
-  /// through codegen / the linker.
+  /// Static web bundle (a `public/` of HTML/CSS/JS). The
+  /// `zo-codegen-web` backend transpiles the UI to a `WebBundle`; the
+  /// linker writes its files to `public/` (no machine code).
   Web,
 }
 

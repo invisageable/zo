@@ -318,7 +318,7 @@ impl Profiler {
     buffer.newline();
     buffer.newline();
 
-    print!("{}", String::from_utf8_lossy(&buffer.finish()));
+    eprint!("{}", String::from_utf8_lossy(&buffer.finish()));
   }
 }
 

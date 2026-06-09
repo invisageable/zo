@@ -68,8 +68,8 @@ impl Server {
     let listener = TcpListener::bind(LOOPBACK)?;
     let url = format!("http://127.0.0.1:{}/", listener.local_addr()?.port());
 
-    println!("zo web — serving {} at {url}", self.root.display());
-    println!("zo web — press Ctrl-C to stop.");
+    eprintln!("zo web — serving {} at {url}", self.root.display());
+    eprintln!("zo web — press Ctrl-C to stop.");
 
     if let Browsering::Yes = self.browsering {
       Self::open_in_browser(&url);

@@ -135,7 +135,7 @@ impl Build {
 
     let _ = std::fs::remove_dir_all(&staging);
 
-    println!("zo — built {}", app.display());
+    eprintln!("zo — built {}", app.display());
 
     Ok(())
   }

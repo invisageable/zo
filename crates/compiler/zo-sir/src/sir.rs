@@ -268,8 +268,8 @@ impl Sir {
 
   /// The `UiCommand` stream of every template a `#render` directive
   /// targets, concatenated in instruction order. The one extractor
-  /// shared by the run path (`Runtimer`) and the web build
-  /// (`Compiler::compile_web`), so both agree on which templates
+  /// shared by the run path (the driver's in-process runtime) and the
+  /// web build (`zo-codegen-web`), so both agree on which templates
   /// render. Filesystem image resolution is the caller's job.
   pub fn ui_commands(&self, interner: &Interner) -> Vec<UiCommand> {
     let targets = self.render_targets(interner);
