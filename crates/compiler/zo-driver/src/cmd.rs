@@ -93,11 +93,27 @@ pub(crate) fn read_source(path: &Path) -> String {
 #[derive(Debug, Subcommand)]
 pub(crate) enum Cmd {
   /// build a program into an executable.
+  #[command(long_about = "build a program into an executable.
+
+Examples:
+  zo build app.zo                    native executable next to the source
+  zo build app.zo --target web       static `public/` web bundle
+  zo build app.zo --target webview   double-clickable .app (system webview)")]
   Build(build::Build),
   /// read eval print and loop a program (not implemented yet).
   Repl(repl::Repl),
   /// build and run a program.
+  #[command(long_about = "build and run a program.
+
+Examples:
+  zo run app.zo                build and run natively
+  zo run app.zo --target web   serve the web bundle in the browser
+  zo run app.zo --target ios   run in the iOS Simulator")]
   Run(run::Run),
   /// compile and run test functions.
+  #[command(long_about = "compile and run test functions.
+
+Examples:
+  zo test app.zo   compile and run the program's `test fun`s")]
   Test(test::Test),
 }

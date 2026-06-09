@@ -9,7 +9,12 @@ use clap::Parser;
   about = "The zo compiler",
   author = "compilords",
   version,
-  after_help = "For newcomers go to https://zo.compilords.house/initiation"
+  after_help = "Examples:
+  zo run app.zo                   build and run a program
+  zo build app.zo --target web    build a static web bundle
+  zo run app.zo --target ios      run in the iOS Simulator
+
+For newcomers go to https://zo.compilords.house/initiation"
 )]
 pub(crate) struct Driver {
   /// The commands that can be run be the [`Driver`].
