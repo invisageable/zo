@@ -128,7 +128,10 @@ impl<'a> ReactiveJs<'a> {
       push_unique(&mut state_vars, items_var);
       push_unique(&mut array_vars, items_var);
       add_op(&mut ops, items_var, format!("[\"l\",{cmd_idx}]"));
-      lists.push((*cmd_idx, self.list_render(items_var, &binding.item_template)));
+      lists.push((
+        *cmd_idx,
+        self.list_render(items_var, &binding.item_template),
+      ));
     }
 
     let state_init = self.state_init(&state_vars, &array_vars);
@@ -160,6 +163,8 @@ impl<'a> ReactiveJs<'a> {
        document.addEventListener('click',function(e){{\
        var b=e.target.closest&&e.target.closest('button[data-id]');\
        if(b&&handlers[b.dataset.id])handlers[b.dataset.id](e);}});\
+       for(var c in computed){{var ce=q(c);if(ce)ce.textContent=computed[c]();}}\
+       for(var l in lists){{var le=q(l);if(le)le.innerHTML=lists[l]();}}\
        }})();"
     ))
   }
@@ -242,7 +247,11 @@ impl<'a> ReactiveJs<'a> {
     ops
       .iter()
       .map(|(var, var_ops)| {
-        format!("{}:[{}]", js_str(self.interner.get(*var)), var_ops.join(","))
+        format!(
+          "{}:[{}]",
+          js_str(self.interner.get(*var)),
+          var_ops.join(",")
+        )
       })
       .collect::<Vec<_>>()
       .join(",")
@@ -747,7 +756,10 @@ mod tests {
 
     assert!(js.contains("var state={\"count\":0}"), "{js}");
     // One var driving both a text and an attribute op.
-    assert!(js.contains("\"count\":[[\"t\",4],[\"a\",3,\"title\"]]"), "{js}");
+    assert!(
+      js.contains("\"count\":[[\"t\",4],[\"a\",3,\"title\"]]"),
+      "{js}"
+    );
     assert!(js.contains("el.setAttribute(op[2],state[slot])"));
     // The handler writes state and fires the var.
     assert!(js.contains("state[\"count\"]=v3;fire(\"count\");"), "{js}");
@@ -824,6 +836,12 @@ mod tests {
     assert!(js.contains("state[\"items\"].map(function(t)"), "{js}");
     assert!(js.contains("esc(t)"));
     // The handler pushes by owner and fires the array.
-    assert!(js.contains("state[\"items\"].push(v1);fire(\"items\");"), "{js}");
+    assert!(
+      js.contains("state[\"items\"].push(v1);fire(\"items\");"),
+      "{js}"
+    );
+    // Computed and list slots get an initial paint on load, so a
+    // non-empty first frame renders before any event fires.
+    assert!(js.contains("for(var l in lists)"), "{js}");
   }
 }
