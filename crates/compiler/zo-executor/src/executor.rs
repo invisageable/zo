@@ -259,6 +259,15 @@ pub struct Executor<'a> {
   pending_unop: Option<(UnOp, usize)>,
   /// Current function context (if we're inside a function)
   current_function: Option<FunCtx>,
+  /// Templates built as the body value of a `-> </>` function —
+  /// the component registry. `<header />` in tag position resolves
+  /// here after the local-variable lookup misses. Keyed by the
+  /// function's (mangled) name; the value is the `Insn::Template`
+  /// id its body produced. Linear execution gives the same
+  /// declaration-before-use guarantee as `::=` variables: a
+  /// function registers only after its body completes, so
+  /// self/mutual splices can never recurse.
+  component_templates: HashMap<Symbol, ValueId>,
   /// Save-stack for nested `fun` inside a function body.
   /// Mirrors the `execute_closure` pattern: when the LBrace
   /// of a nested fun takes over `current_function`, we push
@@ -903,6 +912,7 @@ impl<'a> Executor<'a> {
       pending_unop: None,
       local_scope: ScopedDenseMap::new(),
       current_function: None,
+      component_templates: HashMap::default(),
       saved_outer_funs: Vec::new(),
       pending_function: None,
       pending_fn_has_return_annotation: false,
@@ -25234,6 +25244,17 @@ impl<'a> Executor<'a> {
 
     self.sir_values.push(sir_value);
 
+    // An anonymous fragment that is the body value of a
+    // `-> </>` function defines a component: register it so tag
+    // position (`<header />`) can splice it. Last write wins —
+    // branch-folded bodies leave exactly one live fragment.
+    if self.pending_var_name.is_none()
+      && let Some(ctx) = &self.current_function
+      && ctx.return_ty == self.ty_checker.template_ty()
+    {
+      self.component_templates.insert(ctx.name, template_id);
+    }
+
     if let Some(var_name) = self.pending_var_name.take() {
       self.sir.emit(Insn::VarDef {
         name: var_name,
@@ -25382,17 +25403,33 @@ impl<'a> Executor<'a> {
     tag: &str,
   ) -> Option<Vec<UiCommand>> {
     let sym = self.interner.symbol(tag)?;
-    let local = self.lookup_local(sym)?;
-    let vi = local.value_id.0 as usize;
 
-    if vi >= self.values.kinds.len()
-      || !matches!(self.values.kinds[vi], Value::Template)
-    {
-      return None;
+    if let Some(local) = self.lookup_local(sym) {
+      let vi = local.value_id.0 as usize;
+
+      if vi < self.values.kinds.len()
+        && matches!(self.values.kinds[vi], Value::Template)
+      {
+        let ti = self.values.indices[vi] as usize;
+        let tpl_ref = self.values.templates[ti];
+
+        for insn in &self.sir.instructions {
+          if let Insn::Template {
+            id,
+            commands: child_cmds,
+            ..
+          } = insn
+            && id.0 == tpl_ref
+          {
+            return Some(child_cmds.clone());
+          }
+        }
+      }
     }
 
-    let ti = self.values.indices[vi] as usize;
-    let tpl_ref = self.values.templates[ti];
+    // Component function: the tag names a `-> </>` function whose
+    // body fragment registered in `component_templates`.
+    let tpl_id = *self.component_templates.get(&sym)?;
 
     for insn in &self.sir.instructions {
       if let Insn::Template {
@@ -25400,7 +25437,7 @@ impl<'a> Executor<'a> {
         commands: child_cmds,
         ..
       } = insn
-        && id.0 == tpl_ref
+        && *id == tpl_id
       {
         return Some(child_cmds.clone());
       }

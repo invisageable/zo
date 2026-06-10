@@ -1109,3 +1109,103 @@ fn test_template_list_binding_emits_template_insn() {
     },
   );
 }
+
+#[test]
+fn component_function_splices_in_tag_position() {
+  // `header` is a `-> </>` function; `<header />` must splice its
+  // template commands into `page` exactly like a `::=` variable
+  // component — an `<h1>` element and its text land between the
+  // `<div>`'s open and close.
+  assert_sir_structure(
+    r#"
+fun header() -> </> {
+  return <h1>hello</h1>;
+}
+
+fun main() {
+  imu page ::= <div><header /></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      use zo_ui_protocol::{ElementTag, UiCommand};
+
+      // The LAST template is `page` (the component's own template
+      // is emitted first, inside `header`'s body).
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let has_h1 = page
+        .iter()
+        .any(|c| matches!(c, UiCommand::Element { tag, .. } if *tag == ElementTag::H1));
+      let has_text = page
+        .iter()
+        .any(|c| matches!(c, UiCommand::Text(t) if t == "hello"));
+
+      assert!(has_h1, "spliced <h1> missing from page: {page:#?}");
+      assert!(has_text, "spliced text missing from page: {page:#?}");
+    },
+  );
+}
+
+#[test]
+fn unknown_component_tag_stays_a_plain_element() {
+  // A tag that resolves to neither a template variable nor a
+  // component function falls through to plain-element emission —
+  // same behavior as before the component registry.
+  assert_sir_structure(
+    r#"
+fun main() {
+  imu page ::= <div><mystery /></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let has_template = sir.iter().any(|i| matches!(i, Insn::Template { .. }));
+
+      assert!(has_template, "page template should still build");
+    },
+  );
+}
+
+#[test]
+fn component_function_tail_form_splices_too() {
+  // Same component, tail expression instead of explicit `return` —
+  // the fragment is the body's value either way.
+  assert_sir_structure(
+    r#"
+fun header() -> </> {
+  <h1>hello</h1>
+}
+
+fun main() {
+  imu page ::= <div><header /></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      use zo_ui_protocol::{ElementTag, UiCommand};
+
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let has_h1 = page
+        .iter()
+        .any(|c| matches!(c, UiCommand::Element { tag, .. } if *tag == ElementTag::H1));
+
+      assert!(has_h1, "tail-form splice missing <h1>: {page:#?}");
+    },
+  );
+}

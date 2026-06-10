@@ -30,16 +30,15 @@
 
 > *Turn your thoughts into type-safe software and Ui instantly.*
 
-THE AiM OF THE PROJECT iS TO CREATE A SiMPLE, LiGHTWEiGHT, CROSS-PLATFORM, GENERAL-PURPOSE PROGRAMMiNG LANGUAGE. TO SHiP, RUN AND BUiLD MOBiLE, NATiVE AND WEB APPLiCATiONS WiTH ONE CODE SOURCE. THE CORE LiBRARY iNCLUDES SEVERAL PACKAGES. PROViDERS ARE AVAiLABLE TO EXPAND THE LANGUAGE's CAPABiLiTiES.
+THE AiM OF THE PROJECT iS TO CREATE A SiMPLE, LiGHTWEiGHT, CROSS-PLATFORM, GENERAL-PURPOSE PROGRAMMiNG LANGUAGE. TO SHiP, RUN AND BUiLD DESKTOP, MOBiLE AND WEB APPLiCATiONS WiTH ONE CODE SOURCE. THE CORE LiBRARY iNCLUDES SEVERAL PACKAGES. PROViDERS ARE AVAiLABLE TO EXPAND THE LANGUAGE's CAPABiLiTiES.
 
-[home](https://zo.compilords.house) — [initiation](https://zo.compilords.house/initiation) — 
-
-<!-- [home](https://zo.compilords.house) — [install](#get-started) — [how-to](./crates/compiler/zo-how-to) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [license](#license) -->
-
+[home](https://zo.compilords.house) — [initiation](https://zo.compilords.house/initiation) — [news](https://zo.compilords.house/news) — [discord](https://discord.gg/JaNc4Nk5xw)
 
 ## usage.
 
 **-zsx-counter**
+
+THiS PROGRAM DECLARES A COMPONENT (`counter`) COMPOSED BY TWO BUTTONS (`<button>`) AND A TEXT-BiNDiNG (`{count}`) ASSiGN TO `0`. EACH BUTTONS CONTAiNS AN EVENT (`@click`), ON CLiCK, THEY TRiGGERED AND EXECUTE AN ACTiON TO DECREASE OR iNCREASE THE `count` VALUE. iT THEN RENDERS THE COMPONENT.
 
   ```zo
   fun main() {
@@ -55,9 +54,9 @@ THE AiM OF THE PROJECT iS TO CREATE A SiMPLE, LiGHTWEiGHT, CROSS-PLATFORM, GENER
   }
   ```
 
-ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS (NATiVE, WEB, ANDROiD OR iOS) — SAME SOURCE.
+ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS — SAME SOURCE.
 
-> *Inspired by `e4x` and `imba`, zsx (zo Syntax Extension) already supports `@events`, `$: {}` (styling), bindings, html comments, closures, fragments and so on. Use the `#render` directive to enable zsx.*
+<!-- > *Inspired by `e4x` and `imba`, zsx (zo Syntax Extension) already supports `@events`, `$: {}` (styling), bindings, html comments, closures, fragments (`<></>`) and so on. Use the `#render` directive to enable zsx and render your app.* -->
 
 ---
 
@@ -84,9 +83,9 @@ Total Memory      — 18.0 GB
 Available Memory  — 9.4 GB
 ```
 
-> *Work in progress. zo supports desktop (ARM64), MacOS (iOS, visionOS, tvOS, watchOS), web (bundled or webview). We plan to supports more — on desktop (Linux, Windows) and on Android. Styling is not already unified between all platforms for now.*
+> *Work in progress. zo supports desktop (ARM64), MacOS (iOS, visionOS, tvOS, watchOS), web (bundled or webview). We plan to supports more — desktop (Linux, Windows) and mobile (Android). Styling is not already unified between all platforms for now.*
 
-**-concurrency**
+<!-- **-concurrency**
 
   ```zo
   fun producer_a(tx: Tx<int>) { tx.send(10); }
@@ -110,7 +109,7 @@ Available Memory  — 9.4 GB
 
 GREEN THREADS (OR OS THREAD). NO FUNCTiON COLORiNG. NO `move`. NURSERY SCOPE. MULTiPLE BRANCHES MANAGEMENT. GOOD PERFORMANCE.
 
-> *`nursery` tracks execution scope blocks. Execution block cannot exist until every spawned green thread unwinds completely. `select` coordinate communication states across multiple channel references.*
+> *`nursery` tracks execution scope blocks. Execution block cannot exist until every spawned green thread unwinds completely. `select` coordinate communication states across multiple channel references.* -->
 
 <!-- **-provider**
 
@@ -149,9 +148,9 @@ zo iS A STATiCALLY COMPiLED SYSTEMS LANGUAGE, WiTHOUT A ViRTUAL MACHiNE OR GARBA
 
 CROSS-PLATFORM DEVELOPMENT REQUiRES COMPROMiSE: MANAGiNG UNSTABLE, GENERATED gradle AND xcode CONFiGURATiONS, OR CHOOSiNG BETWEEN javascript BRiDGE LATENCY AND CUSTOM CANVAS RENDERERS NON-NATiVE SCROLLiNG, BROKEN TEXT RENDERiNG, AND iNACCESSiBLE SCREENS.
 
-zo RESOLVES THESE COMPROMiSES BY COMPiLiNG A SiNGLE, DECLARATiVE CODEBASE TO NATiVE PLATFORM WiDGETS. THE ZERO-DEPENDENCY COMPiLER PACKAGES AND SiGNS THE APPLiCATiON WiTHOUT EXTERNAL SOFTWARE DEVELOPMENT KiTS (SDKs).
+zo RESOLVES THESE COMPROMiSES BY COMPiLiNG A SiNGLE, DECLARATiVE CODEBASE TO THE PLATFORM OF YOUR CHOiCE. iTS A SiMPLE AND EXPRESSiVE PROGRAMMiNG LANGUAGE FOR LOW-LEVEL AND HiGH-LEVEL.
 
-> *« Rust makes you wait. C makes you think. zo just lets you build. » — i10e*
+> *« Rust makes you wait. C makes you think. zo just lets you build. » —i10e*
 
 ## status.
 
@@ -184,7 +183,7 @@ iN THOSE 60 MiLLiSECONDS, THE COMPiLER PERFORMS THE FOLLOWiNG PHASES SEQUENTiALL
   4. OPTiMiZiNG — *Executes algebraic optimizations (constant folding, propagation, dce).*
   5. CODEGEN & LiNK — *Emits direct machine code and creates the final binary.*
 
-> *« Insanely faster, Usain Bolt would be jealous. » — i2N*
+> *« Insanely faster, Usain Bolt would be jealous. » —i2N*
 
 ## features.
 
