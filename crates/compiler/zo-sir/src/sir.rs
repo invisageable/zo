@@ -423,6 +423,20 @@ impl Sir {
     value_id
   }
 
+  /// Rolls back every instruction emitted past `len` — component
+  /// instantiation uses this because an instance's emissions live
+  /// only as commands inlined into the parent's template. Keeps
+  /// `node_idxs` (and `spans`, when already resolved) aligned 1:1
+  /// with `instructions`.
+  pub fn truncate(&mut self, len: usize) {
+    self.instructions.truncate(len);
+    self.node_idxs.truncate(len);
+
+    if !self.spans.is_empty() {
+      self.spans.truncate(len);
+    }
+  }
+
   /// Parse-node index of the instruction that defines
   /// `value`, or `None` for a sentinel / undefined value.
   ///

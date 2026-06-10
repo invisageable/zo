@@ -268,6 +268,16 @@ pub struct Executor<'a> {
   /// function registers only after its body completes, so
   /// self/mutual splices can never recurse.
   component_templates: HashMap<Symbol, ValueId>,
+  /// Body-fragment node range per component function, for
+  /// parametrized instantiation: `<greeting name="world" />`
+  /// re-executes the range with the params bound as compile-time
+  /// constants, so each use site bakes its own values and draws
+  /// fresh widget ids.
+  component_fragments: HashMap<Symbol, (usize, usize)>,
+  /// Non-zero while re-executing a component body for one use
+  /// site. Suppresses component registration (the enclosing
+  /// function must not re-register with an instance's template).
+  instantiating: u32,
   /// Save-stack for nested `fun` inside a function body.
   /// Mirrors the `execute_closure` pattern: when the LBrace
   /// of a nested fun takes over `current_function`, we push
@@ -913,6 +923,8 @@ impl<'a> Executor<'a> {
       local_scope: ScopedDenseMap::new(),
       current_function: None,
       component_templates: HashMap::default(),
+      component_fragments: HashMap::default(),
+      instantiating: 0,
       saved_outer_funs: Vec::new(),
       pending_function: None,
       pending_fn_has_return_annotation: false,
@@ -24376,6 +24388,7 @@ impl<'a> Executor<'a> {
               })
               .map(|s| self.interner.get(s).to_string())
               .unwrap_or_default();
+            let tag_span = self.tree.spans[idx];
 
             idx += 1;
 
@@ -24724,6 +24737,7 @@ impl<'a> Executor<'a> {
               &attrs,
               self_closing,
               &mut commands,
+              tag_span,
             );
           } else {
             idx += 1;
@@ -25247,12 +25261,19 @@ impl<'a> Executor<'a> {
     // An anonymous fragment that is the body value of a
     // `-> </>` function defines a component: register it so tag
     // position (`<header />`) can splice it. Last write wins —
-    // branch-folded bodies leave exactly one live fragment.
-    if self.pending_var_name.is_none()
+    // branch-folded bodies leave exactly one live fragment. The
+    // `instantiating` guard keeps a component that *uses* another
+    // component from re-registering itself with the instance's
+    // template.
+    if self.instantiating == 0
+      && self.pending_var_name.is_none()
       && let Some(ctx) = &self.current_function
       && ctx.return_ty == self.ty_checker.template_ty()
     {
       self.component_templates.insert(ctx.name, template_id);
+      self
+        .component_fragments
+        .insert(ctx.name, (start_idx, end_idx));
     }
 
     if let Some(var_name) = self.pending_var_name.take() {
@@ -25301,10 +25322,23 @@ impl<'a> Executor<'a> {
     attrs: &[Attr],
     self_closing: bool,
     commands: &mut Vec<UiCommand>,
+    tag_span: Span,
   ) {
+    // Parametrized component: re-execute the component's body
+    // with this tag's attributes bound to its parameters.
+    // Checked before the baked-template path so a component
+    // *with* parameters never silently splices its (empty-
+    // interp) registration-time bake.
+    if let Some(resolved) = self.try_instantiate_component(tag, attrs, tag_span)
+    {
+      commands.extend(resolved);
+      return;
+    }
+
     // Component resolution: if the tag name is a local template
-    // variable, inline its commands directly (no wrapping
-    // element). Short-circuit before any classification.
+    // variable (or a parameter-less component function), inline
+    // its commands directly (no wrapping element). Short-circuit
+    // before any classification.
     if let Some(resolved) = self.try_resolve_template_component(tag) {
       commands.extend(resolved);
       return;
@@ -25398,6 +25432,116 @@ impl<'a> Executor<'a> {
   /// return that template's commands for inlining. Otherwise
   /// returns None. Preserves the component-resolution behavior
   /// from the legacy `TagKind::Unknown` path.
+  /// Instantiate a parametrized component for one use site: bind
+  /// the tag's attributes to the function's parameters as
+  /// compile-time constants, re-execute the body fragment (each
+  /// instance draws fresh widget ids), extract the instance's
+  /// commands, and roll back everything the instantiation emitted
+  /// — the instance lives inline in the parent's stream, never in
+  /// SIR. `None` when the tag is not a parametrized component.
+  fn try_instantiate_component(
+    &mut self,
+    tag: &str,
+    attrs: &[Attr],
+    tag_span: Span,
+  ) -> Option<Vec<UiCommand>> {
+    let sym = self.interner.symbol(tag)?;
+    let (frag_start, frag_end) = *self.component_fragments.get(&sym)?;
+    let params = self.find_fun(sym)?.params.clone();
+
+    if params.is_empty() {
+      // The baked registration-time template is identical for
+      // every use — the clone path is cheaper.
+      return None;
+    }
+
+    self.push_scope();
+
+    for (param_sym, param_ty) in &params {
+      let param_name = self.interner.get(*param_sym).to_string();
+      let attr = attrs.iter().find(|a| a.name() == param_name);
+
+      let value_id = match attr {
+        Some(a) => {
+          if let Some(s) = a.as_str() {
+            let s = s.to_string();
+            let s_sym = self.interner.intern(&s);
+
+            self.values.store_string(s_sym)
+          } else if let Some(n) = a.as_num() {
+            self.values.store_int(n as u64)
+          } else {
+            self.report(ErrorKind::InvalidAttributeValue, tag_span);
+
+            let empty = self.interner.intern("");
+
+            self.values.store_string(empty)
+          }
+        }
+        None => {
+          // A parameter without a matching attribute — report,
+          // then bind the empty string so the instantiation
+          // still completes and later errors stay meaningful.
+          self.report(ErrorKind::ArgumentCountMismatch, tag_span);
+
+          let empty = self.interner.intern("");
+
+          self.values.store_string(empty)
+        }
+      };
+
+      self.push_local(Local {
+        name: *param_sym,
+        ty_id: *param_ty,
+        value_id,
+        pubness: Pubness::No,
+        mutability: Mutability::No,
+        sir_value: None,
+        local_kind: LocalKind::Constant,
+        auto_drop: AutoDrop::No,
+        owning_pack: None,
+        span: tag_span,
+      });
+    }
+
+    // The instance's fragment completion must not swallow the
+    // parent's in-flight template state: `pending_var_name` would
+    // bind the *instance* to the parent's `imu page ::=` (leaving
+    // the parent's own template unbound), and `pending_styles`
+    // would be consumed by the wrong fragment. Save both; nothing
+    // the instantiation emits may stay — SIR is truncated back and
+    // the template value popped, the instance exists only as
+    // inlined commands.
+    let saved_pending_var = self.pending_var_name.take();
+    let saved_styles = std::mem::take(&mut self.pending_styles);
+    let sir_len = self.sir.instructions.len();
+
+    self.instantiating += 1;
+    self.execute_template_fragment(frag_start, frag_end);
+    self.instantiating -= 1;
+
+    self.pending_styles = saved_styles;
+    self.pending_var_name = saved_pending_var;
+    self.pop_scope_no_drops();
+
+    let instance = self.sir.instructions[sir_len..].iter().rev().find_map(
+      |insn| match insn {
+        Insn::Template { commands, .. } => Some(commands.clone()),
+        _ => None,
+      },
+    );
+
+    self.sir.truncate(sir_len);
+
+    if instance.is_some() {
+      self.value_stack.pop();
+      self.ty_stack.pop();
+      self.sir_values.pop();
+    }
+
+    instance
+  }
+
   fn try_resolve_template_component(
     &self,
     tag: &str,

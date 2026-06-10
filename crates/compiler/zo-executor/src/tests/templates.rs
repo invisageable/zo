@@ -1209,3 +1209,128 @@ fun main() {
     },
   );
 }
+
+#[test]
+fn component_props_bake_per_instance() {
+  // `<greeting name="..." />` re-executes the component body with
+  // `name` bound — two instances bake two different texts.
+  assert_sir_structure(
+    r#"
+fun greeting(name: str) -> </> {
+  return <h1>hello, {name}!</h1>;
+}
+
+fun main() {
+  imu page ::= <div>
+    <greeting name="world" />
+    <greeting name="zo" />
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      use zo_ui_protocol::UiCommand;
+
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let texts: Vec<&str> = page
+        .iter()
+        .filter_map(|c| match c {
+          UiCommand::Text(t) => Some(t.as_str()),
+          _ => None,
+        })
+        .collect();
+
+      assert!(
+        texts.iter().any(|t| t.contains("world")),
+        "first instance text missing: {texts:?}"
+      );
+      assert!(
+        texts.iter().any(|t| t.contains("zo")),
+        "second instance text missing: {texts:?}"
+      );
+    },
+  );
+}
+
+#[test]
+fn component_missing_prop_reports_argument_mismatch() {
+  use super::common::assert_execution_error;
+
+  use zo_error::ErrorKind;
+
+  assert_execution_error(
+    r#"
+fun greeting(name: str) -> </> {
+  return <h1>hello, {name}!</h1>;
+}
+
+fun main() {
+  imu page ::= <div><greeting /></div>;
+
+  #render page;
+}"#,
+    ErrorKind::ArgumentCountMismatch,
+  );
+}
+
+#[test]
+fn component_prop_from_braced_local() {
+  // `name={user}` — an immutable local arrives as an eager
+  // `Attr::Prop`; a mutable one as `Attr::Dynamic` whose
+  // `initial` carries the same eager value. Both bind.
+  assert_sir_structure(
+    r#"
+fun greeting(name: str) -> </> {
+  return <h1>hello, {name}!</h1>;
+}
+
+fun main() {
+  imu user := "world";
+  mut who := "zo";
+
+  imu page ::= <div>
+    <greeting name={user} />
+    <greeting name={who} />
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      use zo_ui_protocol::UiCommand;
+
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let texts: Vec<&str> = page
+        .iter()
+        .filter_map(|c| match c {
+          UiCommand::Text(t) => Some(t.as_str()),
+          _ => None,
+        })
+        .collect();
+
+      assert!(
+        texts.iter().any(|t| t.contains("world")),
+        "imu-local prop missing: {texts:?}"
+      );
+      assert!(
+        texts.iter().any(|t| t.contains("zo")),
+        "mut-local prop missing: {texts:?}"
+      );
+    },
+  );
+}
