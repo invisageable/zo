@@ -1,0 +1,16 @@
+[package]
+name = "zo-checker"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:sources.
+swisskit-core = { workspace = true }
+
+# internal:crates.
+zo-error = { workspace = true }
+zo-reporter = { workspace = true }
+zo-span = { workspace = true }

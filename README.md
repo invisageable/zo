@@ -150,6 +150,12 @@ zo RESOLVES THESE COMPROMiSES BY COMPiLiNG A SiNGLE, DECLARATiVE CODEBASE TO NAT
 
 > *« Rust makes you wait. C makes you think. zo just lets you build. » — i10e*
 
+## status.
+
+zo iS iN EARLY DEVELOPMENT AND NOT READY FOR PRODUCTiON YET.
+
+REGARDiNG Ai USAGE — WE ARE USiNG Ai TO BUiLD zo BASED ON OUR ARCHiTECTURE (MADE BY HUMANS). THE COMPiLER CURRENTLY COVERS OVER 1500 UNiT AND iNTEGRATiON TESTS.
+
 ### benchmark.
 
 | Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      |
@@ -163,7 +169,7 @@ zo RESOLVES THESE COMPROMiSES BY COMPiLiNG A SiNGLE, DECLARATiVE CODEBASE TO NAT
 
 *Workload: 503 tasks in a ring (`threadring`). A token hops node-to-node `N` times compiled to native ARM64 binary (including Hindley-Milner type inference, monomorphization, type checking, constant folding, propagation, dead code elimination and link passes).*
 
-[@methodology-and-full-numbers](./crates/compiler/zo-benches)
+  - @SEE — [@methodology-and-full-numbers](./crates/compiler/zo-benches)
 
 ### our pipeline.
 
@@ -216,6 +222,8 @@ ANY iSSUES? CHECK THE iNSTALLATiON GUiDE:
 
 THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 
+> *More crates are coming. The architecture is modular and composable. Be gentle.*
+
 **-sources**
 
 | NAME                                               | DESCRiPTiON                                           |
@@ -237,8 +245,6 @@ THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
 
 ...
 
-> *More crates are coming. The architecture is modular and composable. Be gentle.*
-
 ## the manifesto.
 
 zo iS A COMPiLER OF A COMPiLER iNSiDE ANOTHER GiANT COMPiLER THAT iS iTSELF iNSiDE A GiGANTiC COMPiLER.
@@ -255,7 +261,7 @@ WE ARE AGAiNST ABUNDANT SOFTWARE UNiFORMiTY. zo UNiFiES DESKTOP, MOBiLE AND THE 
 
 WE LOVE CONTRiBUTORS. THiS iS A PLAYGROUND FOR COMPiLER __NERDS__, FRONTEND __HACKERS__, AND __CREATIVES__.
 
-OPEN AN iSSUE, OR COME SAY HELLO ON [discord](https://discord.gg/JaNc4Nk5xw). YOU CAN ALSO CONTACT US AT `echo -n 'dGhlQGNvbXBpbG9yZHMuaG91c2U=' | base64 --decode`.    
+OPEN AN [iSSUE](https://github.com/invisageable/zo/issues), A [DiSCUSSiON](https://github.com/invisageable/zo/discussions), OR COME SAY HELLO ON [discord](https://discord.gg/JaNc4Nk5xw). YOU CAN ALSO CONTACT US AT `echo -n 'dGhlQGNvbXBpbG9yZHMuaG91c2U=' | base64 --decode`.    
 
 OPEN A [DiSCUSSiON](https://github.com/invisageable/zo/discussions), iF YOU NEED MORE iNFO.
 

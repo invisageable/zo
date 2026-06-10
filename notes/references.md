@@ -27,6 +27,9 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
   - **Syntax Across Languages**
     - https://rigaux.org/language-study/syntax-across-languages — Pascal Rigaux (..)
 
+  - **Concrete syntax matters, actually**
+    - https://www.youtube.com/watch?v=kQjrcSMYpaA — Slim Lim (2026)
+
 ## tokenizer.
 
   - **Beating the Fastest Lexer Generator in Rust**

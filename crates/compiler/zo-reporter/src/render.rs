@@ -403,6 +403,11 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::UnreachableCode => "Unreachable code",
     ErrorKind::UnusedVariable => "Unused variable",
     ErrorKind::UnusedFunction => "Unused function",
+    ErrorKind::NonPascalCaseName => "Type name is not PascalCase",
+    ErrorKind::NonScreamingCaseName => {
+      "Constant name is not SCREAMING_SNAKE_CASE"
+    }
+    ErrorKind::NonSnakeCaseName => "Name is not snake_case",
     ErrorKind::UninitializedVariable => "Uninitialized variable",
     ErrorKind::InvalidSelfReference => "Invalid `self` reference",
     ErrorKind::InvalidTypeAnnotation => "Invalid type annotation",
@@ -592,6 +597,9 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::UnreachableCode => "this code will never execute",
     ErrorKind::UnusedVariable => "variable is never used",
     ErrorKind::UnusedFunction => "function is never called",
+    ErrorKind::NonPascalCaseName => "expected a PascalCase name",
+    ErrorKind::NonScreamingCaseName => "expected a SCREAMING_SNAKE_CASE name",
+    ErrorKind::NonSnakeCaseName => "expected a snake_case name",
     ErrorKind::UninitializedVariable => "used before initialization",
     ErrorKind::InvalidSelfReference => "`self` used outside of `apply` block",
     ErrorKind::InvalidTypeAnnotation => "invalid type here",

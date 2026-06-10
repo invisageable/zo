@@ -36,6 +36,9 @@ pub enum Detail {
   /// Closest in-scope name for an undefined name (a typo) —
   /// `count` for `cont`.
   Suggestion(Box<str>),
+  /// The convention-correct rendering of a wrongly-cased name —
+  /// `MyStruct` for `my_struct`. Yields a replace fix.
+  Rename(Box<str>),
   /// A call passed the wrong number of arguments. Carries the
   /// callee name, the expected/given counts, and the callee's
   /// rendered signature for the help.
@@ -97,7 +100,7 @@ impl Detail {
       Detail::ArgCount {
         expected, given, ..
       } => format!("expected {expected} arguments, found {given}"),
-      Detail::Suggestion(_) => return None,
+      Detail::Suggestion(_) | Detail::Rename(_) => return None,
     })
   }
 
@@ -123,6 +126,7 @@ impl Detail {
   pub fn help(&self) -> Option<String> {
     match self {
       Detail::Suggestion(name) => Some(format!("did you mean `{name}`?")),
+      Detail::Rename(name) => Some(format!("rename it to `{name}`")),
       Detail::ArgCount {
         callee, signature, ..
       }
@@ -271,6 +275,12 @@ pub fn report_error_with_types(error: Error, names: TyNames) -> bool {
 /// name as a suggestion.
 pub fn report_error_with_suggestion(error: Error, name: &str) -> bool {
   report_error_with_detail(error, Detail::Suggestion(name.into()))
+}
+
+/// Reports a naming-convention warning carrying the
+/// convention-correct rename as its fix.
+pub fn report_error_with_rename(error: Error, name: &str) -> bool {
+  report_error_with_detail(error, Detail::Rename(name.into()))
 }
 
 /// Reports an error and attaches dynamic detail.

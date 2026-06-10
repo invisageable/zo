@@ -1,0 +1,17 @@
+-- tests-run-pass: naming-convention warnings are non-fatal.
+-- `badPoint` (struct, not PascalCase), `posX` (field, not
+-- snake_case), and `MyCount` (binding, not snake_case) each
+-- draw a warning with a rename help; the program still
+-- compiles and runs.
+-- @cmd — zo run naming_convention_warns.zo
+
+struct badPoint {
+  posX: int,
+}
+
+fun main() {
+  imu MyCount := 1;
+  imu p := badPoint { posX = MyCount };
+
+  check(p.posX == 1);
+}

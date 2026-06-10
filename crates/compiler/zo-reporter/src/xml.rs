@@ -197,7 +197,9 @@ fn encode_fixes(
   detail: Option<&Detail>,
 ) {
   let suggestion = match detail {
-    Some(Detail::Suggestion(name)) => Some(&**name),
+    Some(Detail::Suggestion(name)) | Some(Detail::Rename(name)) => {
+      Some(&**name)
+    }
     _ => None,
   };
 
@@ -354,7 +356,7 @@ fn encode_detail(buf: &mut Buffer, detail: Option<&Detail>) {
       text_element(buf, 2, "primary_type", &names.primary);
       text_element(buf, 2, "secondary_type", &names.secondary);
     }
-    Some(Detail::Suggestion(name)) => {
+    Some(Detail::Suggestion(name)) | Some(Detail::Rename(name)) => {
       text_element(buf, 2, "suggestion", name);
     }
     Some(Detail::ArgCount {
