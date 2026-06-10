@@ -252,6 +252,24 @@ impl Token {
     )
   }
 
+  /// Positive predicate: `true` when a `<` right after this
+  /// token opens a template (a tag, never a comparison).
+  ///
+  /// @note — deliberately narrower than `is_regex_prefix`:
+  /// only *value* positions — `return`, a block tail (after
+  /// `{` / `;`), a `match` arm (after `=>`). Assignment
+  /// operators are excluded by language design: `::=` is the
+  /// one and only template binding form, so `:= <p>` and
+  /// `= <p>` stay `Lt` and fail downstream as the invalid
+  /// programs they are.
+  #[inline(always)]
+  pub fn is_template_opener(&self) -> bool {
+    matches!(
+      self,
+      Self::Return | Self::LBrace | Self::Semicolon | Self::FatArrow
+    )
+  }
+
   /// Checks if the token kind is a type keyword.
   #[inline(always)]
   pub fn is_ty(&self) -> bool {

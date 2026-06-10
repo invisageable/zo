@@ -5,6 +5,7 @@ pub(crate) mod common;
 pub(crate) mod concurrency;
 pub(crate) mod directives;
 pub(crate) mod errors;
+pub(crate) mod expression_templates;
 pub(crate) mod generics;
 pub(crate) mod modules;
 pub(crate) mod precedence;

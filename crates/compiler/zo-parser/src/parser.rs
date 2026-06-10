@@ -1062,6 +1062,17 @@ impl<'a> Parser<'a> {
       self.close_introducer();
     }
 
+    // Tail-position template: `fun f() -> </> { <h1>x</h1> }`.
+    // The root tag already closed (the tokenizer is back in
+    // code mode), but the synthetic fragment has no `;` to
+    // close it — this `}` is its boundary, and it belongs to
+    // the enclosing block, not the fragment.
+    if let Some(top) = self.introducer_stack.last()
+      && top.token == Token::TemplateFragmentStart
+    {
+      self.close_introducer();
+    }
+
     // Template interpolation directive: `{#html expr}`.
     // The `Hash` introducer is normally closed on `;`, but
     // inside a template interpolation there is no `;` — the
@@ -1349,6 +1360,17 @@ impl<'a> Parser<'a> {
         .push((Token::Comma, self.current_span(), None));
 
       return;
+    }
+
+    // Match-arm template: `Kind::Title => <h1>…</h1>,`. The
+    // root tag already closed; this comma is the arm boundary,
+    // not fragment content — close the synthetic fragment so
+    // the comma lands in the enclosing arm list.
+    if let Some(top) = self.introducer_stack.last()
+      && top.token == Token::TemplateFragmentStart
+      && self.state == ParserState::TemplateMode
+    {
+      self.close_introducer();
     }
 
     // Comma separates parameters, array elements, or expressions
@@ -2250,8 +2272,27 @@ impl<'a> Parser<'a> {
       self.emit_node(Token::LAngle);
       // Next token should be tag name
     } else {
-      // In normal code, < is less-than operator
-      self.handle_operator(Token::Lt);
+      // A value-position template root. The tokenizer emits
+      // `LAngle` only from template mode (a comparison is `Lt`;
+      // generics are re-labeled by `parse_type_params`), so an
+      // `LAngle` reaching a code state is the named-tag root the
+      // tokenizer switched on (`return <h1>…`, a block tail, a
+      // match arm). Mirror `::=` / `=:>`: wrap in a synthetic
+      // fragment so `execute_template_fragment` handles all
+      // template content uniformly, and enter TemplateMode.
+      self.flush_expr();
+
+      let node_index = self.emit_node(Token::TemplateFragmentStart);
+
+      self.introducer_stack.push(Introducer {
+        state: self.state,
+        token: Token::TemplateFragmentStart,
+        node_index,
+        children_start: self.tree.nodes.len() as u32,
+      });
+
+      self.state = ParserState::TemplateMode;
+      self.emit_node(Token::LAngle);
     }
   }
 

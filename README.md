@@ -30,9 +30,12 @@
 
 > *Turn your thoughts into type-safe software and Ui instantly.*
 
-[home](https://zo.compilords.house) — [install](#get-started) — [how-to](./crates/compiler/zo-how-to) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [license](#license)
+THE AiM OF THE PROJECT iS TO CREATE A SiMPLE, LiGHTWEiGHT, CROSS-PLATFORM, GENERAL-PURPOSE PROGRAMMiNG LANGUAGE. TO SHiP, RUN AND BUiLD MOBiLE, NATiVE AND WEB APPLiCATiONS WiTH ONE CODE SOURCE. THE CORE LiBRARY iNCLUDES SEVERAL PACKAGES. PROViDERS ARE AVAiLABLE TO EXPAND THE LANGUAGE's CAPABiLiTiES.
 
-[https://zo.compilords.house](https://zo.compilords.house)
+[home](https://zo.compilords.house) — [initiation](https://zo.compilords.house/initiation) — 
+
+<!-- [home](https://zo.compilords.house) — [install](#get-started) — [how-to](./crates/compiler/zo-how-to) — [tests](./crates/compiler/zo-tests) — [benches](./crates/compiler/zo-benches) — [license](#license) -->
+
 
 ## usage.
 
@@ -105,11 +108,11 @@ Available Memory  — 9.4 GB
   }
   ```
 
-GREEN THREADS (OR OS THREAD). NO FUNCTiON COLORiNG. NURSERY SCOPE. MULTiPLE BRANCHES MANAGEMENT. GOOD PERFORMANCE.
+GREEN THREADS (OR OS THREAD). NO FUNCTiON COLORiNG. NO `move`. NURSERY SCOPE. MULTiPLE BRANCHES MANAGEMENT. GOOD PERFORMANCE.
 
 > *`nursery` tracks execution scope blocks. Execution block cannot exist until every spawned green thread unwinds completely. `select` coordinate communication states across multiple channel references.*
 
-**-provider**
+<!-- **-provider**
 
   ```zo
   load core::c::*;
@@ -138,7 +141,7 @@ GREEN THREADS (OR OS THREAD). NO FUNCTiON COLORiNG. NURSERY SCOPE. MULTiPLE BRAN
 
 DO GRAPHiCS USiNG [`raylib`](https://www.raylib.com).
 
-> *We are still improving raylib's support. [More examples](./crates/compiler/zo-tests/provider/raylib)*
+> *We are still improving raylib's support. [More examples](./crates/compiler/zo-tests/provider/raylib)* -->
 
 ## why zo?
 

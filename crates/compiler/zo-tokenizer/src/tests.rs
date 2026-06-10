@@ -1,5 +1,6 @@
 pub(crate) mod common;
 pub(crate) mod errors;
+pub(crate) mod expression_templates;
 pub(crate) mod interpolation;
 
 use crate::tests::common::assert_tokens_stream;

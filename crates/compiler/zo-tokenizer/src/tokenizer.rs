@@ -187,6 +187,13 @@ pub struct Tokenizer<'a> {
   /// when `template_element_depth` returns to this value
   /// after a close tag.
   template_element_depth_at_frame_entry: u32,
+  /// Set when TEMPLATE mode was entered from an expression
+  /// position (`return <h1>…`, `:= <p>…`, `f(<p>…)`) rather
+  /// than `::=`. Expression templates are single values, so
+  /// the frame ends — and mode returns to CODE when the
+  /// frame began there — as soon as the root element closes,
+  /// not at the statement's `;`.
+  expr_template: bool,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -210,6 +217,7 @@ impl<'a> Tokenizer<'a> {
       in_close_tag: false,
       template_element_depth: 0,
       template_element_depth_at_frame_entry: 0,
+      expr_template: false,
     }
   }
 
@@ -270,11 +278,33 @@ impl<'a> Tokenizer<'a> {
   fn close_template_element(&mut self) {
     self.template_element_depth = self.template_element_depth.saturating_sub(1);
 
-    if self.template_frame_base > 0
+    if (self.template_frame_base > 0 || self.expr_template)
       && self.template_element_depth
         == self.template_element_depth_at_frame_entry
     {
       self.template_frame_base = 0;
+      self.exit_expr_template();
+    }
+  }
+
+  /// End an expression-rooted template frame: the root just
+  /// closed, so an `expr_template` entered from CODE (interp
+  /// depth 0) restores CODE mode — its value flows on as an
+  /// ordinary expression (`)` / `}` / `;` follow as code). A
+  /// frame opened inside an interp instead falls back to the
+  /// enclosing template's interp scanning, which the surrendered
+  /// `template_frame_base` already arranges.
+  fn exit_expr_template(&mut self) {
+    if !self.expr_template {
+      return;
+    }
+
+    self.expr_template = false;
+
+    if self.state.brace_depth() == 0 {
+      self.state.set_mode(ModeState::CODE);
+      self.state.set_template_text(false);
+      self.in_close_tag = false;
     }
   }
 
@@ -641,7 +671,7 @@ impl<'a> Tokenizer<'a> {
           self.template_element_depth =
             self.template_element_depth.saturating_sub(1);
 
-          let frame_done = self.template_frame_base > 0
+          let frame_done = (self.template_frame_base > 0 || self.expr_template)
             && self.template_element_depth
               == self.template_element_depth_at_frame_entry;
 
@@ -652,6 +682,7 @@ impl<'a> Tokenizer<'a> {
             // suppress template-text — we're back to code
             // context, not parent-element inline content.
             self.template_frame_base = 0;
+            self.exit_expr_template();
           } else {
             // Still inside an enclosing element — the
             // parent's text mode should resume so the
@@ -685,6 +716,7 @@ impl<'a> Tokenizer<'a> {
           self.template_element_depth = 0;
           self.template_element_depth_at_frame_entry = 0;
           self.in_close_tag = false;
+          self.expr_template = false;
         }
       }
       _ => {
@@ -1009,6 +1041,32 @@ impl<'a> Tokenizer<'a> {
           } else {
             self.tokens.push(Token::LShift, start as u32, 2);
           }
+        } else if self
+          .tokens
+          .kinds
+          .last()
+          .is_some_and(|kind| kind.is_template_opener())
+          && matches!(
+            self.current(),
+            b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'>'
+          )
+        {
+          // Value-position template: a `<` right after
+          // `return` / `{` / `;` / `=>` can only open a tag —
+          // a comparison there would have no left operand.
+          // The whitelist is deliberately narrow: `::=` is the
+          // one template *binding* form, so `:=` / `=` never
+          // open templates. Enter a template frame exactly
+          // like `=:>` does (the interp gate and close
+          // detection need the same snapshots); mode returns
+          // to CODE when this root closes.
+          self.template_frame_base = self.state.brace_depth();
+          self.template_element_depth_at_frame_entry =
+            self.template_element_depth;
+          self.expr_template = true;
+          self.state.set_mode(ModeState::TEMPLATE);
+          self.cursor = start;
+          self.scan_template_token();
         } else {
           self.tokens.push(Token::Lt, start as u32, 1);
         }

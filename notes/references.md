@@ -175,7 +175,7 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
 
   - **[lunatic](https://github.com/lunatic-solutions/lunatic)** — Bernard Kolobara
   - **[jquery](https://api.jquery.com)** — OpenJS Foundation
-  - **[goquery](https://github.com/PuerkitoBio/goquery) — Martin Angers
+  - **[goquery](https://github.com/PuerkitoBio/goquery)** — Martin Angers
 
 **-type-system**
 
