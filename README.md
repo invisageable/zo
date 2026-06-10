@@ -1,27 +1,25 @@
 # zo.
 
   ```
-  [zo] lines processed (including blank lines and comments) — 31.
+  [zo] lines processed (including blank lines and comments) — 499998.
   │
   ├── "Why accept slow compilers? Just make them faster." — Jonathan Blow
   │
-  ├── ✓ [zo@front-end] time — 767.792 μs (19.8%).
-  │   ├── ⏺ [zo@tokenizer] time — 98.042 μs (2.5%).
-  │   │   └── ⏺ processed — 120 tokens.
-  │   ├── ⏺ [zo@parser] time — 36.625 μs (0.9%).
-  │   │   └── ⏺ parsed — 772 nodes.
-  │   └── ⏺ [zo@analyzer] time — 633.125 μs (16.3%).
-  │       └── ⏺ annotated — 8 nodes.
-  ├── ✓ [zo@back-end] time — 3.106 ms (80.2%).
-  │   ├── ⏺ [zo@codegen:arm64-apple-darwin] time — 1.332 ms (34.4%).
+  ├── ✓ [zo@front-end] time — 301.591 ms (42.5%).
+  │   ├── ⏺ [zo@tokenizer] time — 57.064 ms (8.0%).
+  │   │   └── ⏺ processed — 2399990 tokens.
+  │   ├── ⏺ [zo@parser] time — 36.126 ms (5.1%).
+  │   │   └── ⏺ parsed — 2350646 nodes.
+  │   └── ⏺ [zo@analyzer] time — 208.401 ms (29.3%).
+  │       └── ⏺ annotated — 349996 nodes.
+  ├── ✓ [zo@back-end] time — 408.614 ms (57.5%).
+  │   ├── ⏺ [zo@codegen:arm64-apple-darwin] time — 391.537 ms (55.1%).
   │   │   └── ⏺ generated — 1 artifacts.
-  │   └── ⏺ [zo@linker] time — 1.774 ms (45.8%).
+  │   └── ⏺ [zo@linker] time — 17.076 ms (2.4%).
   │       └── ⏺ linked — 1 files.
-  └── ✓ [zo@total] time — 3.874 ms (100.0%).
+  └── ✓ [zo@total] time — 710.205 ms (100.0%).
 
-  ⚡ speed: 8.00K LoC/s.
-
-  chan1: 10
+  ⚡ speed: 704.02K LoC/s.
   ```
 
 [![invisage/zo](https://img.shields.io/badge/github-invisageable/zo-black?logo=github)](https://github.com/invisageable/zo)
@@ -59,6 +57,7 @@ ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS (NATiVE, WEB, 
 > *Inspired by `e4x` and `imba`, zsx (zo Syntax Extension) already supports `@events`, `$: {}` (styling), bindings, html comments, closures, fragments and so on. Use the `#render` directive to enable zsx.*
 
 ---
+
 <p align="center">
   <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-zsx-desktop-counter.png">
   <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-zsx-webview-counter.png">
@@ -139,7 +138,7 @@ GREEN THREADS (OR OS THREAD). NO FUNCTiON COLORiNG. NURSERY SCOPE. MULTiPLE BRAN
 
 DO GRAPHiCS USiNG [`raylib`](https://www.raylib.com).
 
-> *[More examples](./crates/compiler/zo-tests)*
+> *We are still improving raylib's support. [More examples](./crates/compiler/zo-tests/provider/raylib)*
 
 ## why zo?
 
