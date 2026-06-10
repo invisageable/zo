@@ -1334,3 +1334,99 @@ fun main() {
     },
   );
 }
+
+#[test]
+fn nested_reactive_component_keeps_its_bindings() {
+  // SPEC_ZSX_COMPONENTS spike 2: a component with its own `mut`
+  // used to lose its reactive bindings at the splice (only
+  // `commands` were cloned). The page template must now carry the
+  // child's text binding, rebased to the splice offset — the
+  // bound `UiCommand::Text` at that index is the child's.
+  assert_sir_structure(
+    r#"
+fun main() {
+  mut count := 0;
+
+  imu badge ::= <span>{count}</span>;
+  imu page ::= <div><p>items:</p><badge /></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      use zo_ui_protocol::UiCommand;
+
+      let (commands, bindings) = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template {
+            commands, bindings, ..
+          } => Some((commands, bindings)),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let all: Vec<_> = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { bindings, .. } => Some(bindings.clone()),
+          _ => None,
+        })
+        .collect();
+
+      assert!(
+        !bindings.text.is_empty(),
+        "child's text binding lost at splice; all templates: {all:#?}"
+      );
+
+      // The rebased index must point at a Text command (the
+      // child's `{count}` slot), not at arbitrary commands.
+      for (cmd_idx, _) in &bindings.text {
+        assert!(
+          matches!(commands.get(*cmd_idx), Some(UiCommand::Text(_))),
+          "binding index {cmd_idx} does not target a Text command: \
+           {commands:#?}"
+        );
+      }
+    },
+  );
+}
+
+#[test]
+fn twice_spliced_reactive_component_carries_both_bindings() {
+  // Two instances of one reactive component: each splice rebases
+  // the child's binding to its own offset, so the page carries
+  // two text bindings at distinct indices. (The instances share
+  // the `count` state cell — per-instance state is future work.)
+  assert_sir_structure(
+    r#"
+fun main() {
+  mut count := 0;
+
+  imu badge ::= <span>{count}</span>;
+  imu page ::= <div><badge /><badge /></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let bindings = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { bindings, .. } => Some(bindings),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      assert_eq!(
+        bindings.text.len(),
+        2,
+        "each instance must carry its own rebased binding: {bindings:?}"
+      );
+      assert_ne!(
+        bindings.text[0].0, bindings.text[1].0,
+        "the two instances' bindings must target distinct commands"
+      );
+    },
+  );
+}

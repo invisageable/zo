@@ -25329,9 +25329,13 @@ impl<'a> Executor<'a> {
     // Checked before the baked-template path so a component
     // *with* parameters never silently splices its (empty-
     // interp) registration-time bake.
-    if let Some(resolved) = self.try_instantiate_component(tag, attrs, tag_span)
+    if let Some((child_cmds, child_bindings)) =
+      self.try_instantiate_component(tag, attrs, tag_span)
     {
-      commands.extend(resolved);
+      let base = commands.len();
+
+      commands.extend(child_cmds);
+      self.merge_child_bindings(child_bindings, base);
       return;
     }
 
@@ -25339,8 +25343,13 @@ impl<'a> Executor<'a> {
     // variable (or a parameter-less component function), inline
     // its commands directly (no wrapping element). Short-circuit
     // before any classification.
-    if let Some(resolved) = self.try_resolve_template_component(tag) {
-      commands.extend(resolved);
+    if let Some((child_cmds, child_bindings)) =
+      self.try_resolve_template_component(tag)
+    {
+      let base = commands.len();
+
+      commands.extend(child_cmds);
+      self.merge_child_bindings(child_bindings, base);
       return;
     }
 
@@ -25444,7 +25453,7 @@ impl<'a> Executor<'a> {
     tag: &str,
     attrs: &[Attr],
     tag_span: Span,
-  ) -> Option<Vec<UiCommand>> {
+  ) -> Option<(Vec<UiCommand>, TemplateBindings)> {
     let sym = self.interner.symbol(tag)?;
     let (frag_start, frag_end) = *self.component_fragments.get(&sym)?;
     let params = self.find_fun(sym)?.params.clone();
@@ -25514,6 +25523,10 @@ impl<'a> Executor<'a> {
     // inlined commands.
     let saved_pending_var = self.pending_var_name.take();
     let saved_styles = std::mem::take(&mut self.pending_styles);
+    // The instance collects its own bindings from an empty slate;
+    // the parent's collected-so-far bindings must survive the
+    // nested completion's `mem::take`.
+    let saved_bindings = std::mem::take(&mut self.template_bindings);
     let sir_len = self.sir.instructions.len();
 
     self.instantiating += 1;
@@ -25522,11 +25535,14 @@ impl<'a> Executor<'a> {
 
     self.pending_styles = saved_styles;
     self.pending_var_name = saved_pending_var;
+    self.template_bindings = saved_bindings;
     self.pop_scope_no_drops();
 
     let instance = self.sir.instructions[sir_len..].iter().rev().find_map(
       |insn| match insn {
-        Insn::Template { commands, .. } => Some(commands.clone()),
+        Insn::Template {
+          commands, bindings, ..
+        } => Some((commands.clone(), bindings.clone())),
         _ => None,
       },
     );
@@ -25545,7 +25561,7 @@ impl<'a> Executor<'a> {
   fn try_resolve_template_component(
     &self,
     tag: &str,
-  ) -> Option<Vec<UiCommand>> {
+  ) -> Option<(Vec<UiCommand>, TemplateBindings)> {
     let sym = self.interner.symbol(tag)?;
 
     if let Some(local) = self.lookup_local(sym) {
@@ -25554,18 +25570,23 @@ impl<'a> Executor<'a> {
       if vi < self.values.kinds.len()
         && matches!(self.values.kinds[vi], Value::Template)
       {
-        let ti = self.values.indices[vi] as usize;
-        let tpl_ref = self.values.templates[ti];
-
+        // The `Insn::Template.id` IS the `store_template` ValueId
+        // the local binds — match it directly. The old detour
+        // compared `id.0` against the per-template *counter*
+        // (`values.templates[ti]`), two identity spaces that only
+        // align when the template is the program's first value;
+        // a `mut count := 0` before the component shifted them
+        // apart and the splice silently missed.
         for insn in &self.sir.instructions {
           if let Insn::Template {
             id,
             commands: child_cmds,
+            bindings,
             ..
           } = insn
-            && id.0 == tpl_ref
+            && *id == local.value_id
           {
-            return Some(child_cmds.clone());
+            return Some((child_cmds.clone(), bindings.clone()));
           }
         }
       }
@@ -25579,15 +25600,38 @@ impl<'a> Executor<'a> {
       if let Insn::Template {
         id,
         commands: child_cmds,
+        bindings,
         ..
       } = insn
         && *id == tpl_id
       {
-        return Some(child_cmds.clone());
+        return Some((child_cmds.clone(), bindings.clone()));
       }
     }
 
     None
+  }
+
+  /// Merge a spliced child template's reactive bindings into the
+  /// parent's in-progress collection, every command index offset
+  /// to the child's splice position — a nested reactive component
+  /// stays reactive instead of silently losing its bindings.
+  fn merge_child_bindings(&mut self, child: TemplateBindings, base: usize) {
+    for (idx, sym) in child.text {
+      self.template_bindings.text.push((base + idx, sym));
+    }
+
+    for (idx, attr) in child.attrs {
+      self.template_bindings.attrs.push((base + idx, attr));
+    }
+
+    for (idx, computed) in child.computed {
+      self.template_bindings.computed.push((base + idx, computed));
+    }
+
+    for (idx, list) in child.list {
+      self.template_bindings.list.push((base + idx, list));
+    }
   }
 
   /// Handle closing tag: emit `UiCommand::EndElement`. The
