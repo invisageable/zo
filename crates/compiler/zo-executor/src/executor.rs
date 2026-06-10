@@ -7944,6 +7944,17 @@ impl<'a> Executor<'a> {
     let mut captures = Vec::new();
     let mut seen = Vec::new();
 
+    // For an event handler, the mutables this body *writes* are reactive
+    // state it drives — they must stay free regardless of where their
+    // `{binding}` sits in source. Computed once over the same node range
+    // the loop below scans (no extra source pass), since the reactive
+    // check otherwise depends on bindings registered so far.
+    let written = if self.in_event_handler_closure {
+      self.writes_outer_locals(body_start, body_end)
+    } else {
+      Vec::new()
+    };
+
     for idx in body_start..body_end {
       if self.tree.nodes[idx].token != Token::Ident {
         continue;
@@ -7970,16 +7981,18 @@ impl<'a> Executor<'a> {
           let is_mutable = local.mutability == Mutability::Yes;
 
           // Event-handler closures are invoked by the runtime
-          // dispatcher with NO capture setup, so a reactive
-          // template mutable must stay free — the body then
-          // reads it as `Load Local` (codegen rewrites to
-          // `_zo_state_get*`) instead of dereferencing an absent
-          // capture register. Scoped to event handlers only —
-          // `.map` / computed `{expr}` closures ARE called with
-          // their captures.
+          // dispatcher with NO capture setup, so a reactive mutable
+          // must stay free — the body then reads it as `Load Local`
+          // (codegen rewrites to `_zo_state_get*`) instead of
+          // dereferencing an absent capture register. A mutable is
+          // reactive when this handler writes it (order-independent) or
+          // it's already a known binding. Scoped to event handlers —
+          // `.map` / computed `{expr}` closures ARE called with their
+          // captures.
           if self.in_event_handler_closure
             && is_mutable
-            && self.is_reactive_template_mutable(sym)
+            && (written.contains(&sym)
+              || self.is_reactive_template_mutable(sym))
           {
             seen.push(sym);
 
@@ -7993,6 +8006,71 @@ impl<'a> Executor<'a> {
     }
 
     captures
+  }
+
+  /// The outer-local symbols `[body_start, body_end)` writes — a plain
+  /// or compound assignment (`x = …`, `x += …`) or an in-place
+  /// `x.push(…)` / `x.pop(…)`. Keyed off the operator: an assignment is
+  /// infix so its target is the node before the op; a method call is
+  /// shunting-yard `recv method Dot`, so the receiver is two nodes
+  /// before the `Dot`. One forward scan, no recursion, no extra source
+  /// pass beyond the one `identify_captures` already runs.
+  fn writes_outer_locals(
+    &self,
+    body_start: usize,
+    body_end: usize,
+  ) -> Vec<Symbol> {
+    let mut written = Vec::new();
+
+    let note = |sym: Symbol, written: &mut Vec<Symbol>| {
+      if !written.contains(&sym) {
+        written.push(sym);
+      }
+    };
+
+    for idx in body_start..body_end {
+      match self.tree.nodes[idx].token {
+        Token::Eq
+        | Token::PlusEq
+        | Token::MinusEq
+        | Token::StarEq
+        | Token::SlashEq
+        | Token::PercentEq
+        | Token::AmpEq
+        | Token::PipeEq
+        | Token::CaretEq
+        | Token::LShiftEq
+        | Token::RShiftEq
+          if idx > body_start
+            && self.tree.nodes[idx - 1].token == Token::Ident =>
+        {
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(idx - 1) {
+            note(sym, &mut written);
+          }
+        }
+        // `recv.push(…)` / `recv.pop(…)` realloc the array in place.
+        Token::Dot
+          if idx >= body_start + 2
+            && self.tree.nodes[idx - 1].token == Token::Ident
+            && self.tree.nodes[idx - 2].token == Token::Ident =>
+        {
+          let is_mutator = matches!(
+            self.node_value(idx - 1),
+            Some(NodeValue::Symbol(method))
+              if matches!(self.interner.get(method), "push" | "pop")
+          );
+
+          if is_mutator
+            && let Some(NodeValue::Symbol(sym)) = self.node_value(idx - 2)
+          {
+            note(sym, &mut written);
+          }
+        }
+        _ => {}
+      }
+    }
+
+    written
   }
 
   /// Executes a closure expression: `fn(params) { body }`
@@ -8374,6 +8452,23 @@ impl<'a> Executor<'a> {
       scope_depth: self.scope_stack.len(),
     });
 
+    // Executing the body here only lowers it to SIR — the closure runs
+    // at its call site, not now. A write to a *free* outer mutable
+    // (`count -= 1` in an event handler that no longer captures `count`)
+    // would otherwise overwrite that local's compile-time value with the
+    // emitted `BinOp` result, blanking a later `{count}` text bake.
+    // Snapshot the enclosing mutables (the only Store targets) and
+    // restore them after the body, keeping lowering side-effect-free on
+    // the outer scope. A captured var is shadowed by its param local, so
+    // its outer copy never moves either way.
+    let outer_mut_values: Vec<(usize, ValueId)> = self
+      .locals
+      .iter()
+      .enumerate()
+      .filter(|(_, local)| local.mutability == Mutability::Yes)
+      .map(|(idx, local)| (idx, local.value_id))
+      .collect();
+
     // Param scope.
     self.push_scope();
 
@@ -8517,6 +8612,15 @@ impl<'a> Executor<'a> {
 
     self.pop_scope(); // Body scope.
     self.pop_scope(); // Param scope.
+
+    // Discard any compile-time value the deferred body's lowering wrote
+    // to an enclosing mutable (see the snapshot above) — its real write
+    // happens at runtime, not here.
+    for (idx, value_id) in &outer_mut_values {
+      if let Some(local) = self.locals.get_mut(*idx) {
+        local.value_id = *value_id;
+      }
+    }
 
     // Move closure SIR to deferred buffer + restore outer SIR.
     let closure_sir = std::mem::replace(&mut self.sir, outer_sir);
@@ -12086,7 +12190,7 @@ impl<'a> Executor<'a> {
           // appear legitimately in a field's type, including as
           // generic arguments (`HashMap<str, str>`), which the
           // field-type resolver may leave for this loop to skip.
-          // Skip past `: Type` so the type isn't mis-reported.
+          // Skip past `: Type` so the type isn't misreported.
           self.report(ErrorKind::ReservedKeyword, self.tree.spans[idx]);
 
           idx += 1;

@@ -243,9 +243,64 @@ jobs:
           path: zo-vendor-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
           if-no-files-found: error
 
+  # iOS Simulator runtime. The aarch64-apple-ios-sim cross-build of
+  # libzo_runtime, shipped as its own tarball that tasks/zo-install.sh
+  # extracts into ${ZO_HOME}/lib/runtime/aarch64-apple-ios-sim/.
+  # `bundle_ios` embeds it in every `.app`. Apple-Silicon install only:
+  # the Simulator runtime is arm64 and iOS codegen is arm64-only.
+  ios_runtime:
+    name: iOS Simulator runtime
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rustup on macOS
+        run: |
+          set -eu
+          # See ci.yml — macos-latest's Homebrew rustup-init shim
+          # shadows the real rust binaries. Uninstall it and install a
+          # real rustup at ~/.cargo/bin (nightly so the proxies land).
+          brew uninstall --ignore-dependencies rustup-init 2>/dev/null || true
+          brew uninstall --ignore-dependencies rustup 2>/dev/null || true
+          curl --proto '=https' --tlsv1.2 -sSf \
+            https://static.rust-lang.org/rustup/rustup-init.sh | \
+            sh -s -- -y --default-toolchain nightly --profile minimal --no-modify-path
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        shell: bash
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: aarch64-apple-ios-sim
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: aarch64-apple-ios-sim
+
+      - name: Build iOS Simulator runtime
+        run: cargo build --release --target aarch64-apple-ios-sim -p zo-runtime
+
+      - name: Package runtime tarball
+        run: |
+          set -e
+          # Re-tar just the dylib at the archive root so install.sh's
+          # `tar xz -C ${IOS_DIR}` lands it at
+          # `${ZO_HOME}/lib/runtime/aarch64-apple-ios-sim/` directly.
+          ARCHIVE="zo-runtime-${{ github.ref_name }}-aarch64-apple-ios-sim.tar.gz"
+          cp target/aarch64-apple-ios-sim/release/libzo_runtime.dylib .
+          tar czvf "$ARCHIVE" libzo_runtime.dylib
+          ls -la "$ARCHIVE"
+        shell: bash
+
+      - name: Upload runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zo-runtime-${{ github.ref_name }}-aarch64-apple-ios-sim
+          path: zo-runtime-${{ github.ref_name }}-aarch64-apple-ios-sim.tar.gz
+          if-no-files-found: error
+
   release:
     name: Create Release
-    needs: [build, vendor]
+    needs: [build, vendor, ios_runtime]
     runs-on: ubuntu-latest
     permissions:
       contents: write

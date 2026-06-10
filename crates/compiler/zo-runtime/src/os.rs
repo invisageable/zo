@@ -20,6 +20,11 @@ pub unsafe extern "C-unwind" fn zo_os_name() -> *const u8 {
     alloc_str(b"ios")
   }
 
+  #[cfg(target_os = "watchos")]
+  {
+    alloc_str(b"watchos")
+  }
+
   #[cfg(target_os = "linux")]
   {
     alloc_str(b"linux")
@@ -28,6 +33,7 @@ pub unsafe extern "C-unwind" fn zo_os_name() -> *const u8 {
   #[cfg(not(any(
     target_os = "macos",
     target_os = "ios",
+    target_os = "watchos",
     target_os = "linux"
   )))]
   {

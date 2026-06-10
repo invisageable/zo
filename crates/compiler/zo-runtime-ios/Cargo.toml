@@ -12,12 +12,13 @@ edition.workspace = true
 crate-type = ["rlib", "staticlib", "cdylib"]
 doctest = false
 
-# UIKit only exists on iOS, so the whole runtime is target-gated: its
-# objc/UIKit deps and the render/protocol crates its modules use. On
-# any other target this is an empty lib (the umbrella `zo-runtime`
-# depends on it only for `cfg(target_os = "ios")`), so a host
-# `cargo test --all` builds it cleanly — no `-framework UIKit`.
-[target.'cfg(target_os = "ios")'.dependencies]
+# UIKit exists on iOS and (since the system frameworks converged) on
+# watchOS, so the runtime is target-gated to both: its objc/UIKit deps
+# and the render/protocol crates its modules use. On any other target
+# this is an empty lib (the umbrella `zo-runtime` depends on it only
+# behind the same cfg), so a host `cargo test --all` builds it cleanly
+# — no `-framework UIKit`.
+[target.'cfg(any(target_os = "ios", target_os = "watchos"))'.dependencies]
 # internal:crates.
 zo-runtime-render = { workspace = true }
 zo-ui-protocol = { workspace = true }
@@ -26,4 +27,5 @@ zo-ui-protocol = { workspace = true }
 objc2 = { workspace = true }
 objc2-core-foundation = { workspace = true }
 objc2-foundation = { workspace = true }
+objc2-quartz-core = { workspace = true }
 objc2-ui-kit = { workspace = true }

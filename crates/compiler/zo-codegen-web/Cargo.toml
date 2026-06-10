@@ -1,0 +1,20 @@
+[package]
+name = "zo-codegen-web"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# internal:crates.
+zo-codegen-backend = { workspace = true }
+zo-interner = { workspace = true }
+zo-sir = { workspace = true }
+zo-ty = { workspace = true }
+zo-ui-protocol = { workspace = true }
+zo-value = { workspace = true }
+
+[dev-dependencies]
+# internal:crates.
+zo-span = { workspace = true }

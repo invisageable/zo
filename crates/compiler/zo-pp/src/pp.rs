@@ -836,11 +836,13 @@ impl PrettyPrinter {
       | Target::Arm64UnknownLinuxGnu
       | Target::Arm64AppleIos
       | Target::Arm64AppleIosSim
+      | Target::Arm64AppleWatchOsSim
       | Target::Aarch64LinuxAndroid => "ARM64",
       Target::X8664AppleDarwin
       | Target::X8664PcWindowsMsvc
       | Target::X8664UnknownLinuxGnu => "X86-64",
       Target::Wasm32UnknownUnknown => "WASM32",
+      Target::Web => "WEB",
     };
 
     self.asm_header(arch_name);
@@ -852,6 +854,7 @@ impl PrettyPrinter {
       | Target::Arm64UnknownLinuxGnu
       | Target::Arm64AppleIos
       | Target::Arm64AppleIosSim
+      | Target::Arm64AppleWatchOsSim
       | Target::Aarch64LinuxAndroid => {
         self.disassemble_arm64(&artifact.code);
       }
@@ -862,6 +865,9 @@ impl PrettyPrinter {
       }
       Target::Wasm32UnknownUnknown => {
         todo!("WASM disassembly not yet implemented\n");
+      }
+      Target::Web => {
+        todo!("web target emits no machine code to disassemble\n");
       }
     }
   }

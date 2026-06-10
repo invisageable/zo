@@ -9,8 +9,8 @@ pub struct Args {
   /// The source file(s) to process.
   #[arg(required = true)]
   pub files: Vec<PathBuf>,
-  /// The compilation target.
-  #[arg(short, long, default_value = "arm64-apple-darwin")]
+  /// The compilation platform.
+  #[arg(short, long, default_value = "native")]
   pub target: ArgsTarget,
   /// The intermediate representations flags (tokens, tree, sir, asm).
   #[arg(long, value_delimiter = ',')]
@@ -57,18 +57,55 @@ pub struct Args {
   /// The compilation metrics flag.
   #[arg(short, long)]
   pub metrics: bool,
-  /// Render templates in a webview.
+  /// Suppress the build-status banner and status
+  /// confirmations. Errors and diagnostics still print.
+  #[arg(short, long)]
+  pub quiet: bool,
+  /// Disable ANSI color in diagnostics and the build banner.
+  /// Color also turns off on its own when stderr is not a
+  /// terminal, when `NO_COLOR` is set, or when `TERM=dumb`;
+  /// `FORCE_COLOR` overrides those. This flag forces it off.
   #[arg(long)]
-  pub(crate) web: bool,
+  pub no_color: bool,
   /// Watch file changes.
   #[arg(long)]
   pub watch: bool,
 }
 
-/// Represents an [`ArgsTarget`] instance.
+impl Args {
+  /// Whether ANSI color should reach the human (stderr) channel —
+  /// diagnostics and the build banner. Honors `--no-color`,
+  /// `NO_COLOR`, `FORCE_COLOR`, `TERM`, and the TTY check through
+  /// the one decision point in `zo-reporter`.
+  pub fn use_colors(&self) -> bool {
+    zo_reporter::color::enabled(
+      zo_reporter::color::Stream::Stderr,
+      self.no_color,
+    )
+  }
+}
+
+/// The compilation platform. The friendly names — `native`,
+/// `webview`, `ios` — are the primary surface; the bare triples
+/// stay as advanced cross-compile aliases.
 #[derive(clap::ValueEnum, Clone, Debug, Copy)]
 #[clap(rename_all = "kebab-case")]
 pub enum ArgsTarget {
+  /// Host desktop, egui render. The default.
+  #[value(name = "native")]
+  Native,
+  /// Host desktop app embedding a system webview.
+  #[value(name = "webview")]
+  Webview,
+  /// iOS — the Simulator today (device deferred).
+  #[value(name = "ios")]
+  Ios,
+  /// watchOS — the Simulator today (device deferred).
+  #[value(name = "watchos")]
+  Watchos,
+  /// The browser — a static `public/` bundle, no host process.
+  #[value(name = "web")]
+  Web,
   #[value(name = "arm64-apple-darwin")]
   Arm64AppleDarwin,
   #[value(name = "aarch64-pc-windows-msvc")]
@@ -83,25 +120,55 @@ pub enum ArgsTarget {
   X8664UnknownLinuxGnu,
   #[value(name = "wasm32-unknown-unknown")]
   Wasm32UnknownUnknown,
-  #[value(name = "ios", alias = "arm64-apple-ios")]
-  Ios,
-  #[value(name = "ios-sim", alias = "arm64-apple-ios-sim")]
-  IosSim,
   #[value(name = "android", alias = "aarch64-linux-android")]
   Android,
 }
+
+impl ArgsTarget {
+  /// Whether `run` drives the iOS Simulator — it produces an `.app`
+  /// and boots/installs/launches it rather than executing the binary
+  /// in-process.
+  pub fn is_ios(self) -> bool {
+    matches!(self, Self::Ios)
+  }
+
+  /// Whether `run` drives the watchOS Simulator — same `.app` flow as
+  /// iOS, against a watch device.
+  pub fn is_watchos(self) -> bool {
+    matches!(self, Self::Watchos)
+  }
+
+  /// Whether templates render through a webview rather than the
+  /// native egui window.
+  pub fn is_webview(self) -> bool {
+    matches!(self, Self::Webview)
+  }
+
+  /// Whether `build`/`run` emit a static `public/` web bundle rather
+  /// than a binary.
+  pub fn is_web(self) -> bool {
+    matches!(self, Self::Web)
+  }
+}
+
 impl From<ArgsTarget> for Target {
   fn from(target: ArgsTarget) -> Self {
     match target {
-      ArgsTarget::Arm64AppleDarwin => Target::Arm64AppleDarwin,
-      ArgsTarget::Arm64PcWindowsMsvc => Target::Arm64PcWindowsMsvc,
-      ArgsTarget::Arm64UnknownLinuxGnu => Target::Arm64UnknownLinuxGnu,
+      // `native`/`webview` are host desktop apps — same host codegen
+      // target, differing only in how `run` renders.
+      ArgsTarget::Native | ArgsTarget::Webview => Self::host(),
+      // The user types `ios`/`watchos`; the runnable form of each
+      // today is the Simulator.
+      ArgsTarget::Ios => Self::Arm64AppleIosSim,
+      ArgsTarget::Watchos => Self::Arm64AppleWatchOsSim,
+      ArgsTarget::Web => Self::Web,
+      ArgsTarget::Arm64AppleDarwin => Self::Arm64AppleDarwin,
+      ArgsTarget::Arm64PcWindowsMsvc => Self::Arm64PcWindowsMsvc,
+      ArgsTarget::Arm64UnknownLinuxGnu => Self::Arm64UnknownLinuxGnu,
       ArgsTarget::X8664AppleDarwin => Self::X8664AppleDarwin,
       ArgsTarget::X8664PcWindowsMsvc => Self::X8664PcWindowsMsvc,
       ArgsTarget::X8664UnknownLinuxGnu => Self::X8664UnknownLinuxGnu,
       ArgsTarget::Wasm32UnknownUnknown => Self::Wasm32UnknownUnknown,
-      ArgsTarget::Ios => Self::Arm64AppleIos,
-      ArgsTarget::IosSim => Self::Arm64AppleIosSim,
       ArgsTarget::Android => Self::Aarch64LinuxAndroid,
     }
   }

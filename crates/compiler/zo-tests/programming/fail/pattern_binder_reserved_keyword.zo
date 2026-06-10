@@ -4,7 +4,7 @@
 -!
 -! `state` is a reserved keyword, so it can't name a value. Here it is
 -! used as a match pattern binder. Before the fix it compiled silently
--! and mis-bound, reading garbage at runtime; now it is a hard error.
+-! and misbound, reading garbage at runtime; now it is a hard error.
 -! Rename the binder to a normal identifier (`cell`, `value`, ...).
 
 fun main() {

@@ -162,6 +162,27 @@ install() {
   fi
   echo ""
 
+  # iOS Simulator runtime. The `aarch64-apple-ios-sim` cross-build of
+  # libzo_runtime, staged so `zo build`/`run --target ios` can embed it
+  # in the generated `.app` — `bundle_ios` resolves it from
+  # `${ZO_HOME}/lib/runtime/<triple>/`. Apple-Silicon macOS only: the
+  # Simulator runtime is arm64 and iOS codegen is arm64-only. Non-fatal,
+  # like the vendor libraries — hosts without it just can't target iOS.
+  if [ "$OS" = "apple-darwin" ] && [ "$ARCH" = "aarch64" ]; then
+    IOS_TRIPLE="aarch64-apple-ios-sim"
+    IOS_URL="https://github.com/${REPO}/releases/download/${VERSION}/zo-runtime-${VERSION}-${IOS_TRIPLE}.tar.gz"
+    IOS_DIR="${LIB_DIR}/runtime/${IOS_TRIPLE}"
+
+    echo "Downloading iOS Simulator runtime from $IOS_URL..."
+
+    if download_tarball "$IOS_URL" "$IOS_DIR" 2>/dev/null; then
+      echo "iOS Simulator runtime installed to $IOS_DIR"
+    else
+      echo "no iOS Simulator runtime for this release (skipping)"
+    fi
+    echo ""
+  fi
+
   # Check Linux dependencies
   if [ "$(uname -s)" = "Linux" ]; then
     echo "Linux detected. zo requires these runtime libraries:"

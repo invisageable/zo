@@ -30,6 +30,8 @@ impl Test {
       format: self.args.format.into(),
       snippet_context: self.args.snippet_context,
       explain_decisions: self.args.explain_decisions,
+      use_colors: self.args.use_colors(),
+      quiet: self.args.quiet,
     });
 
     compiler.set_test_mode(true);

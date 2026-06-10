@@ -3,7 +3,7 @@ pub(crate) mod template;
 use crate::promotion::Promotion;
 
 use zo_buffer::Buffer;
-use zo_codegen_backend::{Artifact, MachoLinkObject};
+use zo_codegen_backend::{Artifact, MachoLinkObject, Webviewing};
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
   COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D16, FpRegister,
@@ -221,6 +221,10 @@ struct VtableSlotFixup {
 // to `RuntimeKind::Full`.
 const RUNTIME_DYLIB_FILE: &str = "@executable_path/libzo_runtime.dylib";
 const SYM_RUN: &str = "_zo_run_native";
+// The webview entry: same ABI as `_zo_run_native`, but drives the wry
+// webview instead of eframe. Selected over `SYM_RUN` when the program
+// is built for the webview target.
+const SYM_RUN_WEB: &str = "_zo_run_web";
 const SYM_STATE_INIT: &str = "_zo_state_init";
 const SYM_STATE_GET: &str = "_zo_state_get";
 const SYM_STATE_SET: &str = "_zo_state_set";
@@ -759,6 +763,10 @@ pub struct ARM64Gen<'a> {
   /// `TyChecker` — the generic FFI fallback stays off in
   /// that case and per-symbol arms remain authoritative.
   type_view: Option<TypeViewStored<'a>>,
+  /// Whether `#render` emits a call to `_zo_run_web` (wry) instead of
+  /// `_zo_run_native` (eframe). The SIR is identical either way; only
+  /// the runtime entry symbol differs.
+  webviewing: Webviewing,
 }
 
 /// Slice-only mirror of `abi::TypeQuery`, owned by the
@@ -956,7 +964,16 @@ impl<'a> ARM64Gen<'a> {
       ffi_link_names: HashMap::default(),
       extern_dylib_paths: HashMap::default(),
       type_view: None,
+      webviewing: Webviewing::No,
     }
+  }
+
+  /// Select the webview runtime entry (`_zo_run_web`) for `#render`
+  /// instead of the native one. Set by the orchestrator for a
+  /// `--target webview` build.
+  pub fn with_webviewing(mut self, webviewing: Webviewing) -> Self {
+    self.webviewing = webviewing;
+    self
   }
 
   /// Attach the type-system view needed by the generic
@@ -9128,8 +9145,17 @@ impl<'a> ARM64Gen<'a> {
     // from/to SP" idiom).
     self.emitter.emit_add_imm(X0, SP, 0);
 
-    self.emit_extern_call_no_spill(SYM_RUN);
+    self.emit_extern_call_no_spill(self.run_symbol());
     self.emitter.emit_add_imm(SP, SP, stack_reserve);
+  }
+
+  /// The runtime entry `#render` calls: the wry webview entry for a
+  /// `--target webview` build, the eframe entry otherwise.
+  fn run_symbol(&self) -> &'static str {
+    match self.webviewing {
+      Webviewing::Yes => SYM_RUN_WEB,
+      Webviewing::No => SYM_RUN,
+    }
   }
 
   /// Like `emit_extern_call` but without saving / restoring
@@ -9177,7 +9203,7 @@ impl<'a> ARM64Gen<'a> {
   /// map — no syscall.
   fn ensure_runtime_dylib_registered(&mut self) {
     for sym in [
-      SYM_RUN,
+      self.run_symbol(),
       SYM_STATE_INIT,
       SYM_STATE_GET,
       SYM_STATE_SET,

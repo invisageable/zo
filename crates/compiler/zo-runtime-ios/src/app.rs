@@ -15,6 +15,8 @@ use zo_ui_protocol::style::{
 };
 use zo_ui_protocol::{Attr, ElementTag, EventKind, UiCommand};
 
+#[cfg(target_os = "watchos")]
+use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject};
 use objc2::{ClassType, MainThreadMarker, MainThreadOnly, define_class, sel};
@@ -24,17 +26,24 @@ use objc2_foundation::{
   NSBundle, NSData, NSDictionary, NSObjectProtocol, NSOperatingSystemVersion,
   NSProcessInfo, NSString,
 };
+#[cfg(target_os = "watchos")]
+use objc2_ui_kit::UIScreen;
 use objc2_ui_kit::{
-  UIApplication, UIApplicationDelegate, UIApplicationLaunchOptionsKey,
-  UIButton, UIButtonConfiguration, UIButtonType, UIColor, UIControlEvents,
-  UIControlState, UICornerConfiguration, UICornerRadius, UIFont, UIGlassEffect,
-  UIGlassEffectStyle, UIImage, UIImageView, UILabel, UIScene,
-  UISceneConnectionOptions, UISceneDelegate, UISceneSession, UITextBorderStyle,
-  UITextField, UIView, UIViewContentMode, UIViewController, UIVisualEffectView,
-  UIWindow, UIWindowScene, UIWindowSceneDelegate,
+  UIApplication, UIApplicationLaunchOptionsKey, UIButton,
+  UIButtonConfiguration, UIButtonType, UIColor, UIControlEvents,
+  UIControlState, UIFont, UIGlassEffect, UIGlassEffectStyle, UIImage,
+  UIImageView, UILabel, UITextBorderStyle, UITextField, UIView,
+  UIViewContentMode, UIViewController, UIVisualEffectView, UIWindow,
+};
+#[cfg(target_os = "ios")]
+use objc2_ui_kit::{
+  UIApplicationDelegate, UIScene, UISceneConnectionOptions, UISceneDelegate,
+  UISceneSession, UIWindowScene, UIWindowSceneDelegate,
 };
 
 use std::cell::RefCell;
+#[cfg(target_os = "ios")]
+use std::ffi::c_float;
 use std::ffi::{c_char, c_int};
 use std::path::Path;
 use std::ptr::NonNull;
@@ -57,6 +66,16 @@ thread_local! {
   /// A `thread_local` for the same reason as `WINDOW` — UIKit is
   /// single-threaded and `Retained`/`EventRegistry` aren't `Sync`.
   static RUNTIME: RefCell<Option<Runtime>> = const { RefCell::new(None) };
+}
+
+#[cfg(target_os = "watchos")]
+thread_local! {
+  /// Retains the widget event target for the process lifetime —
+  /// `addTarget` holds its target weakly, and unlike iOS (where UIKit
+  /// retains the scene delegate) nothing else on watchOS would keep
+  /// it alive.
+  static TARGET: RefCell<Option<Retained<SceneDelegate>>> =
+    const { RefCell::new(None) };
 }
 
 /// Per-process reactive wiring, built once at startup from the
@@ -99,13 +118,24 @@ enum PlacedView {
   /// Reserved geometry for leaves the iOS path does not paint yet
   /// (image).
   Other(Retained<UIView>),
-  /// A glass-backed leaf: `effect` is the `UIVisualEffectView` framed
-  /// and attached to the container; `inner` is its real content,
-  /// sized to the effect view's local bounds inside `contentView`.
+  /// A glass-backed leaf: `panel` is the glass stack (shadow host →
+  /// glass) framed and attached to the container; `inner` is its real
+  /// content, sized to the panel's local bounds inside the glass
+  /// `contentView`.
   Glass {
-    effect: Retained<UIVisualEffectView>,
+    panel: GlassPanel,
     inner: Box<PlacedView>,
   },
+  /// A glass container surface: the glass stack framed behind its
+  /// children. The children mount in the glass `contentView` so they
+  /// ride crisp on the glass, so they are reparented there (local-
+  /// framed) instead of left as flat siblings. Kept typed (not erased to
+  /// `UIView`) so the placer can reach the content view.
+  GlassBackdrop(GlassPanel),
+  /// A non-glass container surface (colour / image) framed behind its
+  /// children; it holds no text of its own. Its children stay flat
+  /// siblings layered on top — no compositing requirement.
+  Backdrop(Retained<UIView>),
 }
 
 impl PlacedView {
@@ -115,12 +145,16 @@ impl PlacedView {
       Self::Label(label) => label.setFrame(frame),
       Self::Field(field) => field.setFrame(frame),
       Self::Other(view) => view.setFrame(frame),
-      // Frame the glass wrapper; the inner view fills it at local
-      // origin, so the solver's geometry stays the source of truth.
-      Self::Glass { effect, inner } => {
-        effect.setFrame(frame);
+      // Frame the glass panel; the inner view fills it at local origin,
+      // so the solver's geometry stays the source of truth.
+      Self::Glass { panel, inner } => {
+        panel.set_frame(frame);
         inner.set_frame(CGRect::new(CGPoint::new(0.0, 0.0), frame.size));
       }
+      // The panel takes the solved frame; its reparented children are
+      // re-framed by the placement loop in the panel's local space.
+      Self::GlassBackdrop(panel) => panel.set_frame(frame),
+      Self::Backdrop(view) => view.setFrame(frame),
     }
   }
 
@@ -146,6 +180,8 @@ impl PlacedView {
       // The glass wrapper holds no text of its own; defer to its
       // inner content (a label whose text the reconciler refreshes).
       Self::Glass { inner, .. } => inner.set_text(text),
+      // A container surface paints no text.
+      Self::GlassBackdrop(_) | Self::Backdrop(_) => {}
     }
   }
 }
@@ -166,6 +202,7 @@ pub(crate) fn install(
   });
 }
 
+#[cfg(target_os = "ios")]
 define_class!(
   // SAFETY: the superclass `NSObject` has no subclassing
   // requirements, and `AppDelegate` holds no ivars / no `Drop`.
@@ -194,6 +231,70 @@ define_class!(
   }
 );
 
+#[cfg(target_os = "watchos")]
+define_class!(
+  // SAFETY: the superclass `NSObject` has no subclassing
+  // requirements, and `AppDelegate` holds no ivars / no `Drop`.
+  #[unsafe(super(NSObject))]
+  #[thread_kind = MainThreadOnly]
+  #[name = "ZoAppDelegate"]
+  struct AppDelegate;
+
+  unsafe impl NSObjectProtocol for AppDelegate {}
+
+  impl AppDelegate {
+    // watchOS never connects a `UIScene` to a third-party UIKit app:
+    // Carousel's WatchKit scene agent instead reads the `window`
+    // property off the app delegate and hosts it. So the window is
+    // built here, at launch, sized to the (only) screen.
+    #[unsafe(method(application:didFinishLaunchingWithOptions:))]
+    fn did_finish_launching(
+      &self,
+      _application: &UIApplication,
+      _launch_options: Option<
+        &NSDictionary<UIApplicationLaunchOptionsKey, AnyObject>,
+      >,
+    ) -> bool {
+      let mtm = MainThreadMarker::from(self);
+
+      // The non-deprecated forms (`UIScreen` via a connected scene,
+      // `UIWindow` via `init(windowScene:)`) cannot exist yet —
+      // Carousel connects no scene before reading `window` — so the
+      // screen-frame forms are the only way to build the window on
+      // watchOS.
+      #[expect(deprecated)]
+      let window = {
+        let bounds = UIScreen::mainScreen(mtm).bounds();
+
+        UIWindow::initWithFrame(UIWindow::alloc(mtm), bounds)
+      };
+
+      // The event target outlives this call: `addTarget` holds it
+      // weakly, so it is retained in `TARGET` for the process
+      // lifetime (on iOS, UIKit retains the scene delegate instead).
+      let target: Retained<SceneDelegate> =
+        unsafe { msg_send![SceneDelegate::alloc(mtm), init] };
+
+      present(&window, &target, mtm);
+      TARGET.with(|t| *t.borrow_mut() = Some(target));
+      WINDOW.with(|w| *w.borrow_mut() = Some(window));
+
+      true
+    }
+
+    // Carousel's scene agent pulls the hosted window from here.
+    #[unsafe(method(window))]
+    fn window(&self) -> *mut UIWindow {
+      WINDOW.with(|w| {
+        w.borrow().as_ref().map_or(std::ptr::null_mut(), |window| {
+          Retained::as_ptr(window).cast_mut()
+        })
+      })
+    }
+  }
+);
+
+#[cfg(target_os = "ios")]
 define_class!(
   // SAFETY: the superclass `NSObject` has no subclassing
   // requirements, and `SceneDelegate` holds no ivars / no `Drop`.
@@ -261,35 +362,8 @@ define_class!(
 
       let window =
         UIWindow::initWithWindowScene(UIWindow::alloc(mtm), window_scene);
-      let controller = UIViewController::new(mtm);
 
-      let cmds = RUNTIME.with(|r| {
-        r.borrow()
-          .as_ref()
-          .map(|rt| rt.shared.lock().unwrap().clone())
-          .unwrap_or_default()
-      });
-
-      // One container view fills the screen and owns every widget by
-      // frame — no `UIStackView`, no Auto-Layout. It is sized to the
-      // scene's screen bounds so the solve's coordinate space matches
-      // (centring comes from the root's justify/align).
-      let bounds = window_scene.screen().bounds();
-      let container = UIView::initWithFrame(UIView::alloc(mtm), bounds);
-
-      // The backdrop (body colour / image) is painted by `render_into`.
-      controller.setView(Some(&container));
-
-      let (tree, views) = render_into(&cmds, &container, self, mtm);
-
-      RUNTIME.with(|r| {
-        if let Some(rt) = r.borrow_mut().as_mut() {
-          rt.host = Some(ViewHost { container, tree, views });
-        }
-      });
-
-      window.setRootViewController(Some(&controller));
-      window.makeKeyAndVisible();
+      present(&window, self, mtm);
       WINDOW.with(|w| *w.borrow_mut() = Some(window));
     }
   }
@@ -298,6 +372,101 @@ define_class!(
   // accessors stay optional (the window is owned via `WINDOW`).
   unsafe impl UIWindowSceneDelegate for SceneDelegate {}
 );
+
+#[cfg(target_os = "watchos")]
+define_class!(
+  // SAFETY: the superclass `NSObject` has no subclassing
+  // requirements, and `SceneDelegate` holds no ivars / no `Drop`.
+  //
+  // watchOS never connects a `UIScene` to this process (Carousel's
+  // agent hosts the app-delegate window instead), so this class is
+  // only the widget event target — same selectors, no scene
+  // conformances.
+  #[unsafe(super(NSObject))]
+  #[thread_kind = MainThreadOnly]
+  #[name = "ZoSceneDelegate"]
+  struct SceneDelegate;
+
+  impl SceneDelegate {
+    /// `UIButton` tap → the widget's `@click` handler. The
+    /// sender's `tag` is the lowering-assigned widget id.
+    #[unsafe(method(buttonTapped:))]
+    fn button_tapped(&self, sender: &UIButton) {
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Click,
+        EventPayload::default(),
+      );
+    }
+
+    /// `UITextField` edit → `@input`, carrying the field's
+    /// current text as the payload.
+    #[unsafe(method(textChanged:))]
+    fn text_changed(&self, sender: &UITextField) {
+      let text = sender.text().map(|s| s.to_string()).unwrap_or_default();
+
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Input,
+        EventPayload::with_value(text),
+      );
+    }
+
+    /// `UITextField` return key → `@submit`, carrying the
+    /// field's text as the payload.
+    #[unsafe(method(textSubmitted:))]
+    fn text_submitted(&self, sender: &UITextField) {
+      let text = sender.text().map(|s| s.to_string()).unwrap_or_default();
+
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Submit,
+        EventPayload::with_value(text),
+      );
+    }
+  }
+
+  unsafe impl NSObjectProtocol for SceneDelegate {}
+);
+
+/// Build the root view hierarchy into `window` and bring it on
+/// screen: a container sized to the window's bounds (the solve's
+/// coordinate space — centring comes from the root's justify/align),
+/// the first render against the shared command stream, and the view
+/// host stored for reconciliation. One container owns every widget by
+/// frame — no `UIStackView`, no Auto-Layout. Shared by the iOS scene
+/// connect and the watchOS launch path.
+fn present(window: &UIWindow, target: &SceneDelegate, mtm: MainThreadMarker) {
+  let controller = UIViewController::new(mtm);
+
+  let cmds = RUNTIME.with(|r| {
+    r.borrow()
+      .as_ref()
+      .map(|rt| rt.shared.lock().unwrap().clone())
+      .unwrap_or_default()
+  });
+
+  let bounds = window.bounds();
+  let container = UIView::initWithFrame(UIView::alloc(mtm), bounds);
+
+  // The backdrop (body colour / image) is painted by `render_into`.
+  controller.setView(Some(&container));
+
+  let (tree, views) = render_into(&cmds, &container, target, mtm);
+
+  RUNTIME.with(|r| {
+    if let Some(rt) = r.borrow_mut().as_mut() {
+      rt.host = Some(ViewHost {
+        container,
+        tree,
+        views,
+      });
+    }
+  });
+
+  window.setRootViewController(Some(&controller));
+  window.makeKeyAndVisible();
+}
 
 impl SceneDelegate {
   /// Resolve `(widget_id, kind)` to its handler, dispatch into
@@ -347,9 +516,15 @@ impl SceneDelegate {
           let rects = host
             .tree
             .solve((bounds.size.width as f32, bounds.size.height as f32));
+          // Re-frame in the same space `render_into` placed each view:
+          // a nested glass child stays in its effect view's local
+          // coordinates, so offset it by the parent's origin.
+          let parents = host.tree.parents();
 
-          for (view, (_, rect)) in host.views.iter().zip(&rects) {
-            view.set_frame(frame_of(*rect));
+          for (index, (view, (_, rect))) in
+            host.views.iter().zip(&rects).enumerate()
+          {
+            view.set_frame(local_frame(parents[index], &rects, *rect));
           }
 
           for (index, text) in changed {
@@ -372,28 +547,46 @@ impl SceneDelegate {
   }
 }
 
-/// Builds native views for solved leaves and frames them on a
-/// container. Stateless beyond its borrows — `place` returns the
-/// created `PlacedView` so the host keeps it for reconciliation.
+/// Builds native views for solved leaves and frames them onto the
+/// superview each `Placement` names. Stateless beyond its borrows —
+/// `place` returns the created `PlacedView` so the host keeps it for
+/// reconciliation.
 struct ViewBuilder<'a> {
   cmds: &'a [UiCommand],
-  container: &'a UIView,
   target: &'a SceneDelegate,
   mtm: MainThreadMarker,
+  /// Stylesheet image catalog — a container's `background_image`
+  /// handle indexes it (same catalog the root backdrop reads).
+  images: &'a [String],
+}
+
+/// The per-leaf placement inputs for `place`: where to attach the
+/// native view, the frame in that superview's coordinate space, and
+/// the resolved + author styles that drive its paint. Bundled so
+/// `place` stays within the argument budget.
+struct Placement<'a> {
+  /// The superview to attach to — the top-level container for a flat
+  /// leaf, or a glass effect view's `contentView` for a nested one.
+  superview: &'a UIView,
+  /// The frame in `superview`'s local space (already offset by the
+  /// parent's origin when nested).
+  frame: CGRect,
+  style: &'a ComputedStyle,
+  author: &'a StylePatch,
 }
 
 impl<'a> ViewBuilder<'a> {
   fn new(
     cmds: &'a [UiCommand],
-    container: &'a UIView,
     target: &'a SceneDelegate,
     mtm: MainThreadMarker,
+    images: &'a [String],
   ) -> Self {
     Self {
       cmds,
-      container,
       target,
       mtm,
+      images,
     }
   }
 
@@ -401,16 +594,17 @@ impl<'a> ViewBuilder<'a> {
   /// `commands[idx]`. `Element{Button}` → `UIButton` titled by its
   /// collapsed text and tagged with its lowering widget id (wired to
   /// `buttonTapped:`); a text tag or free-standing `Text` → `UILabel`.
-  /// Other leaves (image, input) get a bare reserved view. `style`
-  /// drives the font; `author` says which colours the stylesheet
-  /// declared, so undeclared widgets keep their native look.
-  fn place(
-    &self,
-    idx: usize,
-    frame: CGRect,
-    style: &ComputedStyle,
-    author: &StylePatch,
-  ) -> PlacedView {
+  /// Other leaves (image, input) get a bare reserved view. The
+  /// `placement` says where to attach (top-level container or a glass
+  /// effect view's `contentView`), the local frame, and the styles.
+  fn place(&self, idx: usize, placement: &Placement) -> PlacedView {
+    let &Placement {
+      superview,
+      frame,
+      style,
+      author,
+    } = placement;
+
     match &self.cmds[idx] {
       UiCommand::Element { tag, attrs, .. } if *tag == ElementTag::Button => {
         let button = UIButton::buttonWithType(UIButtonType::System, self.mtm);
@@ -476,7 +670,7 @@ impl<'a> ViewBuilder<'a> {
         }
 
         button.setFrame(frame);
-        self.container.addSubview(&button);
+        superview.addSubview(&button);
 
         PlacedView::Button(button)
       }
@@ -528,21 +722,37 @@ impl<'a> ViewBuilder<'a> {
           );
         }
 
-        self.container.addSubview(&field);
+        superview.addSubview(&field);
 
         PlacedView::Field(field)
       }
 
       UiCommand::Element { tag, .. } if tag.is_text_tag() => {
-        self.label(&collapse_text(self.cmds, idx + 1), frame, style, author)
+        self.label(&collapse_text(self.cmds, idx + 1), placement)
       }
 
-      UiCommand::Text(content) => self.label(content, frame, style, author),
+      UiCommand::Text(content) => self.label(content, placement),
+
+      // `<img>` is a reserved leaf — iOS image painting is a separate
+      // gap; it keeps its solved geometry but paints nothing yet.
+      UiCommand::Element { tag, .. } if *tag == ElementTag::Img => {
+        let view = UIView::initWithFrame(UIView::alloc(self.mtm), frame);
+
+        superview.addSubview(&view);
+
+        PlacedView::Other(view)
+      }
+
+      // Any other placed `Element` is a paintable container — layout
+      // placed it only because it declared a surface. Paint that
+      // surface as a backmost sibling; its children sit on top (a glass
+      // surface instead nests them in `contentView` — see the loop).
+      UiCommand::Element { .. } => self.container_backdrop(placement),
 
       _ => {
         let view = UIView::initWithFrame(UIView::alloc(self.mtm), frame);
 
-        self.container.addSubview(&view);
+        superview.addSubview(&view);
 
         PlacedView::Other(view)
       }
@@ -552,13 +762,15 @@ impl<'a> ViewBuilder<'a> {
   /// Build, frame, and attach a `UILabel` rendered at the style's
   /// font + colour, so its text fits the box the solver measured and
   /// matches the cascade. A declared `background` fills the label.
-  fn label(
-    &self,
-    text: &str,
-    frame: CGRect,
-    style: &ComputedStyle,
-    author: &StylePatch,
-  ) -> PlacedView {
+  /// Attaches to `placement.superview` (the top-level container, or a
+  /// glass effect view's `contentView` when the label nests in glass).
+  fn label(&self, text: &str, placement: &Placement) -> PlacedView {
+    let &Placement {
+      superview,
+      frame,
+      style,
+      author,
+    } = placement;
     let label = UILabel::new(self.mtm);
 
     label.setText(Some(&NSString::from_str(text)));
@@ -569,18 +781,18 @@ impl<'a> ViewBuilder<'a> {
     }
 
     match glass_of(style) {
-      // Glass label: the declared `background` tints the glass, not a
-      // solid fill. The label rides inside the effect view's content.
+      // Glass label: it rides on the panel's glass content, crisp on the
+      // glass that refracts whatever sits behind it.
       Some(glass) => {
-        let tint = author.background.is_some().then_some(style.background);
-        let effect = wrap_glass(&label, glass, tint, self.mtm);
+        let panel = glass_panel(glass, self.mtm);
 
-        effect.setFrame(frame);
+        panel.content().addSubview(&label);
+        panel.set_frame(frame);
         label.setFrame(CGRect::new(CGPoint::new(0.0, 0.0), frame.size));
-        self.container.addSubview(&effect);
+        superview.addSubview(&panel.outer);
 
         PlacedView::Glass {
-          effect,
+          panel,
           inner: Box::new(PlacedView::Label(label)),
         }
       }
@@ -591,11 +803,60 @@ impl<'a> ViewBuilder<'a> {
         }
 
         label.setFrame(frame);
-        self.container.addSubview(&label);
+        superview.addSubview(&label);
 
         PlacedView::Label(label)
       }
     }
+  }
+
+  /// Build a paintable container's surface as a backmost sibling at
+  /// `placement.frame` — glass, then a background image, then a
+  /// declared colour. Layout places a container only when it declared
+  /// one of these. A glass surface returns the typed effect view
+  /// (`GlassBackdrop`) so the placement loop can reparent its children
+  /// into `contentView`; a colour / image surface stays a flat sibling.
+  fn container_backdrop(&self, placement: &Placement) -> PlacedView {
+    let &Placement {
+      superview,
+      frame,
+      style,
+      author,
+    } = placement;
+
+    // Glass first: a glass card frosts the surface behind it. Keep the
+    // panel typed so its children reparent into the glass content.
+    if let Some(glass) = glass_of(style) {
+      let panel = glass_panel(glass, self.mtm);
+
+      panel.set_frame(frame);
+      superview.addSubview(&panel.outer);
+
+      return PlacedView::GlassBackdrop(panel);
+    }
+
+    // A background image fills the card behind its content.
+    if let Some(id) = style.background_image
+      && let Some(url) = self.images.get(id as usize)
+      && let Some(image) = load_ui_image(url)
+    {
+      let view = backdrop_view(&image, frame, self.mtm);
+
+      superview.addSubview(&view);
+
+      return PlacedView::Backdrop(view.into_super());
+    }
+
+    // A declared colour fills the card.
+    let view = UIView::initWithFrame(UIView::alloc(self.mtm), frame);
+
+    if author.background.is_some() {
+      view.setBackgroundColor(Some(&ui_color(style.background)));
+    }
+
+    superview.addSubview(&view);
+
+    PlacedView::Backdrop(view)
   }
 }
 
@@ -615,15 +876,54 @@ fn ui_color(color: Rgba) -> Retained<UIColor> {
   )
 }
 
-/// Default corner radius (pt) for a glass panel until a `border-radius`
-/// property exists. Without an explicit corner config a glass effect
-/// view defaults to a capsule — wrong for a rectangular panel.
+/// Corner radius (pt) of a glass panel until a `border-radius` property
+/// exists. The glass material is clipped to this rounded box.
+#[cfg(target_os = "ios")]
 const GLASS_CORNER_RADIUS: CGFloat = 16.0;
 
+/// Width (pt) of the specular rim around a glass panel — the thin bright
+/// edge that defines the pane even when it is near-transparent.
+#[cfg(target_os = "ios")]
+const GLASS_RIM_WIDTH: CGFloat = 1.0;
+
+/// Opacity (0–1) of the white specular rim.
+#[cfg(target_os = "ios")]
+const GLASS_RIM_ALPHA: CGFloat = 0.3;
+
+/// White-tint opacity (0–1) of the Simulator's translucent stand-in for
+/// a `Clear` glass — barely there, so the backdrop reads through sharp.
+const GLASS_TINT_ALPHA_CLEAR: CGFloat = 0.1;
+
+/// White-tint opacity (0–1) for a `Regular` glass in the Simulator — a
+/// frosted veil that still lets the backdrop show.
+const GLASS_TINT_ALPHA_REGULAR: CGFloat = 0.18;
+
+/// Opacity (0–1) of the soft drop shadow that lifts a glass panel off
+/// the backdrop.
+#[cfg(target_os = "ios")]
+const GLASS_SHADOW_OPACITY: c_float = 0.18;
+
+/// Blur radius (pt) of the panel's drop shadow — wide and soft, not a
+/// hard edge.
+#[cfg(target_os = "ios")]
+const GLASS_SHADOW_RADIUS: CGFloat = 16.0;
+
+/// Downward offset (pt) of the panel's drop shadow, so the light reads
+/// as coming from above.
+#[cfg(target_os = "ios")]
+const GLASS_SHADOW_OFFSET_Y: CGFloat = 8.0;
+
 /// The glass style this element asks for, but only when the OS can
-/// render it. `UIGlassEffect` is iOS 26+ and the deployment target is
-/// 15.0, so every glass path funnels through this guard.
+/// render it. `UIGlassEffect` and the glass `UIButton.Configuration`s
+/// are iOS 26+ and the deployment target is 15.0, so every glass path
+/// funnels through this guard. watchOS has no Liquid Glass surface
+/// (and no public CALayer access for the rim/shadow styling), so
+/// glass resolves to solid there.
 fn glass_of(style: &ComputedStyle) -> Option<GlassStyle> {
+  if cfg!(target_os = "watchos") {
+    return None;
+  }
+
   match style.material {
     Material::Glass(glass) if glass_available() => Some(glass),
     _ => None,
@@ -667,42 +967,151 @@ fn glass_button_config(
   }
 }
 
-/// Wrap an already-built content view in a glass `UIVisualEffectView`:
-/// the glass material, a rounded (non-capsule) shape, and an optional
-/// `background`-derived tint. The content moves into the effect view's
-/// `contentView`; the caller frames the returned wrapper.
-fn wrap_glass(
-  content: &UIView,
+/// A Liquid Glass panel: a shadow-bearing outer host wrapping a glass
+/// `surface` (genuine `UIGlassEffect` on device, a translucent tinted
+/// view in the Simulator — see `glass_surface`). Built by `glass_panel`;
+/// the caller frames it with `set_frame` and attaches leaves to
+/// `content`, where they ride crisp on the glass.
+struct GlassPanel {
+  /// The shadow host, framed by the solver — kept un-clipped so the
+  /// soft drop shadow extends past the rounded glass panel.
+  outer: Retained<UIView>,
+  /// The glass surface, rounded + clipped + rimmed; fills `outer`.
+  surface: Retained<UIView>,
+  /// The view the panel's leaves attach to: the effect view's content
+  /// view on device, the `surface` itself in the Simulator.
+  host: Retained<UIView>,
+}
+
+impl GlassPanel {
+  /// Frame the whole stack: `outer` takes the solved rect and the
+  /// surface fills it at local origin. No Auto-Layout — the solver's
+  /// geometry stays the single source of truth.
+  fn set_frame(&self, frame: CGRect) {
+    let local = CGRect::new(CGPoint::new(0.0, 0.0), frame.size);
+
+    self.outer.setFrame(frame);
+    self.surface.setFrame(local);
+  }
+
+  /// The view a panel's leaves attach to, so labels and buttons render
+  /// crisp on the glass.
+  fn content(&self) -> Retained<UIView> {
+    self.host.clone()
+  }
+}
+
+/// Build a `GlassPanel` for a style: a glass surface (see
+/// `glass_surface`) rounded, clipped, and rimmed, lifted by a soft drop
+/// shadow on the un-clipped outer host.
+fn glass_panel(glass: GlassStyle, mtm: MainThreadMarker) -> GlassPanel {
+  let (surface, host) = glass_surface(glass, mtm);
+  let outer = UIView::new(mtm);
+
+  // The rim + shadow styling needs CALayer access, which the UIKit
+  // bindings expose only off watchOS. `glass_of` never yields glass on
+  // watchOS, so the un-styled fallback there is dead code that merely
+  // has to compile.
+  #[cfg(target_os = "ios")]
+  {
+    // Round the panel, clip to the rounded box, then draw a thin white
+    // rim — the specular edge that defines the pane even when
+    // near-transparent.
+    let layer = surface.layer();
+
+    layer.setCornerRadius(GLASS_CORNER_RADIUS);
+    layer.setMasksToBounds(true);
+    layer.setBorderWidth(GLASS_RIM_WIDTH);
+
+    // SAFETY: `CGColor` bridges the colour on the main thread; the rim
+    // is a plain translucent white.
+    let rim =
+      unsafe { UIColor::colorWithWhite_alpha(1.0, GLASS_RIM_ALPHA).CGColor() };
+
+    layer.setBorderColor(Some(&rim));
+
+    // The outer host carries the drop shadow. It must NOT clip to
+    // bounds (the surface does), so the soft shadow spreads past the
+    // rounded box.
+    let outer_layer = outer.layer();
+
+    // SAFETY: `CGColor` bridges the colour on the main thread; the
+    // shadow is opaque black, faded by `setShadowOpacity`.
+    let shadow = unsafe { UIColor::colorWithWhite_alpha(0.0, 1.0).CGColor() };
+
+    outer_layer.setShadowColor(Some(&shadow));
+    outer_layer.setShadowOpacity(GLASS_SHADOW_OPACITY);
+    outer_layer.setShadowRadius(GLASS_SHADOW_RADIUS);
+    outer_layer.setShadowOffset(CGSize::new(0.0, GLASS_SHADOW_OFFSET_Y));
+  }
+
+  outer.addSubview(&surface);
+
+  GlassPanel {
+    outer,
+    surface,
+    host,
+  }
+}
+
+/// The glass surface and the view its leaves attach to — genuine Liquid
+/// Glass on device, a translucent tinted view in the Simulator.
+///
+/// `UIGlassEffect` (and any `UIVisualEffectView`) refracts its backdrop
+/// by reading the framebuffer in a fragment shader. The Simulator's
+/// Metal stack — an Apple-family-2 GPU — has no programmable blending, so
+/// a shader can't read a color attachment, and the effect renders as an
+/// opaque fill (white or black, by appearance) that hides the backdrop.
+/// A plain translucent view instead lets the backdrop photo show through
+/// by ordinary alpha compositing — the honest stand-in until a device
+/// renders the real glass with live lensing.
+fn glass_surface(
   glass: GlassStyle,
-  tint: Option<Rgba>,
   mtm: MainThreadMarker,
-) -> Retained<UIVisualEffectView> {
+) -> (Retained<UIView>, Retained<UIView>) {
+  if is_simulator() {
+    // `Clear` is barely tinted (the backdrop reads through sharp);
+    // `Regular` carries a frosted veil. Leaves mount on the view itself.
+    let alpha = match glass {
+      GlassStyle::Clear => GLASS_TINT_ALPHA_CLEAR,
+      GlassStyle::Regular => GLASS_TINT_ALPHA_REGULAR,
+    };
+    let view = UIView::new(mtm);
+
+    view.setBackgroundColor(Some(&UIColor::colorWithWhite_alpha(1.0, alpha)));
+
+    return (view.clone(), view);
+  }
+
   let style = match glass {
-    GlassStyle::Regular => UIGlassEffectStyle::Regular,
     GlassStyle::Clear => UIGlassEffectStyle::Clear,
+    GlassStyle::Regular => UIGlassEffectStyle::Regular,
   };
   let effect = UIGlassEffect::effectWithStyle(style, mtm);
 
-  if let Some(tint) = tint {
-    effect.setTintColor(Some(&ui_color(tint)));
-  }
+  // Interactive glass reacts to touches with the system's fluid
+  // highlight — the card holds buttons, so let it feel live.
+  effect.setInteractive(true);
 
-  let view = UIVisualEffectView::initWithEffect(
+  let effect_view = UIVisualEffectView::initWithEffect(
     UIVisualEffectView::alloc(mtm),
     Some(&effect),
   );
-  let radius = UICornerRadius::fixedRadius(GLASS_CORNER_RADIUS);
-  let corners = UICornerConfiguration::configurationWithUniformRadius(&radius);
+  // Leaves mount in the effect view's content view; the surface is the
+  // effect view itself, upcast so both targets share one panel shape.
+  let host = effect_view.contentView();
 
-  view.setCornerConfiguration(&corners);
-  view.contentView().addSubview(content);
-
-  view
+  (effect_view.into_super(), host)
 }
 
-/// Solve `cmds` against the container's bounds and place a native
-/// view per leaf, returning the persistent tree + view list the host
-/// reconciles against.
+/// `true` inside the iOS Simulator, which exports `SIMULATOR_UDID` into
+/// every app's environment. The glass path reads this to substitute a
+/// translucent view for `UIGlassEffect`, which the Simulator cannot
+/// composite.
+fn is_simulator() -> bool {
+  std::env::var_os("SIMULATOR_UDID").is_some()
+}
+
 /// Load a `UIImage` from a catalog ref. The bytes come through the
 /// one shared loader (`zo-runtime-render::asset`) that egui uses too —
 /// local file or URL — after resolving the ref to a readable path;
@@ -760,6 +1169,9 @@ fn backdrop_view(
   view
 }
 
+/// Solve `cmds` against the container's bounds and place a native view
+/// per leaf, returning the persistent tree + view list the host
+/// reconciles against. Paints the root backdrop first (backmost).
 fn render_into(
   cmds: &[UiCommand],
   container: &UIView,
@@ -769,36 +1181,114 @@ fn render_into(
   let bounds = container.bounds();
   let mut tree = LayoutTree::build(cmds);
 
-  // Paint the container backdrop from the `body` rule: a declared
-  // colour, then a full-screen image behind every widget (so glass
-  // refracts it). Done before placing leaves → the image is backmost.
+  // Paint the container backdrop from the `body` rule. With a backdrop
+  // image, keep the container itself CLEAR and let the photo be the
+  // only thing behind a glass surface — an opaque container colour is
+  // what a `UIVisualEffectView` samples, so a white container makes the
+  // glass read solid white instead of refracting the photo.
   let root_style = tree.root_style();
-
-  container.setBackgroundColor(Some(&ui_color(root_style.background)));
 
   if let Some(id) = root_style.background_image
     && let Some(url) = tree.images().get(id as usize)
     && let Some(image) = load_ui_image(url)
   {
+    container.setBackgroundColor(None);
     container.addSubview(&backdrop_view(&image, bounds, mtm));
+  } else {
+    container.setBackgroundColor(Some(&ui_color(root_style.background)));
   }
 
   let rects = tree.solve((bounds.size.width as f32, bounds.size.height as f32));
 
-  // Styles + author patches parallel the solved leaves; clone so the
-  // tree is free to move into the host alongside the views.
+  // Styles, author patches, and nesting parents parallel the solved
+  // leaves; clone so the tree is free to move into the host alongside
+  // the views. The image catalog rides along so a container backdrop
+  // can resolve its handle.
   let styles = tree.styles().to_vec();
   let authors = tree.authors().to_vec();
-  let builder = ViewBuilder::new(cmds, container, target, mtm);
-  let views = rects
-    .into_iter()
-    .enumerate()
-    .map(|(i, (idx, rect))| {
-      builder.place(idx, frame_of(rect), &styles[i], &authors[i])
-    })
-    .collect();
+  let parents = tree.parents().to_vec();
+  let images = tree.images().to_vec();
+  let builder = ViewBuilder::new(cmds, target, mtm, &images);
+
+  // Place in solve order so a glass container always exists in `views`
+  // before its children (layout records a paintable container before
+  // the leaves it wraps). A nested child attaches to its parent glass
+  // effect view's `contentView`, framed in that view's local space.
+  let mut views: Vec<PlacedView> = Vec::with_capacity(rects.len());
+
+  for (i, (idx, rect)) in rects.iter().enumerate() {
+    let (superview, frame) =
+      attach_target(container, &views, parents[i], &rects, *rect);
+
+    let placement = Placement {
+      superview: &superview,
+      frame,
+      style: &styles[i],
+      author: &authors[i],
+    };
+
+    views.push(builder.place(*idx, &placement));
+  }
 
   (tree, views)
+}
+
+/// Resolve where a placed leaf attaches and at what frame. A leaf with
+/// no nesting parent sits on `container` at its absolute rect. A leaf
+/// nested in a glass container attaches to that container's effect view
+/// `contentView`, framed in the effect view's local space. A nesting
+/// parent is always placed before the leaf, so `views[p]` already
+/// exists.
+///
+/// Layout records a nesting `parent` only for a glass container (the
+/// one surface UIKit composites its content into), so `parents[i]` is
+/// `Some` exactly when `views[p]` is a `GlassBackdrop`. The same
+/// invariant lets `reconcile` re-frame from `parents` alone, without
+/// the view types.
+fn attach_target(
+  container: &UIView,
+  views: &[PlacedView],
+  parent: Option<usize>,
+  rects: &[(usize, Rect)],
+  rect: Rect,
+) -> (Retained<UIView>, CGRect) {
+  let frame = local_frame(parent, rects, rect);
+
+  match parent {
+    Some(p) => match &views[p] {
+      PlacedView::GlassBackdrop(panel) => (panel.content(), frame),
+      // Layout never nests a leaf under a non-glass surface, so this
+      // would be a builder/runtime mismatch — fail loud rather than
+      // misplace against an offset frame.
+      _ => panic!("nesting parent {p} is not a glass container"),
+    },
+    None => (Retained::from(container), frame),
+  }
+}
+
+/// The frame a placed leaf is drawn at: its absolute rect when flat,
+/// or — when nested in a glass container — its rect offset into that
+/// container's effect view local space (absolute rect minus the
+/// parent's absolute origin). One source of truth for placement and
+/// reconcile so a re-frame matches the original attach.
+fn local_frame(
+  parent: Option<usize>,
+  rects: &[(usize, Rect)],
+  rect: Rect,
+) -> CGRect {
+  match parent {
+    Some(p) => {
+      let parent_rect = rects[p].1;
+
+      frame_of(Rect {
+        x: rect.x - parent_rect.x,
+        y: rect.y - parent_rect.y,
+        width: rect.width,
+        height: rect.height,
+      })
+    }
+    None => frame_of(rect),
+  }
 }
 
 /// Detach every child view so a structural rebuild starts clean.
@@ -839,12 +1329,46 @@ fn attr_text(attrs: &[Attr], name: &str) -> Option<String> {
     .map(str::to_string)
 }
 
+/// Realize the Carousel scene-specification classes before the run
+/// loop brings the scene XPC in. FrontBoard delivers a watch app's
+/// scene as a `CUISWKApplicationSceneSpecification`; if that class is
+/// not registered in this process when the message arrives, FrontBoard
+/// aborts scene creation and the app never reaches the screen.
+/// WatchKit links CarouselUIServices — load both, exactly as a watch
+/// app that links WatchKit would.
+#[cfg(target_os = "watchos")]
+fn preload_scene_frameworks() {
+  /// `dlopen` mode: resolve symbols eagerly, matching what a load
+  /// command would do.
+  const RTLD_NOW: c_int = 0x2;
+
+  unsafe extern "C" {
+    fn dlopen(path: *const c_char, flag: c_int) -> *mut std::ffi::c_void;
+  }
+
+  const FRAMEWORKS: [&std::ffi::CStr; 2] = [
+    c"/System/Library/Frameworks/WatchKit.framework/WatchKit",
+    c"/System/Library/PrivateFrameworks\
+      /CarouselUIServices.framework/CarouselUIServices",
+  ];
+
+  for path in FRAMEWORKS {
+    // SAFETY: a NUL-terminated constant path. A null return (missing
+    // framework) is tolerable — the scene-decode failure that follows
+    // is observable in the system log.
+    unsafe { dlopen(path.as_ptr(), RTLD_NOW) };
+  }
+}
+
 /// Launch the UIKit run loop. Blocks until the app exits. The
 /// delegates are constructed by UIKit from their registered class
 /// names, so the classes must be registered first.
 pub(crate) fn run() {
   let _mtm = MainThreadMarker::new()
     .expect("zo_run_native must be called on the main thread");
+
+  #[cfg(target_os = "watchos")]
+  preload_scene_frameworks();
 
   // Force class registration so the ObjC runtime can resolve
   // "ZoAppDelegate" / "ZoSceneDelegate" by name when

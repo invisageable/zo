@@ -10,10 +10,12 @@ doctest = false
 # internal:sources.
 
 # internal:crates.
+zo-codegen-web = { workspace = true }
 zo-runtime-render = { workspace = true }
 zo-ui-protocol = { workspace = true }
 
 # external:crates.
+libc = { workspace = true }
 rustc-hash = { workspace = true }
 winit = { workspace = true }
 wry = { workspace = true }

@@ -1,5 +1,6 @@
 use crate::ARM64Gen;
 
+use zo_codegen_backend::Webviewing;
 use zo_interner::Interner;
 use zo_sir::{Insn, Sir};
 use zo_ty::TyId;
@@ -248,5 +249,69 @@ fn test_template_with_dom_directive() {
     !has_native,
     "UI symbols must fold into libzo_runtime.dylib, not a \
      separate libzo_runtime_native reference"
+  );
+}
+
+/// The webview build emits the wry runtime entry. A `#render` program
+/// compiled with `Webviewing::Yes` must import `_zo_run_web` (the wry
+/// AOT entry) and never `_zo_run_native`; `No` is the mirror image.
+/// Both share the same SIR — only the emitted entry symbol differs.
+#[test]
+fn webview_render_calls_zo_run_web() {
+  fn run_symbols(webviewing: Webviewing) -> (bool, bool) {
+    let mut interner = Interner::new();
+    let mut sir = Sir::new();
+
+    let template_id = ValueId(1);
+    let ty_id = TyId(0);
+
+    sir.emit(Insn::Template {
+      id: template_id,
+      name: Some(interner.intern("counter")),
+      ty_id,
+      commands: vec![UiCommand::EndElement],
+      bindings: zo_sir::TemplateBindings::default(),
+    });
+
+    sir.emit(Insn::Directive {
+      name: interner.intern("render"),
+      value: template_id,
+      ty_id,
+    });
+
+    let mut codegen = ARM64Gen::new(&interner).with_webviewing(webviewing);
+    let artifact = codegen.generate(&sir);
+    let executable = zo_linker::link_macho(
+      codegen.into_link_object(artifact),
+      zo_codegen_backend::Target::Arm64AppleDarwin,
+    )
+    .executable;
+
+    let contains = |needle: &[u8]| {
+      executable
+        .windows(needle.len())
+        .any(|window| window == needle)
+    };
+
+    (contains(b"_zo_run_web"), contains(b"_zo_run_native"))
+  }
+
+  let (web_has_web, web_has_native) = run_symbols(Webviewing::Yes);
+
+  assert!(web_has_web, "a webview `#render` must import `_zo_run_web`");
+  assert!(
+    !web_has_native,
+    "a webview `#render` must not import the eframe `_zo_run_native`"
+  );
+
+  let (native_has_web, native_has_native) = run_symbols(Webviewing::No);
+
+  assert!(
+    native_has_native,
+    "a native `#render` must import `_zo_run_native`"
+  );
+  assert!(
+    !native_has_web,
+    "a native `#render` must not import the wry `_zo_run_web`"
   );
 }

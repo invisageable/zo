@@ -95,3 +95,84 @@ pub fn existing_lib_dirs(subdirs: &[&str]) -> Vec<PathBuf> {
 
   out
 }
+
+/// The cross-compiled runtime dylib filename. Apple-only for now
+/// (iOS bundling), so always the Mach-O `.dylib` extension.
+const RUNTIME_DYLIB: &str = "libzo_runtime.dylib";
+
+/// Candidate paths for the cross-compiled runtime dylib of `triple`,
+/// in priority order:
+///
+/// 1. `<exe-dir>/../lib/runtime/<triple>/libzo_runtime.dylib` —
+///    installed layout (`tasks/zo-install.sh` stages here).
+/// 2. `<exe-dir>/../<triple>/<profile>/libzo_runtime.dylib` — dev
+///    layout, where cargo cross-builds the cdylib as a sibling of
+///    the compiler's own `target/<profile>/zo`.
+///
+/// The runtime dylib's dev location is `target/<triple>/<profile>/`,
+/// not `crates/compiler-lib/`, so this can't reuse
+/// [`exe_relative_lib_dirs`]. Returns an empty `Vec` when
+/// `current_exe()` fails.
+pub fn runtime_dylib_candidates(triple: &str) -> Vec<PathBuf> {
+  let mut out = Vec::new();
+  let Ok(exe) = std::env::current_exe() else {
+    return out;
+  };
+  let Some(dir) = exe.parent() else {
+    return out;
+  };
+
+  out.push(
+    dir
+      .join("..")
+      .join("lib")
+      .join("runtime")
+      .join(triple)
+      .join(RUNTIME_DYLIB),
+  );
+
+  if let (Some(target_root), Some(profile)) = (dir.parent(), dir.file_name()) {
+    out.push(target_root.join(triple).join(profile).join(RUNTIME_DYLIB));
+  }
+
+  out
+}
+
+/// First [`runtime_dylib_candidates`] entry that exists on disk —
+/// the installed sysroot copy if present, else the in-repo build.
+/// `None` when `current_exe()` fails or neither layout has it.
+pub fn first_existing_runtime_dylib(triple: &str) -> Option<PathBuf> {
+  runtime_dylib_candidates(triple)
+    .into_iter()
+    .find(|p| p.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn runtime_dylib_candidates_shape() {
+    // `current_exe()` resolves under the test runner, so both the
+    // installed and dev candidates are present.
+    let candidates = runtime_dylib_candidates("aarch64-apple-ios-sim");
+
+    assert_eq!(candidates.len(), 2);
+
+    let installed = candidates[0].to_string_lossy();
+
+    assert!(
+      installed
+        .ends_with("lib/runtime/aarch64-apple-ios-sim/libzo_runtime.dylib",),
+      "installed candidate shape: {installed}",
+    );
+
+    let dev = candidates[1].to_string_lossy();
+
+    assert!(
+      dev.contains("aarch64-apple-ios-sim")
+        && dev.ends_with("libzo_runtime.dylib"),
+      "dev candidate shape: {dev}",
+    );
+  }
+}

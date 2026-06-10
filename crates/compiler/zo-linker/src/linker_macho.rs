@@ -91,13 +91,17 @@ pub fn link_macho(link_obj: MachoLinkObject, target: Target) -> LinkOutput {
   let mut macho = MachO::new();
   let mut code = link_obj.code;
 
-  // iOS embeds the runtime in `App.app/Frameworks/` next to the
-  // flat `App.app/<binary>`; desktop stages it in a sibling
+  // iOS/watchOS embed the runtime in `App.app/Frameworks/` next to
+  // the flat `App.app/<binary>`; desktop stages it in a sibling
   // `deps/`. Both resolve relative to the binary's own directory,
   // so the only difference is the subdirectory.
-  let is_ios =
-    matches!(target, Target::Arm64AppleIos | Target::Arm64AppleIosSim);
-  let runtime_subdir = if is_ios {
+  let is_app_bundle = matches!(
+    target,
+    Target::Arm64AppleIos
+      | Target::Arm64AppleIosSim
+      | Target::Arm64AppleWatchOsSim
+  );
+  let runtime_subdir = if is_app_bundle {
     "@executable_path/Frameworks"
   } else {
     "@loader_path/deps"
@@ -330,7 +334,9 @@ pub fn link_macho(link_obj: MachoLinkObject, target: Target) -> LinkOutput {
 
   macho.add_uuid();
 
-  if is_ios {
+  if matches!(target, Target::Arm64AppleWatchOsSim) {
+    macho.add_build_version_watchos_sim();
+  } else if is_app_bundle {
     let simulator = if matches!(target, Target::Arm64AppleIosSim) {
       Simulator::Yes
     } else {

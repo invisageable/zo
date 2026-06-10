@@ -234,6 +234,17 @@ impl ErrorRenderer {
       .replacen(&format!("{kind_word}:"), &format!("{kind_word} •"), 1)
       .replace(&format!("{ANSI_RESET}: "), &format!("{ANSI_RESET} • "));
 
+    // ariadne always colors; `ReportKind::Custom` even bypasses its
+    // own `Config::color` filter. So when color is disabled we render
+    // colored (the bullet rewrite above keys off the reset sequences),
+    // then drop every escape — one suppression point covers the whole
+    // diagnostic.
+    let rendered = if self.config.use_colors {
+      rendered
+    } else {
+      strip_ansi(&rendered)
+    };
+
     io::stderr().write_all(rendered.as_bytes())?;
 
     Ok(())
@@ -862,6 +873,37 @@ fn file_for_error<'a>(
   (source.as_str(), filename)
 }
 
+/// Removes ANSI CSI escape sequences (`ESC [ … final`) from
+/// `input`, leaving the text untouched. Operates on `char`s so
+/// multi-byte UTF-8 passes through intact — escape sequences are
+/// always ASCII.
+fn strip_ansi(input: &str) -> String {
+  let mut out = String::with_capacity(input.len());
+  let mut chars = input.chars();
+
+  while let Some(c) = chars.next() {
+    if c != '\u{1b}' {
+      out.push(c);
+
+      continue;
+    }
+
+    // ESC — skip the CSI: the `[`, then params, up to the final
+    // byte (the first char in `@`..=`~`, e.g. the `m` of an SGR).
+    if chars.next() != Some('[') {
+      continue;
+    }
+
+    for next in chars.by_ref() {
+      if ('@'..='~').contains(&next) {
+        break;
+      }
+    }
+  }
+
+  out
+}
+
 /// Extracts a display filename from a path.
 fn display_filename(path: &Path) -> String {
   path
@@ -967,5 +1009,35 @@ mod span_to_range_tests {
     for i in 0..=src.len() {
       assert_eq!(char_offset_for_byte(src, i), i);
     }
+  }
+}
+
+#[cfg(test)]
+mod strip_ansi_tests {
+  use super::strip_ansi;
+
+  /// A colored run (SGR set + reset) collapses to its text.
+  #[test]
+  fn drops_sgr_sequences() {
+    let colored = "\u{1b}[31mError\u{1b}[0m: oops";
+
+    assert_eq!(strip_ansi(colored), "Error: oops");
+  }
+
+  /// 256-color and multi-parameter sequences are removed whole.
+  #[test]
+  fn drops_extended_sequences() {
+    let colored = "\u{1b}[38;5;155mhi\u{1b}[0m";
+
+    assert_eq!(strip_ansi(colored), "hi");
+  }
+
+  /// Plain UTF-8 text is preserved byte-for-byte — the `—` and
+  /// `•` the diagnostics use must survive the strip.
+  #[test]
+  fn preserves_multibyte_text() {
+    let plain = "Note • types don't match — here";
+
+    assert_eq!(strip_ansi(plain), plain);
   }
 }

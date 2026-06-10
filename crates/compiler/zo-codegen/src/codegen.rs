@@ -1,6 +1,7 @@
 use zo_codegen_arm::ARM64Gen;
-use zo_codegen_backend::{Artifact, Backend, LinkObject, Target};
+use zo_codegen_backend::{Artifact, Backend, LinkObject, Target, Webviewing};
 use zo_codegen_clif::CliftGen;
+use zo_codegen_web::WebGen;
 use zo_interner::{Interner, Symbol};
 use zo_module_resolver::{AbstractDef, AbstractImpl};
 use zo_sir::Sir;
@@ -29,17 +30,30 @@ pub struct AbstractState {
 enum Concrete<'a> {
   Arm64(Box<ARM64Gen<'a>>),
   Clift(CliftGen<'a>),
+  Web(WebGen),
 }
 
 /// Represents the [`Codegen`] dispatcher.
 pub struct Codegen {
   target: Target,
+  /// Whether `#render` lowers to the webview runtime entry (wry) rather
+  /// than the native one (eframe). Set for a `--target webview` build.
+  webviewing: Webviewing,
 }
 
 impl Codegen {
   /// Creates a new [`Codegen`] instance.
   pub const fn new(target: Target) -> Self {
-    Self { target }
+    Self {
+      target,
+      webviewing: Webviewing::No,
+    }
+  }
+
+  /// Select the webview runtime entry for `#render` lowering.
+  pub const fn with_webviewing(mut self, webviewing: Webviewing) -> Self {
+    self.webviewing = webviewing;
+    self
   }
 
   /// Instantiates the backend matching `self.target`. The
@@ -59,8 +73,9 @@ impl Codegen {
       Target::Arm64AppleDarwin
       | Target::Arm64UnknownLinuxGnu
       | Target::Arm64AppleIos
-      | Target::Arm64AppleIosSim => {
-        let mut arm = ARM64Gen::new(interner);
+      | Target::Arm64AppleIosSim
+      | Target::Arm64AppleWatchOsSim => {
+        let mut arm = ARM64Gen::new(interner).with_webviewing(self.webviewing);
         if let Some((tys, ty_table)) = type_view {
           arm = arm.with_type_view(tys, ty_table);
         }
@@ -77,6 +92,7 @@ impl Codegen {
         Concrete::Clift(CliftGen::new(interner, self.target))
       }
       Target::Wasm32UnknownUnknown => todo!("wasm backend not yet wired"),
+      Target::Web => Concrete::Web(WebGen::new()),
     }
   }
 
@@ -112,9 +128,13 @@ impl Codegen {
 
         LinkObject::Object(artifact.code)
       }
+      Concrete::Web(mut codegen) => {
+        LinkObject::Web(codegen.generate(interner, sir))
+      }
     }
   }
 
+  // TODO: returns `Option<Artifact>`.
   /// Generates the [`Artifact`].
   pub fn generate_artifact(
     &self,
@@ -126,9 +146,13 @@ impl Codegen {
     match self.make_backend(interner, type_view, abstract_state) {
       Concrete::Arm64(mut codegen) => codegen.generate(sir),
       Concrete::Clift(mut codegen) => codegen.generate(sir),
+      Concrete::Web(_) => {
+        unreachable!("web target produces no machine-code artifact")
+      }
     }
   }
 
+  // TODO: returns `Option<String>`.
   /// Generates assembly text for display. ARM returns
   /// disassembled ARM64; Cranelift returns CLIF IR text (pre-
   /// machine-code — equivalently useful for debugging the
@@ -144,6 +168,7 @@ impl Codegen {
     match self.make_backend(interner, type_view, abstract_state) {
       Concrete::Arm64(mut codegen) => codegen.generate_asm(sir),
       Concrete::Clift(mut codegen) => codegen.generate_asm(sir),
+      Concrete::Web(_) => unreachable!("web target produces no assembly"),
     }
   }
 }

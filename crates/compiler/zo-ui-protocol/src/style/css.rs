@@ -8,9 +8,10 @@
 //! one computed style, no per-target CSS path.
 //!
 //! Selectors are keyed by their leading tag with any scope hash
-//! stripped (`p._zo_a3f2` → `p`). Class-only selectors (`.card`)
-//! keep their dotted form, so they never collide with a tag on
-//! native; the web renderer still honours them through real CSS.
+//! stripped (`p._zo_a3f2` → `p`); a class-only selector (`.card`)
+//! keeps its dotted form so it keys by class. The layout cascade
+//! folds the tag rule then each `.class` an element names, so class
+//! styling applies on every runtime (native + web), not the web alone.
 
 use super::computed::{
   Align, Display, Edges, FlexDirection, GlassStyle, Justify, Material, Rgba,
@@ -210,17 +211,21 @@ fn parse_material(value: &str) -> Option<Material> {
   }
 }
 
-/// Strip a scope hash so a selector keys by its tag (`p._zo_a3f2`
-/// → `p`). A class-only selector (`.card`) has no leading tag and
-/// keeps its dotted form.
+/// Key a selector for native matching, dropping any scope hash: a tag
+/// selector keys by its leading tag (`p._zo_a3f2` → `p`); a class-only
+/// selector keys by its first class (`.card._zo_a3f2` → `.card`).
+/// Native renders one component, so the scope isolation the hash gives
+/// the web collapses to the bare name here.
 fn selector_key(selector: &str) -> String {
-  selector
-    .split('.')
-    .next()
-    .filter(|s| !s.is_empty())
-    .unwrap_or(selector)
-    .trim()
-    .to_string()
+  let selector = selector.trim();
+
+  if let Some(classes) = selector.strip_prefix('.') {
+    let class = classes.split('.').next().unwrap_or(classes);
+
+    format!(".{class}")
+  } else {
+    selector.split('.').next().unwrap_or(selector).to_string()
+  }
 }
 
 /// Parse a CSS length (`16px`, `8`) into pixels. The unit suffix is
@@ -417,6 +422,18 @@ mod tests {
     let rules = parse("p._zo_a3f2 { color: blue; }");
 
     assert!(author_patch(&rules, "p").is_some());
+  }
+
+  #[test]
+  fn scoped_class_selector_keys_by_class() {
+    // A scoped `$: {}` rewrites `.card` → `.card._zo_a3f2`; native
+    // must still key it `.card` so `<div class="card">` resolves.
+    let rules = parse(".card._zo_a3f2 { background: red; }");
+
+    assert_eq!(
+      author_patch(&rules, ".card").unwrap().background,
+      Some(Rgba::rgb(255, 0, 0))
+    );
   }
 
   #[test]

@@ -134,27 +134,25 @@ zo_build program:
 zo_run program:
   cargo run --bin zo -- run {{program}}
 
-# zo: Build and launch a zo program in the iOS Simulator
+# zo: Cross-build the iOS Simulator runtime (in-repo dev prerequisite)
 [group("zo")]
-zo_run_ios program device="iPhone 17 Pro":
-  #!/usr/bin/env sh
-  set -eu
-  name="$(basename "{{program}}" .zo)"
-  out="target/ios-sim/${name}"
-  id="house.compilords.${name}"
-  # Cross-build the iOS UIKit runtime + the compiler. `zo build`
-  # emits the signed ${out}.app (binary + Info.plist + Frameworks/).
-  cargo build -q -p zo-runtime --target aarch64-apple-ios-sim
-  cargo build -q --bin zo
-  mkdir -p target/ios-sim
-  ./target/debug/zo build "{{program}}" --target=ios-sim -o "$out"
-  # Boot the device (idempotent) and bring up the Simulator window so
-  # it shows that exact device, then install + launch onto it.
-  xcrun simctl bootstatus "{{device}}" -b
-  open -a Simulator
-  xcrun simctl install "{{device}}" "${out}.app"
-  xcrun simctl launch "{{device}}" "$id"
-  echo "launched ${name} (${id}) on {{device}}"
+build_ios_runtime:
+  cargo build -p zo-runtime --target aarch64-apple-ios-sim
+
+# zo: Run a zo program in the iOS Simulator (device auto-selects when omitted)
+[group("zo")]
+zo_run_ios program device="": build_ios_runtime
+  cargo run --bin zo -- run "{{program}}" --target ios --device "{{device}}"
+
+# zo: Cross-build the watchOS Simulator runtime (in-repo dev prerequisite)
+[group("zo")]
+build_watchos_runtime:
+  cargo build -p zo-runtime --target aarch64-apple-watchos-sim -Zbuild-std=std,panic_abort
+
+# zo: Run a zo program in the watchOS Simulator (device auto-selects when omitted)
+[group("zo")]
+zo_run_watchos program device="": build_watchos_runtime
+  cargo run --bin zo -- run "{{program}}" --target watchos --device "{{device}}"
 
 # Run all zo crates tests
 [group('zo')]

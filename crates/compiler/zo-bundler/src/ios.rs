@@ -6,15 +6,30 @@
 //! linker and rustc respectively), which the Simulator accepts — so M1
 //! does no re-signing and writes no `_CodeSignature` seal.
 
+pub mod device;
+pub mod simulator;
+
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Everything needed to lay down one iOS `.app`.
+/// The Apple platform a bundle runs on — selects the `Info.plist`
+/// platform values, the device family, and the watch-specific keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Platform {
+  /// iPhone/iPad Simulator.
+  IphoneSimulator,
+  /// A physical iPhone/iPad.
+  Iphone,
+  /// Apple Watch Simulator.
+  WatchSimulator,
+}
+
+/// Everything needed to lay down one iOS/watchOS `.app`.
 pub struct BundleSpec<'a> {
   /// The linked, ad-hoc-signed Mach-O executable.
   pub binary: &'a Path,
-  /// The iOS runtime dylib to embed under `Frameworks/`.
+  /// The platform runtime dylib to embed under `Frameworks/`.
   pub runtime_dylib: &'a Path,
   /// The output `App.app` directory (created fresh each call).
   pub app_dir: &'a Path,
@@ -22,9 +37,8 @@ pub struct BundleSpec<'a> {
   pub name: &'a str,
   /// Bundle identifier, e.g. `house.compilords.counter`.
   pub bundle_id: &'a str,
-  /// Whether the bundle targets the Simulator (vs a device) — selects
-  /// the `CFBundleSupportedPlatforms` / `DTPlatformName` values.
-  pub simulator: bool,
+  /// The platform the bundle runs on.
+  pub platform: Platform,
   /// The program's stylesheets. The bundler scans them for local
   /// `background-image` assets to copy into the bundle, so a shipped
   /// app reaches them (its sandbox sees only its own `.app`).
@@ -45,7 +59,7 @@ pub fn bundle(spec: &BundleSpec) -> io::Result<()> {
   let exe = spec.app_dir.join(spec.name);
 
   fs::copy(spec.binary, &exe)?;
-  set_executable(&exe)?;
+  crate::set_executable(&exe)?;
 
   fs::write(spec.app_dir.join("Info.plist"), info_plist(spec))?;
   fs::write(spec.app_dir.join("PkgInfo"), b"APPL????")?;
@@ -101,11 +115,34 @@ fn collect_local_assets(stylesheets: &[&str]) -> Vec<PathBuf> {
 /// `UIApplicationSceneManifest` that opts into the `UIScene` lifecycle
 /// and names `ZoSceneDelegate` — without it UIKit stays on the legacy
 /// app-delegate window path and never connects the scene.
+///
+/// A watch bundle differs on every platform-derived value: device
+/// family `4`, the `WKApplication`/`WKWatchOnly` keys that mark a
+/// standalone watch app (installd rejects the bundle without them),
+/// and the PepperUI Carousel scene role.
 fn info_plist(spec: &BundleSpec) -> String {
-  let (platform, dt_platform) = if spec.simulator {
-    ("iPhoneSimulator", "iphonesimulator")
+  let (platform, dt_platform) = match spec.platform {
+    Platform::IphoneSimulator => ("iPhoneSimulator", "iphonesimulator"),
+    Platform::Iphone => ("iPhoneOS", "iphoneos"),
+    Platform::WatchSimulator => ("WatchSimulator", "watchsimulator"),
+  };
+  let watch = spec.platform == Platform::WatchSimulator;
+  let minimum_os = if watch { "9.0" } else { "15.0" };
+  let device_family = if watch {
+    "<integer>4</integer>"
   } else {
-    ("iPhoneOS", "iphoneos")
+    "<integer>1</integer><integer>2</integer>"
+  };
+  let scene_role = if watch {
+    "PUICApplicationSceneSessionRoleApplication"
+  } else {
+    "UIWindowSceneSessionRoleApplication"
+  };
+  let watch_keys = if watch {
+    "\n  <key>WKApplication</key><true/>\n  \
+     <key>WKWatchOnly</key><true/>"
+  } else {
+    ""
   };
 
   format!(
@@ -123,15 +160,15 @@ fn info_plist(spec: &BundleSpec) -> String {
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundleSupportedPlatforms</key><array><string>{platform}</string></array>
   <key>DTPlatformName</key><string>{dt_platform}</string>
-  <key>MinimumOSVersion</key><string>15.0</string>
-  <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
+  <key>MinimumOSVersion</key><string>{minimum_os}</string>
+  <key>UIDeviceFamily</key><array>{device_family}</array>{watch_keys}
   <key>UILaunchScreen</key><dict/>
   <key>UIApplicationSceneManifest</key>
   <dict>
     <key>UIApplicationSupportsMultipleScenes</key><false/>
     <key>UISceneConfigurations</key>
     <dict>
-      <key>UIWindowSceneSessionRoleApplication</key>
+      <key>{scene_role}</key>
       <array>
         <dict>
           <key>UISceneConfigurationName</key><string>Default Configuration</string>
@@ -147,21 +184,9 @@ fn info_plist(spec: &BundleSpec) -> String {
     id = spec.bundle_id,
     platform = platform,
     dt_platform = dt_platform,
+    minimum_os = minimum_os,
+    device_family = device_family,
+    watch_keys = watch_keys,
+    scene_role = scene_role,
   )
-}
-
-/// Mark the copied executable `rwxr-xr-x` — `fs::copy` drops the bit
-/// on some filesystems and the Simulator refuses a non-executable.
-fn set_executable(path: &Path) -> io::Result<()> {
-  #[cfg(unix)]
-  {
-    use std::os::unix::fs::PermissionsExt;
-
-    let mut perms = fs::metadata(path)?.permissions();
-
-    perms.set_mode(0o755);
-    fs::set_permissions(path, perms)?;
-  }
-
-  Ok(())
 }

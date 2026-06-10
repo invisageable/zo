@@ -1,4 +1,4 @@
-use zo_interner::Symbol;
+use zo_interner::{Interner, Symbol};
 use zo_span::Span;
 use zo_token::Token;
 use zo_ty::Mutability;
@@ -264,6 +264,89 @@ impl Sir {
     }
 
     sheets
+  }
+
+  /// The `UiCommand` stream of every template a `#render` directive
+  /// targets, concatenated in instruction order. The one extractor
+  /// shared by the run path (the driver's in-process runtime) and the
+  /// web build (`zo-codegen-web`), so both agree on which templates
+  /// render. Filesystem image resolution is the caller's job.
+  pub fn ui_commands(&self, interner: &Interner) -> Vec<UiCommand> {
+    let targets = self.render_targets(interner);
+    let mut commands = Vec::new();
+
+    for insn in &self.instructions {
+      if let Insn::Template {
+        id,
+        commands: template_commands,
+        ..
+      } = insn
+        && targets.contains(id)
+      {
+        commands.extend_from_slice(template_commands);
+      }
+    }
+
+    commands
+  }
+
+  /// The template `ValueId`s a `#render` directive targets — the shared
+  /// filter behind [`ui_commands`](Self::ui_commands) and
+  /// [`bindings`](Self::bindings).
+  fn render_targets(&self, interner: &Interner) -> Vec<ValueId> {
+    let mut targets = Vec::new();
+
+    for insn in &self.instructions {
+      if let Insn::Directive { name, value, .. } = insn
+        && zo_ui_protocol::is_render_directive(interner.get(*name))
+      {
+        targets.push(*value);
+      }
+    }
+
+    targets
+  }
+
+  /// Every reactive binding of every `#render`-targeted template,
+  /// rebased into the concatenated command-stream index space that
+  /// [`ui_commands`](Self::ui_commands) produces. Each `cmd_idx` indexes
+  /// the same stream, so a consumer pairs bindings with commands without
+  /// re-deriving per-template offsets.
+  pub fn bindings(&self, interner: &Interner) -> TemplateBindings {
+    let targets = self.render_targets(interner);
+    let mut out = TemplateBindings::default();
+    let mut base = 0;
+
+    for insn in &self.instructions {
+      if let Insn::Template {
+        id,
+        commands,
+        bindings,
+        ..
+      } = insn
+        && targets.contains(id)
+      {
+        for (cmd_idx, var) in &bindings.text {
+          out.text.push((base + cmd_idx, *var));
+        }
+
+        for (cmd_idx, attr) in &bindings.attrs {
+          out.attrs.push((base + cmd_idx, attr.clone()));
+        }
+
+        for (cmd_idx, computed) in &bindings.computed {
+          out.computed.push((base + cmd_idx, computed.clone()));
+        }
+
+        for (cmd_idx, list) in &bindings.list {
+          out.list.push((base + cmd_idx, list.clone()));
+        }
+
+        base += commands.len();
+      }
+    }
+
+    out
   }
 
   /// Creates a new [`SirBuilder`] instance.
@@ -1216,7 +1299,7 @@ pub enum Insn {
   /// argument). This is how a non-capturing `Fn()` value
   /// becomes a real runtime pointer; without it a `Fn()`
   /// operand lowers to the `u32::MAX` sentinel and silently
-  /// mis-lowers across an FFI boundary.
+  /// lowers wrong across an FFI boundary.
   ///
   /// Codegen reuses the same user-function-address fixup as
   /// `TaskSpawn`: an ADR placeholder patched to the callee's
@@ -1478,5 +1561,55 @@ impl UnOp {
     };
 
     UNOPS[kind as usize]
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn ui_commands_collects_only_targeted_templates() {
+    let mut interner = Interner::new();
+    let render = interner.intern("render");
+    let other = interner.intern("other");
+
+    let mut sir = Sir::new();
+
+    sir.instructions = vec![
+      // `#render` points at the template at ValueId(7).
+      Insn::Directive {
+        name: render,
+        value: ValueId(7),
+        ty_id: TyId(0),
+      },
+      // A non-render directive at ValueId(9) — must be ignored.
+      Insn::Directive {
+        name: other,
+        value: ValueId(9),
+        ty_id: TyId(0),
+      },
+      // The targeted template contributes its commands.
+      Insn::Template {
+        id: ValueId(7),
+        name: None,
+        ty_id: TyId(0),
+        commands: vec![UiCommand::Text("hello".into())],
+        bindings: TemplateBindings::default(),
+      },
+      // An untargeted template must be excluded.
+      Insn::Template {
+        id: ValueId(9),
+        name: None,
+        ty_id: TyId(0),
+        commands: vec![UiCommand::Text("ignored".into())],
+        bindings: TemplateBindings::default(),
+      },
+    ];
+
+    assert_eq!(
+      sir.ui_commands(&interner),
+      vec![UiCommand::Text("hello".into())],
+    );
   }
 }

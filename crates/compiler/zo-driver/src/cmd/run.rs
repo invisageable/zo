@@ -1,11 +1,12 @@
 use crate::args;
 use crate::cmd::Handle;
-use crate::constants::EXIT_CODE_ERROR;
+use crate::constants::{EXIT_CODE_ERROR, EXIT_CODE_USAGE};
 
+use zo_bundler::ios::simulator::Simulator;
 use zo_compiler::{Analyzed, Compiler};
 use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
-use zo_runtime::Runtime;
+use zo_runtime::{Runtime, Server};
 use zo_runtime_render::reactive::{
   ResolvedComputedBindings, apply_computed_bindings, apply_list_bindings,
 };
@@ -49,13 +50,19 @@ struct ReactiveContext<'a> {
 pub(crate) struct Run {
   #[command(flatten)]
   pub(crate) args: args::Args,
+  /// The Simulator device for `run --target ios|watchos` — a device
+  /// name (e.g. "Apple Vision Pro") or UDID, resolved against the
+  /// devices the machine actually has. Omitted: the booted device
+  /// wins, else the newest iPhone (or watch, for `watchos`).
+  #[arg(long)]
+  pub(crate) device: Option<String>,
 }
 
 impl Run {
   fn run(&self) -> Result<(), Error> {
     if self.args.files.is_empty() {
       eprintln!("Error: No input files specified");
-      std::process::exit(EXIT_CODE_ERROR);
+      std::process::exit(EXIT_CODE_USAGE);
     }
 
     let input_path = &self.args.files[0];
@@ -67,10 +74,35 @@ impl Run {
       format: self.args.format.into(),
       snippet_context: self.args.snippet_context,
       explain_decisions: self.args.explain_decisions,
+      use_colors: self.args.use_colors(),
+      quiet: self.args.quiet,
     });
 
     let (semantic, tokenization, parsing, session, file_table) =
       compiler.analyze_source(&source, input_path);
+
+    // iOS/watchOS and web all build an artifact and hand off to a
+    // Runtimer — the Simulator for iOS/watchOS, a local server +
+    // browser for web. None uses the in-process command/event runtime
+    // below, so they branch out here on the shared analysis.
+    if self.args.target.is_ios()
+      || self.args.target.is_watchos()
+      || self.args.target.is_web()
+    {
+      let analyzed = Analyzed {
+        semantic,
+        tokenization,
+        parsing,
+        session,
+        file_table,
+      };
+
+      return if self.args.target.is_web() {
+        self.run_web(&mut compiler, &analyzed)
+      } else {
+        self.run_simulator(&mut compiler, &analyzed, input_path)
+      };
+    }
 
     // Collect the set of template ValueIds targeted by `#render`
     // directives. Templates are component definitions —
@@ -151,17 +183,19 @@ impl Run {
 
     // Template path: launch runtime.
     if has_dom_directive && !ui_commands.is_empty() {
-      let graphics = if self.args.web {
+      let graphics = if self.args.target.is_webview() {
         Graphics::Web
       } else {
         Graphics::Native
       };
 
-      println!(
-        "Running template with {} UI commands \
-         ({graphics:?} mode)...",
-        ui_commands.len(),
-      );
+      if !self.args.quiet {
+        eprintln!(
+          "Running template with {} UI commands \
+           ({graphics:?} mode)...",
+          ui_commands.len(),
+        );
+      }
 
       // Collect handler names from Event commands.
       let mut handler_names: Vec<String> = Vec::new();
@@ -309,6 +343,117 @@ impl Run {
     Ok(())
   }
 
+  /// Build the iOS/watchOS `.app` from the already-analyzed program
+  /// and hand it to the Simulator: boot, install, launch.
+  fn run_simulator(
+    &self,
+    compiler: &mut Compiler,
+    analyzed: &Analyzed,
+    input_path: &std::path::Path,
+  ) -> Result<(), Error> {
+    let Some(name) = input_path.file_stem().and_then(|s| s.to_str()) else {
+      eprintln!(
+        "Error: cannot derive an app name from {}",
+        input_path.display(),
+      );
+
+      std::process::exit(EXIT_CODE_ERROR);
+    };
+
+    // Resolve the device against the machine's actual simulators
+    // before the build — a bad `--device` should fail fast, not after
+    // codegen.
+    let devices = match zo_bundler::ios::device::detect() {
+      Ok(devices) => devices,
+      Err(error) => {
+        eprintln!("Error listing Simulator devices: {error}");
+
+        std::process::exit(EXIT_CODE_ERROR);
+      }
+    };
+
+    // An empty `--device ""` means auto-select.
+    let requested = self.device.as_deref().filter(|name| !name.is_empty());
+
+    let artifact = if self.args.target.is_watchos() {
+      zo_bundler::ios::device::Artifact::Watchos
+    } else {
+      zo_bundler::ios::device::Artifact::Ios
+    };
+
+    let device =
+      match zo_bundler::ios::device::resolve(&devices, requested, artifact) {
+        Ok(device) => device,
+        Err(error) => {
+          eprintln!("Error: {error}");
+
+          std::process::exit(EXIT_CODE_ERROR);
+        }
+      };
+
+    // Build the `.app` into a per-run directory so its path is stable
+    // and isolated from concurrent runs.
+    let out_dir =
+      std::env::temp_dir().join(format!("zo_run_ios_{}", std::process::id()));
+
+    let _ = std::fs::create_dir_all(&out_dir);
+
+    let output_path = out_dir.join(name);
+
+    compiler.compile_analyzed(
+      analyzed,
+      self.args.target.into(),
+      &output_path,
+    )?;
+
+    let app = output_path.with_extension("app");
+    let bundle_id = zo_bundler::bundle_id(name);
+    let simulator = Simulator::new(&device.udid);
+
+    if !self.args.quiet {
+      eprintln!(
+        "Launching on {} ({} {})...",
+        device.name, device.os, device.os_version,
+      );
+    }
+
+    if let Err(error) = simulator.launch(&app, &bundle_id) {
+      eprintln!("Error launching Simulator: {error}");
+
+      std::process::exit(EXIT_CODE_ERROR);
+    }
+
+    Ok(())
+  }
+
+  /// Build the `public/` bundle from this analysis, then serve it on
+  /// localhost and open the browser. Blocks until the process is
+  /// killed (Ctrl-C), like the in-process window paths.
+  fn run_web(
+    &self,
+    compiler: &mut Compiler,
+    analyzed: &Analyzed,
+  ) -> Result<(), Error> {
+    // Build into a per-run `public/` dir so its path is stable and
+    // isolated from concurrent runs.
+    let public = std::env::temp_dir()
+      .join(format!("zo_run_web_{}", std::process::id()))
+      .join("public");
+
+    let _ = std::fs::create_dir_all(&public);
+
+    compiler.compile_analyzed(analyzed, self.args.target.into(), &public)?;
+
+    let server = Server::new(&public).with_quiet(self.args.quiet.into());
+    if let Err(error) = server.serve() {
+      eprintln!("Error serving web bundle: {error}");
+
+      std::process::exit(EXIT_CODE_ERROR);
+    }
+
+    Ok(())
+  }
+
   /// Register static event handlers (non-reactive path).
   fn build_static_handlers(
     &self,
@@ -407,6 +552,16 @@ impl Run {
       register_slot(lb.items_var, &mut state_slots);
     }
 
+    // Every reactive var keyed to its cell slot, so a handler that
+    // mutates a template mutable without capturing it (the `+` of a
+    // counter — the executor leaves a post-binding closure's mutable
+    // free) still writes the right cell.
+    let state_syms: Vec<(Symbol, usize)> = state_slots
+      .iter()
+      .enumerate()
+      .map(|(slot_idx, (sym, _, _))| (*sym, slot_idx))
+      .collect();
+
     // Register closure handlers.
     for insn in instructions {
       let (name, capture_count, params) = match insn {
@@ -495,11 +650,13 @@ impl Run {
       let closure_sym = *name;
       let computed_binds_clone = computed_binds.clone();
       let list_binds_clone = list_binds.clone();
+      let state_syms_clone = state_syms.clone();
 
       registry.register(
         fun_name,
         Box::new(move |payload| {
-          let mut eval = zo_runtime_render::evaluator::HandlerEvaluator::new();
+          let mut eval = zo_runtime_render::evaluator::HandlerEvaluator::new()
+            .with_state_syms(state_syms_clone.clone());
 
           eval.execute(
             &sir,

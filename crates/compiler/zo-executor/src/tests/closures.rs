@@ -805,3 +805,77 @@ fun main() {
 }"#,
   );
 }
+
+/// Both `@click` handlers write `count`; one precedes the `{count}`
+/// binding, one follows it. Neither captures `count` — a mutable an
+/// event handler writes is reactive state, so it stays free regardless
+/// of where it sits relative to its binding. (Before the fix the
+/// leading `-` handler captured `count` and the trailing `+` left it
+/// free — an order-dependent split.)
+#[test]
+fn event_handlers_leave_written_mutable_free_regardless_of_order() {
+  assert_sir_structure(
+    r#"fun main() {
+  mut count: int = 0;
+  imu view: </> ::= <>
+    <button @click={fn() => count -= 1}>-</button>
+    {count}
+    <button @click={fn() => count += 1}>+</button>
+  </>;
+
+  #render view;
+}"#,
+    |sir| {
+      let captures: Vec<u32> = sir
+        .iter()
+        .filter_map(|insn| match insn {
+          Insn::FunDef {
+            kind: FunctionKind::Closure { capture_count },
+            ..
+          } => Some(*capture_count),
+          _ => None,
+        })
+        .collect();
+
+      assert_eq!(
+        captures,
+        vec![0, 0],
+        "both event handlers must leave the written mutable free",
+      );
+    },
+  );
+}
+
+/// `items.push(...)` mutates `items` in place, so the `@click` handler
+/// (declared before the `{items.map}` binding) must leave `items` free
+/// — the method-mutation case of the same order-independence rule. The
+/// first closure is the handler; the `.map` closure follows it.
+#[test]
+fn event_handler_pushing_to_list_leaves_it_free() {
+  assert_sir_structure(
+    r#"fun main() {
+  mut items: []str = [];
+  imu view: </> ::= <>
+    <button @click={fn() => items.push("x")}>add</button>
+    <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>
+  </>;
+
+  #render view;
+}"#,
+    |sir| {
+      let handler = sir.iter().find_map(|insn| match insn {
+        Insn::FunDef {
+          kind: FunctionKind::Closure { capture_count },
+          ..
+        } => Some(*capture_count),
+        _ => None,
+      });
+
+      assert_eq!(
+        handler,
+        Some(0),
+        "the list push handler must not capture its array",
+      );
+    },
+  );
+}

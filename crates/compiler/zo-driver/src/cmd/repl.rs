@@ -8,7 +8,7 @@ pub(crate) struct Repl {}
 
 impl Repl {
   fn repl(&self) -> Result<(), Vec<Error>> {
-    println!("read eval loop!");
+    eprintln!("read eval loop!");
     Ok(())
   }
 }

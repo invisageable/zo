@@ -6,7 +6,7 @@
 -! runtime ABI carries no captured environment. A closure
 -! handed to `Pool::run` must therefore capture nothing; a
 -! capturing one is rejected at compile time instead of
--! silently mis-lowering to a garbage address.
+-! silently mislowering to a garbage address.
 
 load core::pool;
 

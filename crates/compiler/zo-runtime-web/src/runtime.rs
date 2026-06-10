@@ -1,6 +1,6 @@
 //! Web runtime for zo applications using wry webview
 
-use crate::renderer::HtmlRenderer;
+use zo_codegen_web::WebGen;
 
 use zo_runtime_render::render::{
   EventPayload, EventRegistry, RuntimeConfig, build_event_map,
@@ -54,7 +54,7 @@ impl Runtime {
     use wry::WebView;
 
     let commands = self.commands.lock().unwrap().clone();
-    let mut html_renderer = HtmlRenderer::new();
+    let mut html_renderer = WebGen::new();
     let html = html_renderer.render_to_html(&commands);
 
     struct App {
@@ -70,7 +70,7 @@ impl Runtime {
       /// length-mismatch fallback's `render_body_inner`
       /// doesn't allocate a fresh `String` buffer +
       /// `event_map` each event.
-      renderer: HtmlRenderer,
+      renderer: WebGen,
       proxy: EventLoopProxy<String>,
       // WebView must drop before Window.
       webview: Option<WebView>,
@@ -229,7 +229,10 @@ impl Default for Runtime {
 /// Serve a request on the `zo://` custom protocol.
 ///
 /// - `/` (or empty path) → the generated HTML document.
-/// - any other path → the file on disk at that absolute path.
+/// - any other path → the file at that absolute path, else the asset's
+///   basename in the app's resource dir (a distributed `.app` carries
+///   its assets there; the baked `src` may be a build-machine path that
+///   no longer exists).
 fn serve_asset(
   html: &str,
   request: wry::http::Request<Vec<u8>>,
@@ -251,19 +254,53 @@ fn serve_asset(
   // — strip the leading `/` so `std::fs::read` sees a valid
   // `C:/foo.png` path.
   let fs_path_str = uri_path_to_fs(path);
-  let fs_path: &std::path::Path = fs_path_str.as_ref();
 
-  match std::fs::read(fs_path) {
-    Ok(bytes) => Response::builder()
+  // Absolute read first (the in-process `zo run` path resolves srcs to
+  // real paths); fall back to the bundled copy by basename for a
+  // relocated `.app`.
+  let bytes = std::fs::read(&fs_path_str).ok().or_else(|| {
+    bundle_resource(basename(&fs_path_str))
+      .and_then(|resource| std::fs::read(resource).ok())
+  });
+
+  match bytes {
+    Some(bytes) => Response::builder()
       .header(CONTENT_TYPE, mime_from_path(path))
       .body(bytes.into())
       .unwrap(),
-    Err(_) => Response::builder()
+    None => Response::builder()
       .status(404)
       .header(CONTENT_TYPE, "text/plain")
       .body(Vec::<u8>::new().into())
       .unwrap(),
   }
+}
+
+/// The macOS `.app` resource path for an asset `name` —
+/// `<exe-dir>/../Resources/<name>` (the executable lives in
+/// `Contents/MacOS/`, assets in `Contents/Resources/`). `None` when no
+/// such file exists, so the in-process path (no bundle) skips it.
+fn bundle_resource(name: &str) -> Option<std::path::PathBuf> {
+  let exe = std::env::current_exe().ok()?;
+
+  bundle_resource_in(exe.parent()?, name)
+}
+
+/// `<macos_dir>/../Resources/<name>` when it's a file. Split from
+/// [`bundle_resource`] so the path logic is testable without the
+/// process's real `current_exe` layout.
+fn bundle_resource_in(
+  macos_dir: &std::path::Path,
+  name: &str,
+) -> Option<std::path::PathBuf> {
+  let resource = macos_dir.join("..").join("Resources").join(name);
+
+  resource.is_file().then_some(resource)
+}
+
+/// The final path component of `path` (handles `/` and `\`).
+fn basename(path: &str) -> &str {
+  path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
 /// Convert a URI path (`/C:/foo.png` or `/tmp/foo.png`) to a
@@ -347,7 +384,7 @@ fn parse_ipc_event(event: &str) -> Option<(&str, EventKind, EventPayload)> {
 /// - **Length mismatch** (`new.len() != old.len()`) — list
 ///   bindings splice multiple commands into a single
 ///   placeholder slot, so the new buffer is longer. Trigger
-///   a full body re-render via `HtmlRenderer::render_to_html`
+///   a full body re-render via `WebGen::render_to_html`
 ///   so the new content reaches the DOM. Same shape the
 ///   native renderer uses (every frame reads the full shared
 ///   buffer).
@@ -358,7 +395,7 @@ fn parse_ipc_event(event: &str) -> Option<(&str, EventKind, EventPayload)> {
 ///   program-side clear (`input_val = ""`) actually empties
 ///   the field.
 fn build_patch_js(
-  renderer: &mut HtmlRenderer,
+  renderer: &mut WebGen,
   old: &[UiCommand],
   new: &[UiCommand],
 ) -> String {
@@ -635,6 +672,30 @@ mod tests {
     let _ = std::fs::remove_file(&tmp);
   }
 
+  #[test]
+  fn basename_takes_final_path_component() {
+    assert_eq!(basename("/Users/x/assets/logo.png"), "logo.png");
+    assert_eq!(basename("logo.png"), "logo.png");
+  }
+
+  #[test]
+  fn bundle_resource_resolves_against_the_app_layout() {
+    // Mimic `Foo.app/Contents/{MacOS, Resources/asset.png}` — the
+    // fallback a relocated `.app` uses when a baked `src` is gone.
+    let root = std::env::temp_dir().join("zo_bundle_resource_test");
+    let macos = root.join("Contents").join("MacOS");
+    let resources = root.join("Contents").join("Resources");
+
+    std::fs::create_dir_all(&macos).unwrap();
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::write(resources.join("asset.png"), b"x").unwrap();
+
+    assert!(bundle_resource_in(&macos, "asset.png").is_some());
+    assert!(bundle_resource_in(&macos, "missing.png").is_none());
+
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
   // ─── build_patch_js tests ──────────────────────────────
 
   use zo_ui_protocol::{Attr, ElementTag, PropValue};
@@ -656,7 +717,7 @@ mod tests {
     let old = vec![text("hello"), text("world")];
     let new = old.clone();
 
-    assert_eq!(build_patch_js(&mut HtmlRenderer::new(), &old, &new), "");
+    assert_eq!(build_patch_js(&mut WebGen::new(), &old, &new), "");
   }
 
   #[test]
@@ -664,7 +725,7 @@ mod tests {
     let old = vec![text("hello"), text("world")];
     let new = vec![text("hello"), text("zo")];
 
-    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
+    let js = build_patch_js(&mut WebGen::new(), &old, &new);
 
     // Only the second command changed — expect one patch on
     // idx=1 with the new content.
@@ -691,7 +752,7 @@ mod tests {
       Attr::str_prop("src", "/b.png"),
     ])];
 
-    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
+    let js = build_patch_js(&mut WebGen::new(), &old, &new);
 
     assert!(js.contains("setAttribute"), "should setAttribute: {js}");
     assert!(js.contains("src"), "should target src attr: {js}");
@@ -718,7 +779,7 @@ mod tests {
       },
     ])];
 
-    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
+    let js = build_patch_js(&mut WebGen::new(), &old, &new);
 
     assert!(js.contains("setAttribute"), "should setAttribute: {js}");
     assert!(js.contains("width"), "should target width attr: {js}");
@@ -738,7 +799,7 @@ mod tests {
       Attr::str_prop("src", "/b.png"),
     ])];
 
-    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
+    let js = build_patch_js(&mut WebGen::new(), &old, &new);
 
     assert_eq!(
       js.matches("setAttribute").count(),
@@ -760,7 +821,7 @@ mod tests {
       img(vec![Attr::str_prop("src", "/d.png")]),
     ];
 
-    let js = build_patch_js(&mut HtmlRenderer::new(), &old, &new);
+    let js = build_patch_js(&mut WebGen::new(), &old, &new);
 
     // Two attr changes (idx 0 and idx 2), no text change.
     assert_eq!(

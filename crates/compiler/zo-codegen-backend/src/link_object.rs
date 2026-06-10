@@ -12,9 +12,20 @@
 //! boundary — every field the linker needs is materialized
 //! into the `LinkObject` at the codegen-phase boundary.
 
+use zo_interner::Symbol;
+
 use rustc_hash::FxHashMap;
 
-use zo_interner::Symbol;
+use std::path::PathBuf;
+
+/// A static web bundle: the output files of `zo-codegen-web`, each
+/// keyed by its path relative to the output directory. There is no
+/// machine code — the linker just materialises these to disk.
+pub struct WebBundle {
+  /// `(relative path, file contents)` for every emitted file:
+  /// `index.html`, and later `app.js`, `styles.css`, `assets/…`.
+  pub files: Vec<(PathBuf, Vec<u8>)>,
+}
 
 /// Codegen output, input to the linker.
 ///
@@ -22,11 +33,12 @@ use zo_interner::Symbol;
 /// the mach-o variant carries ~280 bytes of fixup tables
 /// while the CLIF variant is just an object-file `Vec<u8>`.
 pub enum LinkObject {
-  /// ARM mach-o intermediate: raw machine code plus the
-  /// symbol / fixup tables the mach-o assembler needs.
+  /// ARM mach-o intermediate.
   Macho(Box<MachoLinkObject>),
-  /// CLIF relocatable object file, ready for `cc`.
+  /// CLIF relocatable object file.
   Object(Vec<u8>),
+  /// Static web bundle — HTML/CSS/JS files.
+  Web(WebBundle),
 }
 
 /// State extracted from `ARM64Gen` at the end of codegen,

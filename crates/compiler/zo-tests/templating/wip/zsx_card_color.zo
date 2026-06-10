@@ -1,0 +1,23 @@
+-- test-build-pass: isolation — a solid colour card (no glass).
+--
+-- Diagnostic for the missing-card bug: if this red card + its buttons
+-- paint, the container rendering works and the bug is glass-specific.
+-- If it stays blank, placed-container views aren't painting at all.
+
+$: {
+  .card {
+    background: red;
+    padding: 24px;
+  }
+}
+
+fun main() {
+  imu view: </> ::= <>
+    <div class="card">
+      <button>-</button>
+      <button>+</button>
+    </div>
+  </>;
+
+  #render view;
+}

@@ -13,8 +13,8 @@
 //! glyph metrics are needed — a separate plan).
 
 use zo_ui_protocol::style::{
-  Align, ComputedStyle, Display, FlexDirection, Justify, Size as ZoSize,
-  StylePatch, cascade, css,
+  Align, ComputedStyle, Display, FlexDirection, Justify, Material,
+  Size as ZoSize, StylePatch, cascade, css,
 };
 use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
@@ -74,6 +74,13 @@ pub struct LayoutTree {
   /// it). Its `Some` fields tell a runtime which declared properties
   /// to paint over a native widget's defaults.
   authors: Vec<StylePatch>,
+  /// The enclosing paintable container per placed leaf, as a placement
+  /// index into this same parallel order (`None` for a leaf that sits
+  /// directly on the root). A retained-mode runtime that nests glass
+  /// (UIKit: a child must live in the effect view's `contentView` so
+  /// the glass composites it) reads this to reparent; a flat runtime
+  /// (egui) ignores it.
+  parents: Vec<Option<usize>>,
   /// Last text per placed leaf, diffed against the next stream.
   texts: Vec<String>,
   /// The command stream this tree was built from. `reconcile`
@@ -102,7 +109,7 @@ impl LayoutTree {
     );
 
     let mut builder = Builder::new(author);
-    let children = builder.children(commands);
+    let children = builder.children(commands, None);
 
     // Synthetic root: a flex container whose direction follows the
     // inline-vs-block nature of its children (ports the desktop
@@ -136,6 +143,7 @@ impl LayoutTree {
       nodes: builder.nodes,
       styles: builder.styles,
       authors: builder.authors,
+      parents: builder.parents,
       texts: builder.texts,
       source: commands.to_vec(),
       images,
@@ -202,6 +210,15 @@ impl LayoutTree {
   /// the patch's field is `Some`, leaving native defaults otherwise.
   pub fn authors(&self) -> &[StylePatch] {
     &self.authors
+  }
+
+  /// The enclosing paintable container for each placed leaf, as a
+  /// placement index into the same parallel order `solve` returns
+  /// (`None` for a leaf placed directly on the root). A runtime that
+  /// nests glass reparents a leaf into its parent's surface; a flat
+  /// runtime leaves every leaf on the root container.
+  pub fn parents(&self) -> &[Option<usize>] {
+    &self.parents
   }
 
   /// The stylesheet image catalog. A `ComputedStyle`'s
@@ -287,6 +304,9 @@ struct Builder {
   nodes: Vec<NodeId>,
   styles: Vec<ComputedStyle>,
   authors: Vec<StylePatch>,
+  /// The enclosing paintable container per placement, parallel to
+  /// `cmd_index` — see `LayoutTree::parents`.
+  parents: Vec<Option<usize>>,
   texts: Vec<String>,
 }
 
@@ -300,6 +320,7 @@ impl Builder {
       nodes: Vec::new(),
       styles: Vec::new(),
       authors: Vec::new(),
+      parents: Vec::new(),
       texts: Vec::new(),
     }
   }
@@ -307,8 +328,14 @@ impl Builder {
   /// Walk one container's children up to its `EndElement`, returning
   /// the child node ids so the parent can attach them. Buttons and
   /// text-tags collapse their text children into one leaf (Taffy has
-  /// no inline-formatting context).
-  fn children(&mut self, cmds: &[UiCommand]) -> Vec<NodeId> {
+  /// no inline-formatting context). `parent` is the placement index of
+  /// the enclosing paintable container, recorded on every placement so
+  /// a nesting runtime can reparent — `None` directly under the root.
+  fn children(
+    &mut self,
+    cmds: &[UiCommand],
+    parent: Option<usize>,
+  ) -> Vec<NodeId> {
     let mut children = Vec::new();
 
     while self.cursor < cmds.len() {
@@ -328,8 +355,14 @@ impl Builder {
         UiCommand::Text(text) => {
           let idx = self.cursor;
           let text = text.clone();
-          let node =
-            self.leaf(idx, text, ComputedStyle::ROOT, StylePatch::EMPTY, None);
+          let node = self.leaf(
+            idx,
+            text,
+            ComputedStyle::ROOT,
+            StylePatch::EMPTY,
+            None,
+            parent,
+          );
 
           children.push(node);
           self.cursor += 1;
@@ -342,7 +375,7 @@ impl Builder {
         } => {
           let idx = self.cursor;
           let self_closing = *self_closing;
-          let author = css::author_patch(&self.author, tag.as_str());
+          let author = resolve_author(&self.author, tag.as_str(), attrs);
           let style = cascade::resolve(tag.as_str(), author.as_ref(), None);
           let leaf = is_leaf_tag(tag);
           let size = leaf_size_override(tag, attrs);
@@ -356,7 +389,7 @@ impl Builder {
               collapse_text(cmds, self.cursor)
             };
             let author = author.unwrap_or(StylePatch::EMPTY);
-            let node = self.leaf(idx, text, style, author, size);
+            let node = self.leaf(idx, text, style, author, size, parent);
 
             children.push(node);
 
@@ -364,21 +397,67 @@ impl Builder {
               skip_to_end(cmds, &mut self.cursor);
             }
           } else {
-            // Container: a geometry-only node. Its main axis follows a
-            // declared `display: flex` direction, else the inline-vs-
-            // block flow of its children.
+            // Container. Its main axis follows a declared `display:
+            // flex` direction, else the inline-vs-block flow of kids.
             let direction = container_direction(&style, cmds, self.cursor);
-            let kids = if self_closing {
-              Vec::new()
-            } else {
-              self.children(cmds)
-            };
-            let node = self
-              .tree
-              .new_with_children(to_taffy(&style, direction), &kids)
-              .expect("taffy container");
 
-            children.push(node);
+            if is_paintable(&style, author.as_ref()) {
+              // A declared surface (colour / image / glass): record the
+              // placement BEFORE its children so the flat subview order
+              // is back-to-front — the surface sits behind the content
+              // it wraps. The text mirrors `leaf_text` so `reconcile`
+              // sees no spurious change (the backdrop ignores it).
+              let node = self
+                .tree
+                .new_leaf(to_taffy(&style, direction))
+                .expect("taffy container");
+
+              // This container's own placement index — its children
+              // point here as their parent.
+              let placement = self.cmd_index.len();
+
+              self.cmd_index.push(idx);
+              self.nodes.push(node);
+              self.styles.push(style);
+              self.authors.push(author.unwrap_or(StylePatch::EMPTY));
+              self.parents.push(parent);
+              self.texts.push(leaf_text(cmds, idx));
+
+              if !self_closing {
+                // Only glass nests its children: UIKit composites a
+                // child into the glass effect view's `contentView`. A
+                // colour / image surface stays a flat sibling, with its
+                // children layered on top (no compositing requirement).
+                let inner = if matches!(style.material, Material::Glass(_)) {
+                  Some(placement)
+                } else {
+                  parent
+                };
+                let kids = self.children(cmds, inner);
+
+                self
+                  .tree
+                  .set_children(node, &kids)
+                  .expect("taffy set_children");
+              }
+
+              children.push(node);
+            } else {
+              // Geometry-only: no surface, so no view — the common
+              // container pays nothing. Its children keep the incoming
+              // parent (this node paints nothing to nest them into).
+              let kids = if self_closing {
+                Vec::new()
+              } else {
+                self.children(cmds, parent)
+              };
+              let node = self
+                .tree
+                .new_with_children(to_taffy(&style, direction), &kids)
+                .expect("taffy container");
+
+              children.push(node);
+            }
           }
         }
       }
@@ -390,6 +469,7 @@ impl Builder {
   /// Create a measured leaf node, recording it in the side tables.
   /// `size` pins an explicit box (images, inputs); otherwise the box
   /// is `auto` and the measure closure sizes it from the text.
+  /// `parent` is the enclosing paintable container's placement index.
   fn leaf(
     &mut self,
     idx: usize,
@@ -397,6 +477,7 @@ impl Builder {
     style: ComputedStyle,
     author: StylePatch,
     size: Option<TaffySize<Dimension>>,
+    parent: Option<usize>,
   ) -> NodeId {
     let taffy_style = TaffyStyle {
       // Padding is folded into the text measure, so the leaf's own box
@@ -424,6 +505,7 @@ impl Builder {
     self.nodes.push(node);
     self.styles.push(style);
     self.authors.push(author);
+    self.parents.push(parent);
     self.texts.push(text);
 
     node
@@ -459,6 +541,33 @@ fn collect_author(
   }
 
   (rules, images)
+}
+
+/// Resolve an element's author patch: its tag rule, then every
+/// `.class` rule its `class` attribute names folded on top (class wins
+/// — higher specificity). Keeps native styling in step with the web,
+/// where `.card { … }` already applies. `None` when nothing targets it.
+fn resolve_author(
+  rules: &[(String, StylePatch)],
+  tag: &str,
+  attrs: &[Attr],
+) -> Option<StylePatch> {
+  let mut author = css::author_patch(rules, tag);
+
+  if let Some(classes) = class_attr(attrs) {
+    for class in classes.split_whitespace() {
+      if let Some(patch) = css::author_patch(rules, &format!(".{class}")) {
+        author.get_or_insert(StylePatch::EMPTY).overlay(&patch);
+      }
+    }
+  }
+
+  author
+}
+
+/// The element's `class` attribute value, if any.
+fn class_attr(attrs: &[Attr]) -> Option<&str> {
+  attrs.iter().find(|attr| attr.name() == "class")?.as_str()
 }
 
 /// True when two command streams place the same widgets in the same
@@ -586,6 +695,16 @@ fn is_leaf_tag(tag: &ElementTag) -> bool {
         | ElementTag::Input
         | ElementTag::Textarea
     )
+}
+
+/// Whether a container declares a surface to paint behind its children
+/// — a declared `background` colour (not the inherited default), a
+/// `background-image`, or a glass material. A plain layout container
+/// paints nothing, so it stays a geometry-only node with no view.
+fn is_paintable(style: &ComputedStyle, author: Option<&StylePatch>) -> bool {
+  author.is_some_and(|patch| patch.background.is_some())
+    || style.background_image.is_some()
+    || style.material != Material::Solid
 }
 
 /// Return `true` when every direct child between `start` and the
@@ -919,6 +1038,150 @@ mod tests {
       bottom.y >= top.y + top.height,
       "paragraphs stack: {top:?} {bottom:?}"
     );
+  }
+
+  #[test]
+  fn class_rule_resolves_on_native() {
+    // Native must match the web: a `.card` rule applies to an element
+    // carrying that class, folded over any tag rule.
+    let rules = css::parse(".card { material: glass; }").rules;
+    let attrs = vec![Attr::parse_prop("class", "card")];
+    let author = resolve_author(&rules, "div", &attrs).unwrap();
+
+    assert!(matches!(author.material, Some(Material::Glass(_))));
+  }
+
+  #[test]
+  fn paintable_container_is_placed_before_its_children() {
+    // `div { material: glass }` makes the container paintable, so it
+    // earns a placement — recorded before its children for back-to-
+    // front z-order (the surface sits behind the content).
+    let cmds = vec![
+      UiCommand::StyleSheet {
+        css: "div { material: glass; }".into(),
+        scope: zo_ui_protocol::StyleScope::Global,
+        scope_hash: None,
+      },
+      element(ElementTag::Div),
+      element(ElementTag::P),
+      text("a"),
+      UiCommand::EndElement,
+      UiCommand::EndElement,
+    ];
+
+    let mut tree = LayoutTree::build(&cmds);
+    let rects = tree.solve((320.0, 480.0));
+
+    assert_eq!(rects.len(), 2, "the div surface and its paragraph");
+    assert_eq!(rects[0].0, 1, "the div (cmd 1) is placed first (behind)");
+    assert_eq!(rects[1].0, 2, "its paragraph (cmd 2) after (in front)");
+  }
+
+  #[test]
+  fn paintable_container_sizes_to_its_children() {
+    // A placed paintable container must still lay out its children —
+    // `new_leaf` + `set_children` has to behave like `new_with_children`,
+    // else the card (and the content inside it) collapse to nothing.
+    let cmds = vec![
+      UiCommand::StyleSheet {
+        css: "div { material: glass; padding: 24px; }".into(),
+        scope: zo_ui_protocol::StyleScope::Global,
+        scope_hash: None,
+      },
+      element(ElementTag::Div),
+      button("0"),
+      text("-"),
+      UiCommand::EndElement,
+      UiCommand::EndElement,
+    ];
+
+    let mut tree = LayoutTree::build(&cmds);
+    let rects = tree.solve((320.0, 480.0));
+
+    let card = rects[0].1;
+    let inner = rects[1].1;
+
+    assert!(
+      card.width > 0.0 && card.height > 0.0,
+      "card sized: {card:?}"
+    );
+    assert!(
+      inner.width > 0.0 && inner.height > 0.0,
+      "button inside the card is sized: {inner:?}"
+    );
+  }
+
+  #[test]
+  fn glass_container_nests_its_children() {
+    // A glass `.card` must report its children's parent as the card's
+    // own placement, so a nesting runtime reparents them into the
+    // glass effect view's `contentView` (where UIKit composites them).
+    let cmds = vec![
+      UiCommand::StyleSheet {
+        css: "div { material: glass; }".into(),
+        scope: zo_ui_protocol::StyleScope::Global,
+        scope_hash: None,
+      },
+      element(ElementTag::Div),
+      button("0"),
+      text("-"),
+      UiCommand::EndElement,
+      button("1"),
+      text("+"),
+      UiCommand::EndElement,
+      UiCommand::EndElement,
+    ];
+
+    let tree = LayoutTree::build(&cmds);
+    let parents = tree.parents();
+
+    // Placement 0 is the glass div (under the root); 1 and 2 are its
+    // two buttons, each parented to placement 0.
+    assert_eq!(parents[0], None, "the glass div sits on the root");
+    assert_eq!(parents[1], Some(0), "first button nests in the glass");
+    assert_eq!(parents[2], Some(0), "second button nests in the glass");
+  }
+
+  #[test]
+  fn colour_container_does_not_nest_its_children() {
+    // A solid-colour surface stays a flat sibling: UIKit layers its
+    // children on top with no compositing requirement, so they keep
+    // the root as their parent (no reparent into the colour view).
+    let cmds = vec![
+      UiCommand::StyleSheet {
+        css: "div { background: #f00; }".into(),
+        scope: zo_ui_protocol::StyleScope::Global,
+        scope_hash: None,
+      },
+      element(ElementTag::Div),
+      button("0"),
+      text("-"),
+      UiCommand::EndElement,
+      UiCommand::EndElement,
+    ];
+
+    let tree = LayoutTree::build(&cmds);
+    let parents = tree.parents();
+
+    assert_eq!(parents[0], None, "the colour div sits on the root");
+    assert_eq!(parents[1], None, "its button stays a flat sibling");
+  }
+
+  #[test]
+  fn plain_container_is_not_placed() {
+    // A `<div>` with no declared surface stays geometry-only.
+    let cmds = vec![
+      element(ElementTag::Div),
+      element(ElementTag::P),
+      text("a"),
+      UiCommand::EndElement,
+      UiCommand::EndElement,
+    ];
+
+    let mut tree = LayoutTree::build(&cmds);
+    let rects = tree.solve((320.0, 480.0));
+
+    assert_eq!(rects.len(), 1, "only the paragraph is placed, not the div");
   }
 
   #[test]

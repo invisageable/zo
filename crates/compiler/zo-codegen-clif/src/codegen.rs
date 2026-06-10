@@ -44,7 +44,9 @@ impl<'a> CliftGen<'a> {
       | Target::Arm64UnknownLinuxGnu
       | Target::Arm64AppleIos
       | Target::Arm64AppleIosSim
-      | Target::Wasm32UnknownUnknown => {
+      | Target::Arm64AppleWatchOsSim
+      | Target::Wasm32UnknownUnknown
+      | Target::Web => {
         unreachable!("{target:?} not routed through CliftGen");
       }
     }

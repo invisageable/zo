@@ -5,8 +5,9 @@ use crate::constants::{
 use crate::stage::Stage;
 
 use zo_analyzer::{Analyzer, AnalyzerConfig, SemanticResult};
+use zo_bundler::ios;
 use zo_codegen::codegen::Codegen;
-use zo_codegen_backend::Target;
+use zo_codegen_backend::{Target, Webviewing};
 use zo_dce::Dce;
 use zo_error::{Error, ErrorKind, Severity};
 use zo_interner::Symbol;
@@ -19,8 +20,8 @@ use zo_parser::{Parser, ParsingResult};
 use zo_pp::PrettyPrinter;
 use zo_profiler::Profiler;
 use zo_reporter::{
-  DiagnosticFormat, ErrorAggregator, Reporter, json, rationale,
-  render_errors_to_stderr, report_error, xml,
+  DiagnosticFormat, ErrorAggregator, ErrorRenderer, RenderConfig, Reporter,
+  json, rationale, report_error, xml,
 };
 use zo_session::Session;
 use zo_sir::{Insn, Sir};
@@ -154,6 +155,15 @@ pub struct DiagnosticsConfig {
   /// `true` → emit `severity: "note"` rationale entries
   /// explaining compiler decisions (DCE'd functions, …).
   pub explain_decisions: bool,
+  /// `true` → render human diagnostics (and, in time, the build
+  /// banner) with ANSI color. The driver decides this once via
+  /// `zo_reporter::color::enabled` so `--no-color` / `NO_COLOR` /
+  /// a non-TTY stderr all suppress it. Ignored by machine formats.
+  pub use_colors: bool,
+  /// `true` → suppress the build-status banner (the `-q` /
+  /// `--quiet` flag). Errors and diagnostics still print;
+  /// machine formats are unaffected.
+  pub quiet: bool,
 }
 
 impl Default for DiagnosticsConfig {
@@ -162,6 +172,8 @@ impl Default for DiagnosticsConfig {
       format: DiagnosticFormat::Human,
       snippet_context: 2,
       explain_decisions: false,
+      use_colors: true,
+      quiet: false,
     }
   }
 }
@@ -228,9 +240,22 @@ pub struct Compiler {
   /// consulted for a machine format. Defaults to the driver's
   /// `--snippet-context` flag value (2 unless overridden).
   snippet_context: usize,
+  /// Whether human diagnostics render with ANSI color. The
+  /// driver sets this from the color decision; library callers
+  /// default to `true` (current behavior). Drives the human
+  /// renderer and the profiler banner.
+  use_colors: bool,
+  /// Whether to suppress the build-status banner (the `--quiet`
+  /// flag). Errors and diagnostics still print.
+  quiet: bool,
   /// When `true`, `test fun` functions are pinned as DCE
   /// roots so the synthesized test harness can call them.
   test_mode: bool,
+  /// Whether `#render` lowers to the webview runtime entry (wry) rather
+  /// than the native one (eframe). Set by the driver for a
+  /// `--target webview` build; native and webview share a host triple,
+  /// so this is the one bit that distinguishes them at codegen.
+  webviewing: Webviewing,
 }
 
 /// Merges `other` into `into`. Used to fold the `exported`
@@ -600,7 +625,10 @@ impl Compiler {
       module_table: HashMap::default(),
       emit_format: DiagnosticFormat::Human,
       snippet_context: 2,
+      use_colors: true,
+      quiet: false,
       test_mode: false,
+      webviewing: Webviewing::No,
     }
   }
 
@@ -616,12 +644,22 @@ impl Compiler {
       module_table: HashMap::default(),
       emit_format: DiagnosticFormat::Human,
       snippet_context: 2,
+      use_colors: true,
+      quiet: false,
       test_mode: false,
+      webviewing: Webviewing::No,
     }
   }
 
   pub fn set_test_mode(&mut self, enabled: bool) {
     self.test_mode = enabled;
+  }
+
+  /// Select the webview runtime entry for `#render` lowering. The
+  /// driver sets this for a `--target webview` build so the emitted
+  /// binary calls `_zo_run_web` (wry) instead of `_zo_run_native`.
+  pub fn set_webviewing(&mut self, webviewing: Webviewing) {
+    self.webviewing = webviewing;
   }
 
   /// Collected errors from the last compilation.
@@ -640,7 +678,26 @@ impl Compiler {
   pub fn configure_diagnostics(&mut self, cfg: DiagnosticsConfig) {
     self.emit_format = cfg.format;
     self.snippet_context = cfg.snippet_context;
+    self.use_colors = cfg.use_colors;
+    self.quiet = cfg.quiet;
     rationale::enable_rationale(cfg.explain_decisions);
+  }
+
+  /// Renders human diagnostics to stderr honoring this compiler's
+  /// color decision. Both report sites route through it so
+  /// `--no-color` / `NO_COLOR` / a non-TTY stderr suppress color
+  /// identically.
+  fn render_human(
+    &self,
+    aggregator: &ErrorAggregator,
+    files: &[(PathBuf, String)],
+  ) -> std::io::Result<()> {
+    let renderer = ErrorRenderer::with_config(RenderConfig {
+      use_colors: self.use_colors,
+      ..RenderConfig::default()
+    });
+
+    renderer.render(aggregator, files)
   }
 
   /// Scans a parse tree for `Token::Load` introducer nodes
@@ -1814,17 +1871,28 @@ impl Compiler {
         }
       }
 
-      // Binary destination:
-      // 1. explicit `-o <file>` wins, always.
+      // Output destination:
+      // 1. explicit `-o <path>` wins, always.
       // 2. else if `--out-dir <dir>` is set, `<dir>/<stem>`.
       // 3. else next to the source, like `rustc foo.rs`.
-      let binary_path = match (&output_path, out_dir) {
-        (Some(p), _) => p.clone(),
-        (None, Some(dir)) => {
-          let stem = path.file_stem().unwrap_or(path.as_os_str());
-          dir.join(stem)
+      //
+      // Web emits a `public/` *directory* bundle rather than a
+      // `<stem>` file, so its default lands at `<source-dir>/public`.
+      let binary_path = if matches!(target, Target::Web) {
+        match (&output_path, out_dir) {
+          (Some(p), _) => p.clone(),
+          (None, Some(dir)) => dir.join("public"),
+          (None, None) => path.with_file_name("public"),
         }
-        (None, None) => path.with_extension(""),
+      } else {
+        match (&output_path, out_dir) {
+          (Some(p), _) => p.clone(),
+          (None, Some(dir)) => {
+            let stem = path.file_stem().unwrap_or(path.as_os_str());
+            dir.join(stem)
+          }
+          (None, None) => path.with_extension(""),
+        }
       };
 
       let asm_path = should_emit_asm.then(|| resolve_emit_path(path, "asm"));
@@ -1864,7 +1932,8 @@ impl Compiler {
     }
 
     self.profiler.start_phase(CODEGEN_NAME);
-    let codegen = Codegen::new(lowering.target);
+    let codegen =
+      Codegen::new(lowering.target).with_webviewing(self.webviewing);
 
     // ARM64Gen consults this view to drive the generic
     // AAPCS FFI path; CLIF ignores it.
@@ -1941,22 +2010,27 @@ impl Compiler {
     // symbol (`#render` / render) is referenced. Vendored
     // `#link` dylibs (raylib, …) are staged separately by
     // basename from the SIR.
-    if matches!(
-      lowering.target,
-      Target::Arm64AppleIos | Target::Arm64AppleIosSim
-    ) {
-      bundle_ios(
-        lowering.target,
-        lowering.output_path,
-        &lowering.semantic.sir,
-      );
-    } else {
-      stage_runtime_artifacts(
-        runtime,
-        &lowering.semantic.sir,
-        &lowering.session.interner,
-        lowering.output_path,
-      );
+    match lowering.target {
+      // Web emits a self-contained file bundle — the linker already
+      // wrote it; there is no runtime dylib to colocate.
+      Target::Web => {}
+      Target::Arm64AppleIos
+      | Target::Arm64AppleIosSim
+      | Target::Arm64AppleWatchOsSim => {
+        bundle_ios(
+          lowering.target,
+          lowering.output_path,
+          &lowering.semantic.sir,
+        );
+      }
+      _ => {
+        stage_runtime_artifacts(
+          runtime,
+          &lowering.semantic.sir,
+          &lowering.session.interner,
+          lowering.output_path,
+        );
+      }
     }
 
     self.profiler.end_phase(LINKER_NAME);
@@ -1990,9 +2064,7 @@ impl Compiler {
         DiagnosticFormat::Xml => {
           xml::to_stdout(&aggregator, file_table, self.snippet_context)
         }
-        DiagnosticFormat::Human => {
-          render_errors_to_stderr(&aggregator, file_table)
-        }
+        DiagnosticFormat::Human => self.render_human(&aggregator, file_table),
       };
 
       aggregator.clear();
@@ -2018,8 +2090,8 @@ impl Compiler {
     // is active, that bleed corrupts the structured stream a
     // consumer is parsing. Suppress; the timing data is
     // human-only.
-    if !self.emit_format.is_machine() {
-      self.profiler.summary(target.name());
+    if !self.emit_format.is_machine() && !self.quiet {
+      self.profiler.summary(target.name(), self.use_colors);
     }
 
     Ok(())
@@ -2159,7 +2231,7 @@ impl Compiler {
       .any(|error| matches!(error.severity(), Severity::Error));
 
     if !has_hard_error {
-      let codegen = Codegen::new(target);
+      let codegen = Codegen::new(target).with_webviewing(self.webviewing);
       let type_view =
         Some((session.ty_checker.tys(), &session.ty_checker.ty_table));
       let abstract_state = Some(zo_codegen::AbstractState {
@@ -2182,7 +2254,12 @@ impl Compiler {
         }
       };
 
-      if matches!(target, Target::Arm64AppleIos | Target::Arm64AppleIosSim) {
+      if matches!(
+        target,
+        Target::Arm64AppleIos
+          | Target::Arm64AppleIosSim
+          | Target::Arm64AppleWatchOsSim
+      ) {
         bundle_ios(target, output_path, &semantic.sir);
       } else {
         stage_runtime_artifacts(
@@ -2202,7 +2279,7 @@ impl Compiler {
       aggregator.add_errors(errors);
       aggregator.add_details(self.reporter.details());
 
-      let _ = render_errors_to_stderr(&aggregator, &file_table);
+      let _ = self.render_human(&aggregator, &file_table);
 
       aggregator.clear();
 
@@ -2395,53 +2472,51 @@ fn stage_runtime_artifacts(
 /// desktop `deps/` staging — an iOS binary loads its runtime from
 /// `App.app/Frameworks/`, never a sibling `deps/`.
 ///
-/// The runtime dylib is the cross-compiled
-/// `target/<rust-triple>/<profile>/libzo_runtime.dylib`, a sibling of
-/// the compiler's own `target/<profile>/` (where `current_exe` lives).
+/// The runtime dylib is the cross-compiled `libzo_runtime.dylib`,
+/// resolved from the install sysroot (`~/.zo/lib/runtime/<triple>/`)
+/// first, then the in-repo `target/<triple>/<profile>/` build.
 fn bundle_ios(target: Target, output_path: &std::path::Path, sir: &Sir) {
   let Some(name) = output_path.file_stem().and_then(|s| s.to_str()) else {
-    return;
-  };
-
-  let Ok(zo_binary) = std::env::current_exe() else {
-    return;
-  };
-
-  let Some(profile_dir) = zo_binary.parent() else {
-    return;
-  };
-
-  let (Some(target_root), Some(profile)) =
-    (profile_dir.parent(), profile_dir.file_name())
-  else {
     return;
   };
 
   let triple = match target {
     Target::Arm64AppleIosSim => "aarch64-apple-ios-sim",
     Target::Arm64AppleIos => "aarch64-apple-ios",
+    Target::Arm64AppleWatchOsSim => "aarch64-apple-watchos-sim",
     _ => return,
   };
 
-  let runtime_dylib = target_root
-    .join(triple)
-    .join(profile)
-    .join("libzo_runtime.dylib");
+  let Some(runtime_dylib) = zo_host_paths::first_existing_runtime_dylib(triple)
+  else {
+    eprintln!(
+      "zo: runtime not found for {triple}; expected at \
+       ~/.zo/lib/runtime/{triple}/libzo_runtime.dylib or \
+       target/{triple}/<profile>/libzo_runtime.dylib",
+    );
+
+    return;
+  };
+
   let app_dir = output_path.with_extension("app");
-  let bundle_id = format!("house.compilords.{name}");
+  let bundle_id = zo_bundler::bundle_id(name);
 
   let stylesheets = sir.stylesheets();
-  let spec = zo_bundler::ios::BundleSpec {
+  let spec = ios::BundleSpec {
     binary: output_path,
     runtime_dylib: &runtime_dylib,
     app_dir: &app_dir,
     name,
     bundle_id: &bundle_id,
-    simulator: matches!(target, Target::Arm64AppleIosSim),
+    platform: match target {
+      Target::Arm64AppleWatchOsSim => ios::Platform::WatchSimulator,
+      Target::Arm64AppleIos => ios::Platform::Iphone,
+      _ => ios::Platform::IphoneSimulator,
+    },
     stylesheets: &stylesheets,
   };
 
-  if let Err(error) = zo_bundler::ios::bundle(&spec) {
+  if let Err(error) = ios::bundle(&spec) {
     eprintln!("zo: iOS bundle failed: {error}");
   }
 }

@@ -20,8 +20,15 @@ pub enum Target {
   /// arm64 iOS Simulator on Apple Silicon
   /// (Mach-O, PLATFORM_IOSSIMULATOR).
   Arm64AppleIosSim,
+  /// arm64 watchOS Simulator on Apple Silicon
+  /// (Mach-O, PLATFORM_WATCHOSSIMULATOR).
+  Arm64AppleWatchOsSim,
   /// arm64 Android (ELF, bionic libc).
   Aarch64LinuxAndroid,
+  /// Static web bundle (a `public/` of HTML/CSS/JS). The
+  /// `zo-codegen-web` backend transpiles the UI to a `WebBundle`; the
+  /// linker writes its files to `public/` (no machine code).
+  Web,
 }
 
 impl Target {
@@ -61,7 +68,9 @@ impl Target {
       Self::Wasm32UnknownUnknown => "wasm32-unknown-unknown",
       Self::Arm64AppleIos => "arm64-apple-ios",
       Self::Arm64AppleIosSim => "arm64-apple-ios-sim",
+      Self::Arm64AppleWatchOsSim => "arm64-apple-watchos-sim",
       Self::Aarch64LinuxAndroid => "aarch64-linux-android",
+      Self::Web => "web",
     }
   }
 
@@ -75,7 +84,11 @@ impl Target {
       Self::Arm64UnknownLinuxGnu | Self::X8664UnknownLinuxGnu => "",
       Self::Wasm32UnknownUnknown => "wasm",
       Self::Arm64AppleIos | Self::Arm64AppleIosSim => "app",
+      Self::Arm64AppleWatchOsSim => "app",
       Self::Aarch64LinuxAndroid => "apk",
+      // Web emits a `public/` directory, not a `<stem>.ext` file, so
+      // there is no output extension.
+      Self::Web => "",
     }
   }
 
@@ -88,6 +101,7 @@ impl Target {
         | Self::X8664AppleDarwin
         | Self::Arm64AppleIos
         | Self::Arm64AppleIosSim
+        | Self::Arm64AppleWatchOsSim
     )
   }
 
@@ -96,11 +110,15 @@ impl Target {
     self.is_apple()
   }
 
-  /// Whether the target is a mobile platform (iOS or Android).
+  /// Whether the target is a mobile platform (iOS, watchOS, or
+  /// Android).
   pub fn is_mobile(self) -> bool {
     matches!(
       self,
-      Self::Arm64AppleIos | Self::Arm64AppleIosSim | Self::Aarch64LinuxAndroid
+      Self::Arm64AppleIos
+        | Self::Arm64AppleIosSim
+        | Self::Arm64AppleWatchOsSim
+        | Self::Aarch64LinuxAndroid
     )
   }
 }
