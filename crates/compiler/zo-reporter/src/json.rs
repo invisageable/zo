@@ -212,6 +212,20 @@ fn encode(
         }));
       }
     }
+    Some(Detail::Rename(name)) => {
+      obj.insert("suggestion".into(), json!(&**name));
+
+      // Append a machine-applicable fix: rename the
+      // wrongly-cased name to the convention-correct form.
+      if let Some(Value::Array(fixes)) = obj.get_mut("fixes") {
+        fixes.push(json!({
+          "kind":        FixKind::Replace.as_str(),
+          "text":        &**name,
+          "description": format!("rename to `{name}`"),
+          "span":        span_json(filename, span.start, span.end()),
+        }));
+      }
+    }
     Some(Detail::ArgCount {
       callee,
       expected,

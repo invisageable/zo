@@ -24,6 +24,29 @@ By default the compiler renders a human snippet to stderr — the offending line
      │                            ╰── incompatible type `int` here
   ```
 
+## warnings
+
+Not every diagnostic stops the build. Warnings point at code that compiles but breaks a convention — an unused variable, unreachable code, or a name that does not follow zo's naming rules:
+
+  - `struct`, `enum`, `type`, and generic names are PascalCase.
+  - `val` constants are SCREAMING_SNAKE_CASE.
+  - everything else — `imu`/`mut` bindings, `fun` names and arguments, struct fields, `abstract` functions — is snake_case.
+
+Each naming warning carries the convention-correct rename as its help, so the fix is always one copy-paste away:
+
+  ```text
+  [E0355] Warning • Name is not snake_case
+     ╭─[ counter.zo:2:7 ]
+     │
+   2 │   imu MyCount := 1;
+     │       ───┬───
+     │          ╰───── expected a snake_case name
+     │
+     │ Help • rename it to `my_count`
+  ```
+
+A leading underscore opts a binding out (`_unused`), and digits never need a separator (`r0`, `grid2`, `MAX2` are all fine). The program builds and runs regardless — warnings inform, errors stop.
+
 ## machine formats
 
 An agent reads text differently than you do — it never skims and it is never overwhelmed by length. So zo offers two machine formats that carry the *full* diagnostic, not a terse summary. Both stream to stdout, leaving stderr for you.

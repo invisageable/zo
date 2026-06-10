@@ -131,7 +131,10 @@ pub(crate) fn assert_no_errors(source: &str) {
   assert!(
     errors.is_empty(),
     "Expected no errors, but got: {:?}",
-    errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
+    errors
+      .iter()
+      .map(|e| (e.kind(), span_text(source, e.span())))
+      .collect::<Vec<_>>()
   );
 }
 

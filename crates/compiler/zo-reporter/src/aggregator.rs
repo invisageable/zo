@@ -211,6 +211,9 @@ impl ErrorAggregator {
         | ErrorKind::UnreachableCode
         | ErrorKind::UnusedVariable
         | ErrorKind::UnusedFunction
+        | ErrorKind::NonPascalCaseName
+        | ErrorKind::NonScreamingCaseName
+        | ErrorKind::NonSnakeCaseName
         | ErrorKind::UninitializedVariable
         | ErrorKind::InvalidSelfReference
         | ErrorKind::InvalidTypeAnnotation => {

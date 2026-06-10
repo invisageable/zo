@@ -60,6 +60,7 @@ zo-benches = { path = "crates/compiler/zo-benches", version = "0.4.0" }
 zo-binder = { path = "crates/compiler/zo-binder", version = "0.4.0" }
 zo-buffer = { path = "crates/compiler/zo-buffer", version = "0.4.0" }
 zo-bundler = { path = "crates/compiler/zo-bundler", version = "0.4.0" }
+zo-checker = { path = "crates/compiler/zo-checker", version = "0.4.0" }
 zo-c-abi = { path = "crates/compiler/zo-c-abi", version = "0.4.0" }
 zo-codegen = { path = "crates/compiler/zo-codegen", version = "0.4.0" }
 zo-codegen-arm = { path = "crates/compiler/zo-codegen-arm", version = "0.4.0" }

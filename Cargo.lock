@@ -7974,6 +7974,16 @@ name = "zo-c-abi"
 version = "0.4.0"
 
 [[package]]
+name = "zo-checker"
+version = "0.4.0"
+dependencies = [
+ "swisskit-core",
+ "zo-error",
+ "zo-reporter",
+ "zo-span",
+]
+
+[[package]]
 name = "zo-codegen"
 version = "0.4.0"
 dependencies = [
@@ -8215,6 +8225,7 @@ dependencies = [
  "criterion",
  "rustc-hash 2.1.2",
  "zo-analyzer",
+ "zo-checker",
  "zo-constant-folding",
  "zo-constant-propagation",
  "zo-dce",

@@ -1,3 +1,4 @@
+use zo_checker::Checker;
 use zo_constant_folding::{ConstFold, FoldResult, Operand};
 use zo_error::{Error, ErrorKind};
 use zo_interner::{
@@ -527,6 +528,10 @@ pub struct Executor<'a> {
   /// `Error::with_file` so the renderer resolves the
   /// span against the correct source text.
   current_file_id: u16,
+  /// Convention checks (naming today) run as declarations
+  /// execute — implementations live in `zo-checker` so the
+  /// execution loop stays free of lint logic.
+  checker: Checker,
   /// Attributes (`%% name [= literal | (arg)].`) the
   /// parser emitted just before the next item. Drained
   /// and applied when the next `FunDef` / `StructDef` /
@@ -955,6 +960,7 @@ impl<'a> Executor<'a> {
       source_dir: None,
       source_path: None,
       current_file_id: 0xFFFF,
+      checker: Checker::new(),
       pending_attributes: Vec::new(),
       global_constants: Vec::new(),
       pack_constants: HashMap::default(),
@@ -8806,6 +8812,13 @@ impl<'a> Executor<'a> {
     // Keep nested functions bare in every context, matching
     // how they already behave at top level.
     let raw_name = name.unwrap();
+
+    self.checker.check_binding_name(
+      self.interner.get(raw_name),
+      self.pending_fn_name_span,
+      self.current_file_id,
+    );
+
     let is_nested = self.current_function.is_some();
     let name = if !is_nested
       && (self.apply_context.is_some() || !self.pack_context.is_empty())
@@ -8860,6 +8873,12 @@ impl<'a> Executor<'a> {
             let var = self.ty_checker.fresh_var();
 
             self.type_params.push((sym, var));
+
+            self.checker.check_type_name(
+              self.interner.get(sym),
+              self.tree.spans[idx],
+              self.current_file_id,
+            );
 
             // Parse bound(s): `$T: Abstract` or
             // `$T: Eq + Show + Ord`. Loops `+`-separated
@@ -9006,6 +9025,12 @@ impl<'a> Executor<'a> {
           Token::Ident => {
             // Get parameter name
             if let Some(NodeValue::Symbol(param_name)) = self.node_value(idx) {
+              self.checker.check_binding_name(
+                self.interner.get(param_name),
+                self.tree.spans[idx],
+                self.current_file_id,
+              );
+
               idx += 1;
 
               // Next should be the type (no colon token).
@@ -9612,6 +9637,18 @@ impl<'a> Executor<'a> {
         if tok == Token::Ident
           && let Some(NodeValue::Symbol(sym)) = self.node_value(i)
         {
+          // A struct pattern's names reference the struct's
+          // fields (already checked at the declaration), so
+          // warning here would report the same field twice.
+          // Tuple/array patterns mint fresh bindings — check.
+          if opener != Token::LBrace {
+            self.checker.check_binding_name(
+              self.interner.get(sym),
+              self.tree.spans[i],
+              self.current_file_id,
+            );
+          }
+
           names.push(sym);
         }
 
@@ -9688,6 +9725,20 @@ impl<'a> Executor<'a> {
       });
 
     if let Some(name) = name {
+      if is_constant {
+        self.checker.check_constant_name(
+          self.interner.get(name),
+          self.tree.spans[idx + 1],
+          self.current_file_id,
+        );
+      } else {
+        self.checker.check_binding_name(
+          self.interner.get(name),
+          self.tree.spans[idx + 1],
+          self.current_file_id,
+        );
+      }
+
       let pubness = if self.is_pub(idx) {
         Pubness::Yes
       } else {
@@ -11040,6 +11091,12 @@ impl<'a> Executor<'a> {
       let tpl_name = self.get_var_name(start_idx, end_idx);
 
       if let Some(name) = tpl_name {
+        self.checker.check_binding_name(
+          self.interner.get(name),
+          self.tree.spans[start_idx + 1],
+          self.current_file_id,
+        );
+
         self.pending_var_name = Some(name);
       }
 
@@ -11411,6 +11468,12 @@ impl<'a> Executor<'a> {
       }
     };
 
+    self.checker.check_type_name(
+      self.interner.get(name),
+      self.tree.spans[start_idx + 1],
+      self.current_file_id,
+    );
+
     let pubness = if self.is_pub(start_idx) {
       Pubness::Yes
     } else {
@@ -11696,6 +11759,12 @@ impl<'a> Executor<'a> {
           });
 
           if let Some(fname) = fname {
+            self.checker.check_binding_name(
+              self.interner.get(fname),
+              self.tree.spans[idx],
+              self.current_file_id,
+            );
+
             // Find field index.
             let field_idx = field_defs.iter().position(|f| f.name == fname);
 
@@ -11948,6 +12017,12 @@ impl<'a> Executor<'a> {
       None => return,
     };
 
+    self.checker.check_type_name(
+      self.interner.get(name),
+      self.tree.spans[start_idx + 1],
+      self.current_file_id,
+    );
+
     // Save the outer generic-param scope before scanning
     // for `<$T, ...>`. Each `$T` mints a fresh inference
     // var so the body resolution sees `$T` as that var
@@ -12065,6 +12140,12 @@ impl<'a> Executor<'a> {
       }
     };
 
+    self.checker.check_type_name(
+      self.interner.get(name),
+      self.tree.spans[start_idx + 1],
+      self.current_file_id,
+    );
+
     let pubness = if self.is_pub(start_idx) {
       Pubness::Yes
     } else {
@@ -12134,6 +12215,12 @@ impl<'a> Executor<'a> {
           });
 
           if let Some(fname) = fname {
+            self.checker.check_binding_name(
+              self.interner.get(fname),
+              field_span,
+              self.current_file_id,
+            );
+
             idx += 1;
 
             // Skip colon between name and type.
@@ -14163,6 +14250,15 @@ impl<'a> Executor<'a> {
               NodeValue::Symbol(s) => Some(s),
               _ => None,
             });
+
+            if let Some(sym) = sym {
+              self.checker.check_binding_name(
+                self.interner.get(sym),
+                self.tree.spans[idx],
+                self.current_file_id,
+              );
+            }
+
             idx += 1;
             sym
           } else {

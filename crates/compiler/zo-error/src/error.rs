@@ -220,7 +220,10 @@ pub const fn severity(kind: ErrorKind) -> Severity {
   match kind {
     ErrorKind::UnusedVariable
     | ErrorKind::UnusedFunction
-    | ErrorKind::UnreachableCode => Severity::Warning,
+    | ErrorKind::UnreachableCode
+    | ErrorKind::NonPascalCaseName
+    | ErrorKind::NonScreamingCaseName
+    | ErrorKind::NonSnakeCaseName => Severity::Warning,
     ErrorKind::DeadCodeEliminated | ErrorKind::UnreachableMatchArm => {
       Severity::Note
     }
@@ -558,4 +561,16 @@ pub enum ErrorKind {
   /// `test fun foo() -> int { }` — test functions must
   /// return unit.
   TestFnMustReturnUnit,
+
+  // Naming-convention warnings — emitted by `zo-checker`
+  // through the executor as declarations execute.
+  /// A type-position name (`struct`, `enum`, `type`, generic
+  /// param) that is not PascalCase.
+  NonPascalCaseName,
+  /// A `val` constant name that is not SCREAMING_SNAKE_CASE.
+  NonScreamingCaseName,
+  /// A binding-position name (`imu`/`mut`, `fun` name and
+  /// arguments, struct fields, `abstract` functions) that is
+  /// not snake_case.
+  NonSnakeCaseName,
 }
