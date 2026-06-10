@@ -50,10 +50,10 @@ struct ReactiveContext<'a> {
 pub(crate) struct Run {
   #[command(flatten)]
   pub(crate) args: args::Args,
-  /// The Simulator device for `run --target ios` — a device name
-  /// (e.g. "Apple Vision Pro") or UDID, resolved against the devices
-  /// the machine actually has. Omitted: the booted device wins, else
-  /// the newest iPhone.
+  /// The Simulator device for `run --target ios|watchos` — a device
+  /// name (e.g. "Apple Vision Pro") or UDID, resolved against the
+  /// devices the machine actually has. Omitted: the booted device
+  /// wins, else the newest iPhone (or watch, for `watchos`).
   #[arg(long)]
   pub(crate) device: Option<String>,
 }
@@ -81,11 +81,14 @@ impl Run {
     let (semantic, tokenization, parsing, session, file_table) =
       compiler.analyze_source(&source, input_path);
 
-    // iOS and web both build an artifact and hand off to a Runtimer —
-    // the Simulator for iOS, a local server + browser for web. Neither
-    // uses the in-process command/event runtime below, so they branch
-    // out here on the shared analysis.
-    if self.args.target.is_ios() || self.args.target.is_web() {
+    // iOS/watchOS and web all build an artifact and hand off to a
+    // Runtimer — the Simulator for iOS/watchOS, a local server +
+    // browser for web. None uses the in-process command/event runtime
+    // below, so they branch out here on the shared analysis.
+    if self.args.target.is_ios()
+      || self.args.target.is_watchos()
+      || self.args.target.is_web()
+    {
       let analyzed = Analyzed {
         semantic,
         tokenization,
@@ -97,7 +100,7 @@ impl Run {
       return if self.args.target.is_web() {
         self.run_web(&mut compiler, &analyzed)
       } else {
-        self.run_ios(&mut compiler, &analyzed, input_path)
+        self.run_simulator(&mut compiler, &analyzed, input_path)
       };
     }
 
@@ -340,9 +343,9 @@ impl Run {
     Ok(())
   }
 
-  /// Build the iOS `.app` from the already-analyzed program and hand
-  /// it to the Simulator: boot, install, launch.
-  fn run_ios(
+  /// Build the iOS/watchOS `.app` from the already-analyzed program
+  /// and hand it to the Simulator: boot, install, launch.
+  fn run_simulator(
     &self,
     compiler: &mut Compiler,
     analyzed: &Analyzed,
@@ -372,14 +375,21 @@ impl Run {
     // An empty `--device ""` means auto-select.
     let requested = self.device.as_deref().filter(|name| !name.is_empty());
 
-    let device = match zo_bundler::ios::device::resolve(&devices, requested) {
-      Ok(device) => device,
-      Err(error) => {
-        eprintln!("Error: {error}");
-
-        std::process::exit(EXIT_CODE_ERROR);
-      }
+    let artifact = if self.args.target.is_watchos() {
+      zo_bundler::ios::device::Artifact::Watchos
+    } else {
+      zo_bundler::ios::device::Artifact::Ios
     };
+
+    let device =
+      match zo_bundler::ios::device::resolve(&devices, requested, artifact) {
+        Ok(device) => device,
+        Err(error) => {
+          eprintln!("Error: {error}");
+
+          std::process::exit(EXIT_CODE_ERROR);
+        }
+      };
 
     // Build the `.app` into a per-run directory so its path is stable
     // and isolated from concurrent runs.
@@ -408,7 +418,7 @@ impl Run {
     }
 
     if let Err(error) = simulator.launch(&app, &bundle_id) {
-      eprintln!("Error launching iOS Simulator: {error}");
+      eprintln!("Error launching Simulator: {error}");
 
       std::process::exit(EXIT_CODE_ERROR);
     }

@@ -1,8 +1,8 @@
 //! Main runtime dispatcher for zo applications
 
 // `Graphics` only names the dispatch arms, which are cfg'd out on
-// iOS (the UIKit binary never reaches this host dispatcher).
-#[cfg(not(target_os = "ios"))]
+// iOS/watchOS (the UIKit binary never reaches this host dispatcher).
+#[cfg(not(any(target_os = "ios", target_os = "watchos")))]
 use zo_runtime_render::render::Graphics;
 use zo_runtime_render::render::{EventRegistry, RuntimeConfig};
 use zo_ui_protocol::UiCommand;
@@ -57,7 +57,7 @@ impl Runtime {
   /// never reached and compiles to a no-op.
   pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
     match self.config.graphics {
-      #[cfg(not(target_os = "ios"))]
+      #[cfg(not(any(target_os = "ios", target_os = "watchos")))]
       Graphics::Native => {
         let mut native_runtime =
           zo_runtime_native::runtime::Runtime::with_config(self.config);
@@ -66,7 +66,7 @@ impl Runtime {
         native_runtime.set_events(self.events);
         native_runtime.run()
       }
-      #[cfg(not(target_os = "ios"))]
+      #[cfg(not(any(target_os = "ios", target_os = "watchos")))]
       Graphics::Web => {
         let mut web_runtime = zo_runtime_web::Runtime::with_config(self.config);
 
@@ -74,7 +74,7 @@ impl Runtime {
         web_runtime.set_events(self.events);
         web_runtime.run()
       }
-      #[cfg(target_os = "ios")]
+      #[cfg(any(target_os = "ios", target_os = "watchos"))]
       _ => Ok(()),
     }
   }

@@ -73,7 +73,8 @@ impl Codegen {
       Target::Arm64AppleDarwin
       | Target::Arm64UnknownLinuxGnu
       | Target::Arm64AppleIos
-      | Target::Arm64AppleIosSim => {
+      | Target::Arm64AppleIosSim
+      | Target::Arm64AppleWatchOsSim => {
         let mut arm = ARM64Gen::new(interner).with_webviewing(self.webviewing);
         if let Some((tys, ty_table)) = type_view {
           arm = arm.with_type_view(tys, ty_table);

@@ -100,6 +100,9 @@ pub enum ArgsTarget {
   /// iOS — the Simulator today (device deferred).
   #[value(name = "ios")]
   Ios,
+  /// watchOS — the Simulator today (device deferred).
+  #[value(name = "watchos")]
+  Watchos,
   /// The browser — a static `public/` bundle, no host process.
   #[value(name = "web")]
   Web,
@@ -129,6 +132,12 @@ impl ArgsTarget {
     matches!(self, Self::Ios)
   }
 
+  /// Whether `run` drives the watchOS Simulator — same `.app` flow as
+  /// iOS, against a watch device.
+  pub fn is_watchos(self) -> bool {
+    matches!(self, Self::Watchos)
+  }
+
   /// Whether templates render through a webview rather than the
   /// native egui window.
   pub fn is_webview(self) -> bool {
@@ -148,8 +157,10 @@ impl From<ArgsTarget> for Target {
       // `native`/`webview` are host desktop apps — same host codegen
       // target, differing only in how `run` renders.
       ArgsTarget::Native | ArgsTarget::Webview => Self::host(),
-      // The user types `ios`; the runnable iOS today is the Simulator.
+      // The user types `ios`/`watchos`; the runnable form of each
+      // today is the Simulator.
       ArgsTarget::Ios => Self::Arm64AppleIosSim,
+      ArgsTarget::Watchos => Self::Arm64AppleWatchOsSim,
       ArgsTarget::Web => Self::Web,
       ArgsTarget::Arm64AppleDarwin => Self::Arm64AppleDarwin,
       ArgsTarget::Arm64PcWindowsMsvc => Self::Arm64PcWindowsMsvc,

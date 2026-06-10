@@ -39,7 +39,10 @@ pub use runtime::Runtime;
 /// The static-bundle web server, for `zo run --target web`. Lives in
 /// the web runtime; the desktop backends (and thus this re-export) are
 /// gated off iOS, where the UIKit binary never reaches the host.
-#[cfg(all(feature = "ui", not(target_os = "ios")))]
+#[cfg(all(
+  feature = "ui",
+  not(any(target_os = "ios", target_os = "watchos"))
+))]
 pub use zo_runtime_web::{Browsering, Quiet, Server};
 
 /// Force-link the iOS UIKit backend's `_zo_run_native` into this
@@ -48,5 +51,5 @@ pub use zo_runtime_web::{Browsering, Quiet, Server};
 /// dispatcher is a no-op, so the entry the AOT binary calls is dead-
 /// stripped unless something references the crate. This re-export is
 /// that reference.
-#[cfg(all(feature = "ui", target_os = "ios"))]
+#[cfg(all(feature = "ui", any(target_os = "ios", target_os = "watchos")))]
 pub use zo_runtime_ios::zo_run_native;

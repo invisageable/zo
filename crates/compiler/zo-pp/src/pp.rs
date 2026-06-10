@@ -836,6 +836,7 @@ impl PrettyPrinter {
       | Target::Arm64UnknownLinuxGnu
       | Target::Arm64AppleIos
       | Target::Arm64AppleIosSim
+      | Target::Arm64AppleWatchOsSim
       | Target::Aarch64LinuxAndroid => "ARM64",
       Target::X8664AppleDarwin
       | Target::X8664PcWindowsMsvc
@@ -853,6 +854,7 @@ impl PrettyPrinter {
       | Target::Arm64UnknownLinuxGnu
       | Target::Arm64AppleIos
       | Target::Arm64AppleIosSim
+      | Target::Arm64AppleWatchOsSim
       | Target::Aarch64LinuxAndroid => {
         self.disassemble_arm64(&artifact.code);
       }

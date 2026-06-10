@@ -56,15 +56,21 @@
 
 ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS (NATiVE, WEB, ANDROiD OR iOS) — SAME SOURCE.
 
+> *Inspired by `e4x` and `imba`, zsx (zo Syntax Extension) already supports `@events`, `$: {}` (styling), bindings, html comments, closures, fragments and so on. Use the `#render` directive to enable zsx.*
+
+---
 <p align="center">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui.png">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-webview.png">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-vision-home.png">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-vision-app.png">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-hello-template-ui-iphone.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-zsx-desktop-counter.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-zsx-webview-counter.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-zsx-vision-home.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-zsx-vision-counter.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-zsx-watch-home.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-zsx-watch-counter.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-zsx-iphone-home.png">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-zsx-iphone-counter.png">
 </p>
 
-> *Work in progress. zo supports desktop (ARM64), MacOS (iOS, visionOS, tvOS, watchOS), web (bundled or webview). We plan to supports more — on desktop (Linux, Windows) and on Android.*
+---
 
 TESTiNG MACHiNE:
 
@@ -76,6 +82,8 @@ Total Memory      — 18.0 GB
 Available Memory  — 9.4 GB
 ```
 
+> *Work in progress. zo supports desktop (ARM64), MacOS (iOS, visionOS, tvOS, watchOS), web (bundled or webview). We plan to supports more — on desktop (Linux, Windows) and on Android. Styling is not already unified between all platforms for now.*
+
 **-concurrency**
 
   ```zo
@@ -86,7 +94,7 @@ Available Memory  — 9.4 GB
     nursery {                                                                    
       imu (tx1, rx1) := channel(1);
       imu (tx2, rx2) := channel(1);                                              
-    
+
       spawn producer_a(tx1);                                                     
       spawn producer_b(tx2);
                                                                                   
@@ -99,6 +107,8 @@ Available Memory  — 9.4 GB
   ```
 
 GREEN THREADS (OR OS THREAD). NO FUNCTiON COLORiNG. NURSERY SCOPE. MULTiPLE BRANCHES MANAGEMENT. GOOD PERFORMANCE.
+
+> *`nursery` tracks execution scope blocks. Execution block cannot exist until every spawned green thread unwinds completely. `select` coordinate communication states across multiple channel references.*
 
 **-provider**
 
@@ -129,7 +139,7 @@ GREEN THREADS (OR OS THREAD). NO FUNCTiON COLORiNG. NURSERY SCOPE. MULTiPLE BRAN
 
 DO GRAPHiCS USiNG [`raylib`](https://www.raylib.com).
 
-> *[More examples](./crates/compiler/zo-tests) — *
+> *[More examples](./crates/compiler/zo-tests)*
 
 ## why zo?
 

@@ -51,6 +51,7 @@ fn ensure_target_supported(target: Target) -> Result<(), LinkError> {
     | Target::Wasm32UnknownUnknown
     | Target::Arm64AppleIos
     | Target::Arm64AppleIosSim
+    | Target::Arm64AppleWatchOsSim
     | Target::Aarch64LinuxAndroid
     | Target::Web => Err(LinkError::CrossNotSupported(target)),
   }

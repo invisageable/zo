@@ -45,13 +45,14 @@ rustc-hash = { workspace = true }
 sha1 = { workspace = true }
 sysinfo = { workspace = true }
 
-# eframe (native) + wry (web) do not build for iOS, so the desktop
-# backends are gated off iOS; the UIKit backend takes their place.
-[target.'cfg(not(target_os = "ios"))'.dependencies]
+# eframe (native) + wry (web) do not build for iOS/watchOS, so the
+# desktop backends are gated off both; the UIKit backend takes their
+# place there.
+[target.'cfg(not(any(target_os = "ios", target_os = "watchos")))'.dependencies]
 zo-runtime-native = { workspace = true, optional = true }
 zo-runtime-web = { workspace = true, optional = true }
 
-[target.'cfg(target_os = "ios")'.dependencies]
+[target.'cfg(any(target_os = "ios", target_os = "watchos"))'.dependencies]
 zo-runtime-ios = { workspace = true, optional = true }
 
 # `sha2-asm` (pulled in by `sha2/asm`) ships GNU-syntax `.S`

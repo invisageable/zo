@@ -1,11 +1,12 @@
 //! Simulator device discovery and resolution.
 //!
-//! `zo run --target ios` accepts any device the machine actually has:
-//! [`detect`] asks `simctl` for the available devices and [`resolve`]
-//! picks one from the `--device` flag — or auto-selects when the flag
-//! is omitted. zo apps are iPhone-family binaries, so resolution also
-//! guards the runtime contract: iOS and visionOS simulators can run
-//! them, watchOS and tvOS simulators cannot.
+//! `zo run --target ios|watchos` accepts any device the machine
+//! actually has: [`detect`] asks `simctl` for the available devices
+//! and [`resolve`] picks one from the `--device` flag — or
+//! auto-selects when the flag is omitted. Resolution also guards the
+//! runtime contract through [`Artifact`]: an iPhone-family app runs
+//! on iOS and visionOS simulators, a watch app only on watchOS
+//! simulators.
 
 use std::fmt;
 use std::io;
@@ -35,15 +36,37 @@ impl Os {
       _ => None,
     }
   }
+}
 
-  /// Whether this runtime installs and launches iPhone-family apps.
-  ///
-  /// @note — visionOS runs them through its iOS app-compatibility
-  /// layer; watchOS and tvOS only load binaries built against their
-  /// own platform SDK, so an iPhone-family binary fails at install or
-  /// launch.
-  pub fn runs_ios_apps(self) -> bool {
-    matches!(self, Self::Ios | Self::VisionOs)
+/// The app artifact a device must be able to run — decides which
+/// simulator runtimes qualify during resolution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Artifact {
+  /// An iPhone-family app (`--target ios`). iOS simulators run it,
+  /// and so do visionOS simulators through their iOS
+  /// app-compatibility layer; watchOS and tvOS only load binaries
+  /// built against their own platform SDK.
+  Ios,
+  /// A watch app (`--target watchos`) — only watchOS simulators.
+  Watchos,
+}
+
+impl Artifact {
+  /// Whether a device running `os` installs and launches this app.
+  fn supports(self, os: Os) -> bool {
+    match self {
+      Self::Ios => matches!(os, Os::Ios | Os::VisionOs),
+      Self::Watchos => matches!(os, Os::WatchOs),
+    }
+  }
+
+  /// The device families named in resolution errors, e.g.
+  /// `an iOS or visionOS device`.
+  fn device_label(self) -> &'static str {
+    match self {
+      Self::Ios => "an iOS or visionOS device",
+      Self::Watchos => "a watchOS device",
+    }
   }
 }
 
@@ -159,10 +182,11 @@ fn split_trailing_group(text: &str) -> Option<(&str, &str)> {
 pub fn resolve<'a>(
   devices: &'a [Device],
   requested: Option<&str>,
+  artifact: Artifact,
 ) -> io::Result<&'a Device> {
   match requested {
-    Some(requested) => resolve_named(devices, requested),
-    None => auto_select(devices),
+    Some(requested) => resolve_named(devices, requested, artifact),
+    None => auto_select(devices, artifact),
   }
 }
 
@@ -172,6 +196,7 @@ pub fn resolve<'a>(
 fn resolve_named<'a>(
   devices: &'a [Device],
   requested: &str,
+  artifact: Artifact,
 ) -> io::Result<&'a Device> {
   let device = devices
     .iter()
@@ -185,17 +210,17 @@ fn resolve_named<'a>(
     return Err(io::Error::other(format!(
       "no simulator device named '{requested}' — devices able to run \
        this app:\n{}",
-      compatible_listing(devices),
+      compatible_listing(devices, artifact),
     )));
   };
 
-  if !device.os.runs_ios_apps() {
+  if !artifact.supports(device.os) {
     return Err(io::Error::other(format!(
-      "'{}' runs {}, which cannot run iPhone-family apps — choose an \
-       iOS or visionOS device:\n{}",
+      "'{}' runs {}, which cannot run this app — choose {}:\n{}",
       device.name,
       device.os,
-      compatible_listing(devices),
+      artifact.device_label(),
+      compatible_listing(devices, artifact),
     )));
   }
 
@@ -203,11 +228,12 @@ fn resolve_named<'a>(
 }
 
 /// Auto-select a device: the booted one wins, else the newest iPhone,
-/// then iPad, then Apple Vision Pro.
-fn auto_select(devices: &[Device]) -> io::Result<&Device> {
+/// then iPad, then Apple Vision Pro (for a watch app: the booted
+/// watch, else the newest).
+fn auto_select(devices: &[Device], artifact: Artifact) -> io::Result<&Device> {
   devices
     .iter()
-    .filter(|device| device.os.runs_ios_apps())
+    .filter(|device| artifact.supports(device.os))
     .max_by_key(|device| {
       (
         device.booted,
@@ -216,10 +242,11 @@ fn auto_select(devices: &[Device]) -> io::Result<&Device> {
       )
     })
     .ok_or_else(|| {
-      io::Error::other(
-        "no iOS or visionOS simulator devices are available — install \
-         an iOS simulator runtime first",
-      )
+      io::Error::other(format!(
+        "no simulator device able to run this app is available — \
+         install a runtime providing {} first",
+        artifact.device_label(),
+      ))
     })
 }
 
@@ -246,11 +273,11 @@ fn version_key(version: &str) -> (u32, u32) {
 
 /// One indented line per device able to run the app, for error
 /// messages.
-fn compatible_listing(devices: &[Device]) -> String {
+fn compatible_listing(devices: &[Device], artifact: Artifact) -> String {
   let mut listing = String::new();
 
   for device in devices {
-    if !device.os.runs_ios_apps() {
+    if !artifact.supports(device.os) {
       continue;
     }
 

@@ -429,8 +429,11 @@ pub(crate) const N_NO_DEAD_STRIP: u16 = 0x0020; // Don't dead strip symbol
 pub(crate) const PLATFORM_MACOS: u32 = 1;
 pub(crate) const PLATFORM_IOS: u32 = 2;
 pub(crate) const PLATFORM_IOSSIMULATOR: u32 = 7;
+pub(crate) const PLATFORM_WATCHOSSIMULATOR: u32 = 9;
 // iOS 15.0 — the LC_BUILD_VERSION minimum for mobile binaries.
 pub(crate) const IOS_VERSION_15_0: u32 = 0x000F0000;
+// watchOS 9.0 — the LC_BUILD_VERSION minimum for watch binaries.
+pub(crate) const WATCHOS_VERSION_9_0: u32 = 0x0009_0000;
 
 /// Whether an iOS Mach-O targets the Simulator or a physical
 /// device. The two are distinct `LC_BUILD_VERSION` platforms
@@ -2180,6 +2183,14 @@ impl MachO {
     };
 
     self.add_build_version_for(platform, IOS_VERSION_15_0);
+  }
+
+  /// Emits `LC_BUILD_VERSION` for the watchOS Simulator — the only
+  /// watch host zo targets today (a device build needs a signing
+  /// identity the toolchain does not manage yet). dyld rejects a
+  /// binary whose platform doesn't match the host it's loaded on.
+  pub fn add_build_version_watchos_sim(&mut self) {
+    self.add_build_version_for(PLATFORM_WATCHOSSIMULATOR, WATCHOS_VERSION_9_0);
   }
 
   fn add_build_version_for(&mut self, platform: u32, minos: u32) {

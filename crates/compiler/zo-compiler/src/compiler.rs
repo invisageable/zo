@@ -2014,7 +2014,9 @@ impl Compiler {
       // Web emits a self-contained file bundle — the linker already
       // wrote it; there is no runtime dylib to colocate.
       Target::Web => {}
-      Target::Arm64AppleIos | Target::Arm64AppleIosSim => {
+      Target::Arm64AppleIos
+      | Target::Arm64AppleIosSim
+      | Target::Arm64AppleWatchOsSim => {
         bundle_ios(
           lowering.target,
           lowering.output_path,
@@ -2252,7 +2254,12 @@ impl Compiler {
         }
       };
 
-      if matches!(target, Target::Arm64AppleIos | Target::Arm64AppleIosSim) {
+      if matches!(
+        target,
+        Target::Arm64AppleIos
+          | Target::Arm64AppleIosSim
+          | Target::Arm64AppleWatchOsSim
+      ) {
         bundle_ios(target, output_path, &semantic.sir);
       } else {
         stage_runtime_artifacts(
@@ -2476,13 +2483,14 @@ fn bundle_ios(target: Target, output_path: &std::path::Path, sir: &Sir) {
   let triple = match target {
     Target::Arm64AppleIosSim => "aarch64-apple-ios-sim",
     Target::Arm64AppleIos => "aarch64-apple-ios",
+    Target::Arm64AppleWatchOsSim => "aarch64-apple-watchos-sim",
     _ => return,
   };
 
   let Some(runtime_dylib) = zo_host_paths::first_existing_runtime_dylib(triple)
   else {
     eprintln!(
-      "zo: iOS runtime not found for {triple}; expected at \
+      "zo: runtime not found for {triple}; expected at \
        ~/.zo/lib/runtime/{triple}/libzo_runtime.dylib or \
        target/{triple}/<profile>/libzo_runtime.dylib",
     );
@@ -2500,7 +2508,11 @@ fn bundle_ios(target: Target, output_path: &std::path::Path, sir: &Sir) {
     app_dir: &app_dir,
     name,
     bundle_id: &bundle_id,
-    simulator: matches!(target, Target::Arm64AppleIosSim),
+    platform: match target {
+      Target::Arm64AppleWatchOsSim => ios::Platform::WatchSimulator,
+      Target::Arm64AppleIos => ios::Platform::Iphone,
+      _ => ios::Platform::IphoneSimulator,
+    },
     stylesheets: &stylesheets,
   };
 

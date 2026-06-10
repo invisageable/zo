@@ -15,6 +15,8 @@ use zo_ui_protocol::style::{
 };
 use zo_ui_protocol::{Attr, ElementTag, EventKind, UiCommand};
 
+#[cfg(target_os = "watchos")]
+use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject};
 use objc2::{ClassType, MainThreadMarker, MainThreadOnly, define_class, sel};
@@ -24,18 +26,25 @@ use objc2_foundation::{
   NSBundle, NSData, NSDictionary, NSObjectProtocol, NSOperatingSystemVersion,
   NSProcessInfo, NSString,
 };
+#[cfg(target_os = "watchos")]
+use objc2_ui_kit::UIScreen;
 use objc2_ui_kit::{
-  UIApplication, UIApplicationDelegate, UIApplicationLaunchOptionsKey,
-  UIButton, UIButtonConfiguration, UIButtonType, UIColor, UIControlEvents,
+  UIApplication, UIApplicationLaunchOptionsKey, UIButton,
+  UIButtonConfiguration, UIButtonType, UIColor, UIControlEvents,
   UIControlState, UIFont, UIGlassEffect, UIGlassEffectStyle, UIImage,
-  UIImageView, UILabel, UIScene, UISceneConnectionOptions, UISceneDelegate,
-  UISceneSession, UITextBorderStyle, UITextField, UIView, UIViewContentMode,
-  UIViewController, UIVisualEffectView, UIWindow, UIWindowScene,
-  UIWindowSceneDelegate,
+  UIImageView, UILabel, UITextBorderStyle, UITextField, UIView,
+  UIViewContentMode, UIViewController, UIVisualEffectView, UIWindow,
+};
+#[cfg(target_os = "ios")]
+use objc2_ui_kit::{
+  UIApplicationDelegate, UIScene, UISceneConnectionOptions, UISceneDelegate,
+  UISceneSession, UIWindowScene, UIWindowSceneDelegate,
 };
 
 use std::cell::RefCell;
-use std::ffi::{c_char, c_float, c_int};
+#[cfg(target_os = "ios")]
+use std::ffi::c_float;
+use std::ffi::{c_char, c_int};
 use std::path::Path;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -57,6 +66,16 @@ thread_local! {
   /// A `thread_local` for the same reason as `WINDOW` — UIKit is
   /// single-threaded and `Retained`/`EventRegistry` aren't `Sync`.
   static RUNTIME: RefCell<Option<Runtime>> = const { RefCell::new(None) };
+}
+
+#[cfg(target_os = "watchos")]
+thread_local! {
+  /// Retains the widget event target for the process lifetime —
+  /// `addTarget` holds its target weakly, and unlike iOS (where UIKit
+  /// retains the scene delegate) nothing else on watchOS would keep
+  /// it alive.
+  static TARGET: RefCell<Option<Retained<SceneDelegate>>> =
+    const { RefCell::new(None) };
 }
 
 /// Per-process reactive wiring, built once at startup from the
@@ -183,6 +202,7 @@ pub(crate) fn install(
   });
 }
 
+#[cfg(target_os = "ios")]
 define_class!(
   // SAFETY: the superclass `NSObject` has no subclassing
   // requirements, and `AppDelegate` holds no ivars / no `Drop`.
@@ -211,6 +231,70 @@ define_class!(
   }
 );
 
+#[cfg(target_os = "watchos")]
+define_class!(
+  // SAFETY: the superclass `NSObject` has no subclassing
+  // requirements, and `AppDelegate` holds no ivars / no `Drop`.
+  #[unsafe(super(NSObject))]
+  #[thread_kind = MainThreadOnly]
+  #[name = "ZoAppDelegate"]
+  struct AppDelegate;
+
+  unsafe impl NSObjectProtocol for AppDelegate {}
+
+  impl AppDelegate {
+    // watchOS never connects a `UIScene` to a third-party UIKit app:
+    // Carousel's WatchKit scene agent instead reads the `window`
+    // property off the app delegate and hosts it. So the window is
+    // built here, at launch, sized to the (only) screen.
+    #[unsafe(method(application:didFinishLaunchingWithOptions:))]
+    fn did_finish_launching(
+      &self,
+      _application: &UIApplication,
+      _launch_options: Option<
+        &NSDictionary<UIApplicationLaunchOptionsKey, AnyObject>,
+      >,
+    ) -> bool {
+      let mtm = MainThreadMarker::from(self);
+
+      // The non-deprecated forms (`UIScreen` via a connected scene,
+      // `UIWindow` via `init(windowScene:)`) cannot exist yet —
+      // Carousel connects no scene before reading `window` — so the
+      // screen-frame forms are the only way to build the window on
+      // watchOS.
+      #[expect(deprecated)]
+      let window = {
+        let bounds = UIScreen::mainScreen(mtm).bounds();
+
+        UIWindow::initWithFrame(UIWindow::alloc(mtm), bounds)
+      };
+
+      // The event target outlives this call: `addTarget` holds it
+      // weakly, so it is retained in `TARGET` for the process
+      // lifetime (on iOS, UIKit retains the scene delegate instead).
+      let target: Retained<SceneDelegate> =
+        unsafe { msg_send![SceneDelegate::alloc(mtm), init] };
+
+      present(&window, &target, mtm);
+      TARGET.with(|t| *t.borrow_mut() = Some(target));
+      WINDOW.with(|w| *w.borrow_mut() = Some(window));
+
+      true
+    }
+
+    // Carousel's scene agent pulls the hosted window from here.
+    #[unsafe(method(window))]
+    fn window(&self) -> *mut UIWindow {
+      WINDOW.with(|w| {
+        w.borrow().as_ref().map_or(std::ptr::null_mut(), |window| {
+          Retained::as_ptr(window).cast_mut()
+        })
+      })
+    }
+  }
+);
+
+#[cfg(target_os = "ios")]
 define_class!(
   // SAFETY: the superclass `NSObject` has no subclassing
   // requirements, and `SceneDelegate` holds no ivars / no `Drop`.
@@ -278,35 +362,8 @@ define_class!(
 
       let window =
         UIWindow::initWithWindowScene(UIWindow::alloc(mtm), window_scene);
-      let controller = UIViewController::new(mtm);
 
-      let cmds = RUNTIME.with(|r| {
-        r.borrow()
-          .as_ref()
-          .map(|rt| rt.shared.lock().unwrap().clone())
-          .unwrap_or_default()
-      });
-
-      // One container view fills the screen and owns every widget by
-      // frame — no `UIStackView`, no Auto-Layout. It is sized to the
-      // scene's screen bounds so the solve's coordinate space matches
-      // (centring comes from the root's justify/align).
-      let bounds = window_scene.screen().bounds();
-      let container = UIView::initWithFrame(UIView::alloc(mtm), bounds);
-
-      // The backdrop (body colour / image) is painted by `render_into`.
-      controller.setView(Some(&container));
-
-      let (tree, views) = render_into(&cmds, &container, self, mtm);
-
-      RUNTIME.with(|r| {
-        if let Some(rt) = r.borrow_mut().as_mut() {
-          rt.host = Some(ViewHost { container, tree, views });
-        }
-      });
-
-      window.setRootViewController(Some(&controller));
-      window.makeKeyAndVisible();
+      present(&window, self, mtm);
       WINDOW.with(|w| *w.borrow_mut() = Some(window));
     }
   }
@@ -315,6 +372,101 @@ define_class!(
   // accessors stay optional (the window is owned via `WINDOW`).
   unsafe impl UIWindowSceneDelegate for SceneDelegate {}
 );
+
+#[cfg(target_os = "watchos")]
+define_class!(
+  // SAFETY: the superclass `NSObject` has no subclassing
+  // requirements, and `SceneDelegate` holds no ivars / no `Drop`.
+  //
+  // watchOS never connects a `UIScene` to this process (Carousel's
+  // agent hosts the app-delegate window instead), so this class is
+  // only the widget event target — same selectors, no scene
+  // conformances.
+  #[unsafe(super(NSObject))]
+  #[thread_kind = MainThreadOnly]
+  #[name = "ZoSceneDelegate"]
+  struct SceneDelegate;
+
+  impl SceneDelegate {
+    /// `UIButton` tap → the widget's `@click` handler. The
+    /// sender's `tag` is the lowering-assigned widget id.
+    #[unsafe(method(buttonTapped:))]
+    fn button_tapped(&self, sender: &UIButton) {
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Click,
+        EventPayload::default(),
+      );
+    }
+
+    /// `UITextField` edit → `@input`, carrying the field's
+    /// current text as the payload.
+    #[unsafe(method(textChanged:))]
+    fn text_changed(&self, sender: &UITextField) {
+      let text = sender.text().map(|s| s.to_string()).unwrap_or_default();
+
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Input,
+        EventPayload::with_value(text),
+      );
+    }
+
+    /// `UITextField` return key → `@submit`, carrying the
+    /// field's text as the payload.
+    #[unsafe(method(textSubmitted:))]
+    fn text_submitted(&self, sender: &UITextField) {
+      let text = sender.text().map(|s| s.to_string()).unwrap_or_default();
+
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Submit,
+        EventPayload::with_value(text),
+      );
+    }
+  }
+
+  unsafe impl NSObjectProtocol for SceneDelegate {}
+);
+
+/// Build the root view hierarchy into `window` and bring it on
+/// screen: a container sized to the window's bounds (the solve's
+/// coordinate space — centring comes from the root's justify/align),
+/// the first render against the shared command stream, and the view
+/// host stored for reconciliation. One container owns every widget by
+/// frame — no `UIStackView`, no Auto-Layout. Shared by the iOS scene
+/// connect and the watchOS launch path.
+fn present(window: &UIWindow, target: &SceneDelegate, mtm: MainThreadMarker) {
+  let controller = UIViewController::new(mtm);
+
+  let cmds = RUNTIME.with(|r| {
+    r.borrow()
+      .as_ref()
+      .map(|rt| rt.shared.lock().unwrap().clone())
+      .unwrap_or_default()
+  });
+
+  let bounds = window.bounds();
+  let container = UIView::initWithFrame(UIView::alloc(mtm), bounds);
+
+  // The backdrop (body colour / image) is painted by `render_into`.
+  controller.setView(Some(&container));
+
+  let (tree, views) = render_into(&cmds, &container, target, mtm);
+
+  RUNTIME.with(|r| {
+    if let Some(rt) = r.borrow_mut().as_mut() {
+      rt.host = Some(ViewHost {
+        container,
+        tree,
+        views,
+      });
+    }
+  });
+
+  window.setRootViewController(Some(&controller));
+  window.makeKeyAndVisible();
+}
 
 impl SceneDelegate {
   /// Resolve `(widget_id, kind)` to its handler, dispatch into
@@ -726,13 +878,16 @@ fn ui_color(color: Rgba) -> Retained<UIColor> {
 
 /// Corner radius (pt) of a glass panel until a `border-radius` property
 /// exists. The glass material is clipped to this rounded box.
+#[cfg(target_os = "ios")]
 const GLASS_CORNER_RADIUS: CGFloat = 16.0;
 
 /// Width (pt) of the specular rim around a glass panel — the thin bright
 /// edge that defines the pane even when it is near-transparent.
+#[cfg(target_os = "ios")]
 const GLASS_RIM_WIDTH: CGFloat = 1.0;
 
 /// Opacity (0–1) of the white specular rim.
+#[cfg(target_os = "ios")]
 const GLASS_RIM_ALPHA: CGFloat = 0.3;
 
 /// White-tint opacity (0–1) of the Simulator's translucent stand-in for
@@ -745,21 +900,30 @@ const GLASS_TINT_ALPHA_REGULAR: CGFloat = 0.18;
 
 /// Opacity (0–1) of the soft drop shadow that lifts a glass panel off
 /// the backdrop.
+#[cfg(target_os = "ios")]
 const GLASS_SHADOW_OPACITY: c_float = 0.18;
 
 /// Blur radius (pt) of the panel's drop shadow — wide and soft, not a
 /// hard edge.
+#[cfg(target_os = "ios")]
 const GLASS_SHADOW_RADIUS: CGFloat = 16.0;
 
 /// Downward offset (pt) of the panel's drop shadow, so the light reads
 /// as coming from above.
+#[cfg(target_os = "ios")]
 const GLASS_SHADOW_OFFSET_Y: CGFloat = 8.0;
 
 /// The glass style this element asks for, but only when the OS can
 /// render it. `UIGlassEffect` and the glass `UIButton.Configuration`s
 /// are iOS 26+ and the deployment target is 15.0, so every glass path
-/// funnels through this guard.
+/// funnels through this guard. watchOS has no Liquid Glass surface
+/// (and no public CALayer access for the rim/shadow styling), so
+/// glass resolves to solid there.
 fn glass_of(style: &ComputedStyle) -> Option<GlassStyle> {
+  if cfg!(target_os = "watchos") {
+    return None;
+  }
+
   match style.material {
     Material::Glass(glass) if glass_available() => Some(glass),
     _ => None,
@@ -842,35 +1006,45 @@ impl GlassPanel {
 /// shadow on the un-clipped outer host.
 fn glass_panel(glass: GlassStyle, mtm: MainThreadMarker) -> GlassPanel {
   let (surface, host) = glass_surface(glass, mtm);
-
-  // Round the panel, clip to the rounded box, then draw a thin white rim
-  // — the specular edge that defines the pane even when near-transparent.
-  let layer = surface.layer();
-
-  layer.setCornerRadius(GLASS_CORNER_RADIUS);
-  layer.setMasksToBounds(true);
-  layer.setBorderWidth(GLASS_RIM_WIDTH);
-
-  // SAFETY: `CGColor` bridges the colour on the main thread; the rim is a
-  // plain translucent white.
-  let rim =
-    unsafe { UIColor::colorWithWhite_alpha(1.0, GLASS_RIM_ALPHA).CGColor() };
-
-  layer.setBorderColor(Some(&rim));
-
-  // The outer host carries the drop shadow. It must NOT clip to bounds
-  // (the surface does), so the soft shadow spreads past the rounded box.
   let outer = UIView::new(mtm);
-  let outer_layer = outer.layer();
 
-  // SAFETY: `CGColor` bridges the colour on the main thread; the shadow
-  // is opaque black, faded by `setShadowOpacity`.
-  let shadow = unsafe { UIColor::colorWithWhite_alpha(0.0, 1.0).CGColor() };
+  // The rim + shadow styling needs CALayer access, which the UIKit
+  // bindings expose only off watchOS. `glass_of` never yields glass on
+  // watchOS, so the un-styled fallback there is dead code that merely
+  // has to compile.
+  #[cfg(target_os = "ios")]
+  {
+    // Round the panel, clip to the rounded box, then draw a thin white
+    // rim — the specular edge that defines the pane even when
+    // near-transparent.
+    let layer = surface.layer();
 
-  outer_layer.setShadowColor(Some(&shadow));
-  outer_layer.setShadowOpacity(GLASS_SHADOW_OPACITY);
-  outer_layer.setShadowRadius(GLASS_SHADOW_RADIUS);
-  outer_layer.setShadowOffset(CGSize::new(0.0, GLASS_SHADOW_OFFSET_Y));
+    layer.setCornerRadius(GLASS_CORNER_RADIUS);
+    layer.setMasksToBounds(true);
+    layer.setBorderWidth(GLASS_RIM_WIDTH);
+
+    // SAFETY: `CGColor` bridges the colour on the main thread; the rim
+    // is a plain translucent white.
+    let rim =
+      unsafe { UIColor::colorWithWhite_alpha(1.0, GLASS_RIM_ALPHA).CGColor() };
+
+    layer.setBorderColor(Some(&rim));
+
+    // The outer host carries the drop shadow. It must NOT clip to
+    // bounds (the surface does), so the soft shadow spreads past the
+    // rounded box.
+    let outer_layer = outer.layer();
+
+    // SAFETY: `CGColor` bridges the colour on the main thread; the
+    // shadow is opaque black, faded by `setShadowOpacity`.
+    let shadow = unsafe { UIColor::colorWithWhite_alpha(0.0, 1.0).CGColor() };
+
+    outer_layer.setShadowColor(Some(&shadow));
+    outer_layer.setShadowOpacity(GLASS_SHADOW_OPACITY);
+    outer_layer.setShadowRadius(GLASS_SHADOW_RADIUS);
+    outer_layer.setShadowOffset(CGSize::new(0.0, GLASS_SHADOW_OFFSET_Y));
+  }
+
   outer.addSubview(&surface);
 
   GlassPanel {
@@ -1155,12 +1329,46 @@ fn attr_text(attrs: &[Attr], name: &str) -> Option<String> {
     .map(str::to_string)
 }
 
+/// Realize the Carousel scene-specification classes before the run
+/// loop brings the scene XPC in. FrontBoard delivers a watch app's
+/// scene as a `CUISWKApplicationSceneSpecification`; if that class is
+/// not registered in this process when the message arrives, FrontBoard
+/// aborts scene creation and the app never reaches the screen.
+/// WatchKit links CarouselUIServices — load both, exactly as a watch
+/// app that links WatchKit would.
+#[cfg(target_os = "watchos")]
+fn preload_scene_frameworks() {
+  /// `dlopen` mode: resolve symbols eagerly, matching what a load
+  /// command would do.
+  const RTLD_NOW: c_int = 0x2;
+
+  unsafe extern "C" {
+    fn dlopen(path: *const c_char, flag: c_int) -> *mut std::ffi::c_void;
+  }
+
+  const FRAMEWORKS: [&std::ffi::CStr; 2] = [
+    c"/System/Library/Frameworks/WatchKit.framework/WatchKit",
+    c"/System/Library/PrivateFrameworks\
+      /CarouselUIServices.framework/CarouselUIServices",
+  ];
+
+  for path in FRAMEWORKS {
+    // SAFETY: a NUL-terminated constant path. A null return (missing
+    // framework) is tolerable — the scene-decode failure that follows
+    // is observable in the system log.
+    unsafe { dlopen(path.as_ptr(), RTLD_NOW) };
+  }
+}
+
 /// Launch the UIKit run loop. Blocks until the app exits. The
 /// delegates are constructed by UIKit from their registered class
 /// names, so the classes must be registered first.
 pub(crate) fn run() {
   let _mtm = MainThreadMarker::new()
     .expect("zo_run_native must be called on the main thread");
+
+  #[cfg(target_os = "watchos")]
+  preload_scene_frameworks();
 
   // Force class registration so the ObjC runtime can resolve
   // "ZoAppDelegate" / "ZoSceneDelegate" by name when

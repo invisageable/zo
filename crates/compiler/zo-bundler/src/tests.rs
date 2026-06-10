@@ -1,4 +1,4 @@
-use crate::ios::device::{self, Os};
+use crate::ios::device::{self, Artifact, Os};
 
 /// A captured `simctl list devices available` listing: every runtime
 /// family, parenthesized device names, and one booted device.
@@ -63,7 +63,8 @@ fn parse_reads_the_booted_state() {
 #[test]
 fn resolve_matches_names_case_insensitively() {
   let devices = device::parse(LISTING);
-  let device = device::resolve(&devices, Some("iphone 17 pro")).unwrap();
+  let device =
+    device::resolve(&devices, Some("iphone 17 pro"), Artifact::Ios).unwrap();
 
   assert_eq!(device.udid, "A69E4AEF-5111-4064-8798-4224637CBAD7");
 }
@@ -71,9 +72,12 @@ fn resolve_matches_names_case_insensitively() {
 #[test]
 fn resolve_matches_a_udid() {
   let devices = device::parse(LISTING);
-  let device =
-    device::resolve(&devices, Some("cabe096e-69ef-44e2-8006-5d0e5f4bd4bf"))
-      .unwrap();
+  let device = device::resolve(
+    &devices,
+    Some("cabe096e-69ef-44e2-8006-5d0e5f4bd4bf"),
+    Artifact::Ios,
+  )
+  .unwrap();
 
   assert_eq!(device.name, "iPhone 15 Pro");
 }
@@ -83,7 +87,8 @@ fn resolve_prefers_the_booted_duplicate() {
   // `Apple Vision Pro` exists under visionOS 1.2 (shut down) and
   // visionOS 26.5 (booted) — the booted one must win.
   let devices = device::parse(LISTING);
-  let device = device::resolve(&devices, Some("Apple Vision Pro")).unwrap();
+  let device =
+    device::resolve(&devices, Some("Apple Vision Pro"), Artifact::Ios).unwrap();
 
   assert_eq!(device.udid, "F99652F9-4274-40CD-BEC5-B6F6F6F2DF18");
 }
@@ -91,8 +96,12 @@ fn resolve_prefers_the_booted_duplicate() {
 #[test]
 fn resolve_rejects_watch_devices_with_the_runtime_contract() {
   let devices = device::parse(LISTING);
-  let error = device::resolve(&devices, Some("Apple Watch Series 11 (46mm)"))
-    .unwrap_err();
+  let error = device::resolve(
+    &devices,
+    Some("Apple Watch Series 11 (46mm)"),
+    Artifact::Ios,
+  )
+  .unwrap_err();
   let message = error.to_string();
 
   assert!(message.contains("watchOS"), "{message}");
@@ -102,7 +111,8 @@ fn resolve_rejects_watch_devices_with_the_runtime_contract() {
 #[test]
 fn resolve_lists_candidates_for_an_unknown_name() {
   let devices = device::parse(LISTING);
-  let error = device::resolve(&devices, Some("iPhone 99")).unwrap_err();
+  let error =
+    device::resolve(&devices, Some("iPhone 99"), Artifact::Ios).unwrap_err();
   let message = error.to_string();
 
   assert!(message.contains("iPhone 99"), "{message}");
@@ -113,7 +123,7 @@ fn resolve_lists_candidates_for_an_unknown_name() {
 #[test]
 fn auto_select_prefers_the_booted_device() {
   let devices = device::parse(LISTING);
-  let device = device::resolve(&devices, None).unwrap();
+  let device = device::resolve(&devices, None, Artifact::Ios).unwrap();
 
   assert_eq!(device.udid, "F99652F9-4274-40CD-BEC5-B6F6F6F2DF18");
 }
@@ -122,7 +132,7 @@ fn auto_select_prefers_the_booted_device() {
 fn auto_select_falls_back_to_the_newest_iphone() {
   let listing = LISTING.replace("(Booted)", "(Shutdown)");
   let devices = device::parse(&listing);
-  let device = device::resolve(&devices, None).unwrap();
+  let device = device::resolve(&devices, None, Artifact::Ios).unwrap();
 
   assert_eq!(device.name, "iPhone 17 Pro");
   assert_eq!(device.os_version, "26.5");
@@ -134,7 +144,40 @@ fn auto_select_fails_without_a_compatible_device() {
     "-- watchOS 26.5 --\n    Apple Watch Series 11 (46mm) \
      (3EC22E96-32CB-4DEE-9DE7-42CB5015C78E) (Shutdown)",
   );
-  let error = device::resolve(&devices, None).unwrap_err();
+  let error = device::resolve(&devices, None, Artifact::Ios).unwrap_err();
 
   assert!(error.to_string().contains("visionOS"));
+}
+
+#[test]
+fn watch_artifact_resolves_a_watch_device() {
+  let devices = device::parse(LISTING);
+  let device = device::resolve(
+    &devices,
+    Some("Apple Watch Series 11 (46mm)"),
+    Artifact::Watchos,
+  )
+  .unwrap();
+
+  assert_eq!(device.udid, "3EC22E96-32CB-4DEE-9DE7-42CB5015C78E");
+}
+
+#[test]
+fn watch_artifact_auto_selects_a_watch() {
+  let devices = device::parse(LISTING);
+  let device = device::resolve(&devices, None, Artifact::Watchos).unwrap();
+
+  assert_eq!(device.os, Os::WatchOs);
+}
+
+#[test]
+fn watch_artifact_rejects_an_iphone() {
+  let devices = device::parse(LISTING);
+  let error =
+    device::resolve(&devices, Some("iPhone 17 Pro"), Artifact::Watchos)
+      .unwrap_err();
+  let message = error.to_string();
+
+  assert!(message.contains("watchOS device"), "{message}");
+  assert!(message.contains("Apple Watch"), "{message}");
 }

@@ -144,6 +144,16 @@ build_ios_runtime:
 zo_run_ios program device="": build_ios_runtime
   cargo run --bin zo -- run "{{program}}" --target ios --device "{{device}}"
 
+# zo: Cross-build the watchOS Simulator runtime (in-repo dev prerequisite)
+[group("zo")]
+build_watchos_runtime:
+  cargo build -p zo-runtime --target aarch64-apple-watchos-sim -Zbuild-std=std,panic_abort
+
+# zo: Run a zo program in the watchOS Simulator (device auto-selects when omitted)
+[group("zo")]
+zo_run_watchos program device="": build_watchos_runtime
+  cargo run --bin zo -- run "{{program}}" --target watchos --device "{{device}}"
+
 # Run all zo crates tests
 [group('zo')]
 [group('test')]
