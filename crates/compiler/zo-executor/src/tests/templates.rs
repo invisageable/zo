@@ -1024,7 +1024,7 @@ fn test_template_list_binding_extracted_from_map_call() {
   assert_sir_structure(
     r#"fun main() {
   imu items: []str = ["a", "b"];
-  imu view: </> ::= <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>;
+  imu view: </> ::= <ul>{items.map(fn(t) => <li>{t}</li>)}</ul>;
   #render view;
 }"#,
     |sir| {
@@ -1078,7 +1078,7 @@ fn test_template_list_binding_emits_template_insn() {
   assert_sir_structure(
     r#"fun main() {
   imu items: []str = ["a", "b"];
-  imu view: </> ::= <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>;
+  imu view: </> ::= <ul>{items.map(fn(t) => <li>{t}</li>)}</ul>;
   #render view;
 }"#,
     |sir| {
@@ -1695,7 +1695,7 @@ fun main() {
   mut todos := ["a", "b"];
 
   imu page ::= <div>
-    <ul>{todos.map(fn(t) =:> <li>{t}</li>)}</ul>
+    <ul>{todos.map(fn(t) => <li>{t}</li>)}</ul>
     <button @click={fn() => todos[0] = "z"}>edit</button>
   </div>;
 
@@ -1714,7 +1714,7 @@ fun main() {
 
   imu page ::= <div>
     <button @click={fn() => todos[0] = "z"}>edit</button>
-    <ul>{todos.map(fn(t) =:> <li>{t}</li>)}</ul>
+    <ul>{todos.map(fn(t) => <li>{t}</li>)}</ul>
   </div>;
 
   #render page;

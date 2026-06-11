@@ -7,7 +7,7 @@ fun main() {
   mut todos := ["alpha", "beta"];
 
   imu page ::= <div>
-    <ul>{todos.map(fn(todo) =:> <li>{todo}</li>)}</ul>
+    <ul>{todos.map(fn(todo) => <li>{todo}</li>)}</ul>
     <button @click={fn() => todos[0] = "edited"}>edit</button>
   </div>;
 

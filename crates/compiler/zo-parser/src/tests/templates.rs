@@ -5,13 +5,13 @@ use zo_tree::NodeValue;
 
 #[test]
 fn test_template_fat_arrow_closure_body() {
-  // `fn(t) =:> <li>{t}</li>` parses as a closure whose body
+  // `fn(t) => <li>{t}</li>` parses as a closure whose body
   // is a template element. The auto-fragment wrap mirrors
   // the `::=` binding form so `execute_template_fragment`
   // sees the same shape regardless of whether the template
   // came from a binding or a closure return.
   assert_nodes_stream(
-    "fun main() { imu wrap := fn(t: str) =:> <li>{t}</li>; }",
+    "fun main() { imu wrap := fn(t: str) => <li>{t}</li>; }",
     &[
       (Fun, None),
       (Ident, Some(NodeValue::TextRange(4, 4))), // "main"
@@ -26,17 +26,17 @@ fn test_template_fat_arrow_closure_body() {
       (Ident, Some(NodeValue::TextRange(28, 1))), // "t"
       (StrType, None),
       (RParen, None),
-      (TemplateFatArrow, None),
+      (FatArrow, None),
       (TemplateFragmentStart, None),
       (LAngle, None),
-      (Ident, Some(NodeValue::TextRange(41, 2))), // "li"
+      (Ident, Some(NodeValue::TextRange(40, 2))), // "li"
       (RAngle, None),
       (LBrace, None),
-      (Ident, Some(NodeValue::TextRange(45, 1))), // "t"
+      (Ident, Some(NodeValue::TextRange(44, 1))), // "t"
       (RBrace, None),
       (LAngle, None),
       (Slash2, None),
-      (Ident, Some(NodeValue::TextRange(50, 2))), // "li"
+      (Ident, Some(NodeValue::TextRange(49, 2))), // "li"
       (RAngle, None),
       (Semicolon, None),
       (RBrace, None),

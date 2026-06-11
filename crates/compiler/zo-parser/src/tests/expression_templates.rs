@@ -5,7 +5,7 @@
 //! Value-position templates: the tokenizer opens template mode for
 //! a `<` after `return` / `{` / `;` / `=>`; the parser wraps the
 //! named-tag root in the same synthetic fragment the `::=` and
-//! `=:>` paths use, so `execute_template_fragment` sees one shape.
+//! `=>` paths use, so `execute_template_fragment` sees one shape.
 
 use crate::tests::common::assert_nodes_stream;
 

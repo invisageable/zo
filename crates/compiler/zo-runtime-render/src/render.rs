@@ -173,7 +173,7 @@ pub enum StateValue {
   Bool(bool),
   Str(String),
   /// Array of strings — backs `mut []str` state for list
-  /// rendering (`<X>{arr.map(fn(t) =:> ...)}</X>`). The
+  /// rendering (`<X>{arr.map(fn(t) => ...)}</X>`). The
   /// `display()` form is the formatter's `[…]` view; for
   /// list rendering the runtime walks the inner Vec
   /// directly via `as_strs`.

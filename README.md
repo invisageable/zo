@@ -34,7 +34,7 @@ zo (pronounced `/zuː/` just like "zoo") iS A SiMPLE, LiGHTWEiGHT, CROSS-PLATFOR
 
 **JOiN THE DEVOLUTiON.**
 
-[home](https://zo.compilords.house) — [initiation](https://zo.compilords.house/initiation) — [news](https://zo.compilords.house/news) — [discord](https://discord.gg/JaNc4Nk5xw)
+[home](https://zo.compilords.house) — [install](./crates/compiler/zo-notes/public/guidelines/01-install.md) — [initiation](https://zo.compilords.house/initiation) — [news](https://zo.compilords.house/news) — [discord](https://discord.gg/JaNc4Nk5xw)
 
 ## usage.
 
@@ -74,7 +74,6 @@ ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS — SAME SOURC
 DEV MACHiNE:
 
 ```
-System Version    — macOS 26.5.1
 Operating System  — Darwin 26.5.1 (ARM64)
 Kernel Version    — 25.5.0
 CPU               — Apple M3 Pro (12 cores)
@@ -85,30 +84,6 @@ Available Memory  — 9.4 GB
 > *zo is in early development and not ready for production yet. Currently it supports desktop (ARM64), MacOS (iOS, tvOS, visionOS, watchOS), web (bundled or webview). We plan to supports more — desktop (Linux, Windows) and mobile (Android). Styling is not already unified between all platforms for now.*
 >
 > *WARNiNG — regarding Ai usage, we are using Ai to build based on our architecture and specification (made by humans). The compiler currently covers over 1500 unit and integration tests.*
-
-## get started.
-
-  1. RUN THE iNSTALLATiON SCRiPT:
-
-  ```sh
-  curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh
-  ```
-
-  2. VERiFY:
-
-  ```
-  zo --version
-  ```
-
-  3. SUCCESSFULLY iT WiLL DiSPLAY:
-
-  ```
-  zo x.x.x
-  ```
-
-ET VOiLÀ! NOW YOU CAN START THE [@initiation](https://zo.compilords.house/initiation) — THE EASiEST WAY TO GET THE BASiCS OF zo. ANY iSSUES? CHECK THE iNSTALLATiON GUiDE:
-
-  - @SEE — [`01-install`](./crates/compiler/zo-notes/public/guidelines/01-install.md)
 
 ## sponsors & supports.
 

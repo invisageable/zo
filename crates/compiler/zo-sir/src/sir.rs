@@ -38,7 +38,7 @@ pub struct TemplateBindings {
   /// and splats `item_template` once per element into a
   /// fresh sub-command list — replacing the placeholder
   /// with the rendered batch. Used for
-  /// `<X>{arr.map(fn(t) =:> <body>)}</X>`.
+  /// `<X>{arr.map(fn(t) => <body>)}</X>`.
   pub list: Vec<(usize, ListBinding)>,
 }
 
@@ -54,7 +54,7 @@ pub struct ComputedBinding {
   pub captures: Vec<Symbol>,
 }
 
-/// Side-channel for a `<X>{arr.map(fn(t) =:> <body>)}</X>`
+/// Side-channel for a `<X>{arr.map(fn(t) => <body>)}</X>`
 /// list rendering. The executor doesn't expand the closure
 /// at compile time — instead it captures the per-item
 /// "template recipe" (`item_template`) plus the array

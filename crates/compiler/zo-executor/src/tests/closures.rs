@@ -6,14 +6,14 @@ use zo_value::FunctionKind;
 
 #[test]
 fn test_closure_template_fat_arrow_emits_fundef() {
-  // `fn(t: str) =:> <li>{t}</li>` — closure body is a
+  // `fn(t: str) => <li>{t}</li>` — closure body is a
   // template fragment. Should produce a single closure
   // FunDef just like the regular `=>` form. The body's
   // template emission is shared with the `::=` binding form
   // and verified separately in template tests.
   assert_sir_structure(
     r#"fun main() {
-  imu wrap := fn(t: str) =:> <li>{t}</li>;
+  imu wrap := fn(t: str) => <li>{t}</li>;
 }"#,
     |sir| {
       let closure_count = sir
@@ -857,7 +857,7 @@ fn event_handler_pushing_to_list_leaves_it_free() {
   mut items: []str = [];
   imu view: </> ::= <>
     <button @click={fn() => items.push("x")}>add</button>
-    <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>
+    <ul>{items.map(fn(t) => <li>{t}</li>)}</ul>
   </>;
 
   #render view;

@@ -158,8 +158,9 @@ pub struct Tokenizer<'a> {
   /// scope. The TEMPLATE-vs-CODE gate in `scan_template_token`
   /// fires when `brace_depth > template_frame_base` (interp
   /// inside the template body). At top-level template
-  /// (`imu view ::= <>...`) this stays at 0. When `=:>`
-  /// fires *inside* an interp (`<ul>{arr.map(fn(t) =:> ...)}`),
+  /// (`imu view ::= <>...`) this stays at 0. When a closure
+  /// body opens a template *inside* an interp
+  /// (`<ul>{arr.map(fn(t) => <li>...)}`),
   /// the closure body's template tokens need to be treated
   /// as markup despite `brace_depth > 0` — bumping the base
   /// to the current depth lets the gate work uniformly.
@@ -177,8 +178,8 @@ pub struct Tokenizer<'a> {
   /// on the `>` that ends an open tag, decremented on the
   /// `>` that ends a close tag. The frame-end check uses
   /// `element_depth_at_frame_entry` rather than 0 to handle
-  /// `=:>` opening inside an already-open element (e.g.
-  /// `<ul>{arr.map(fn(t) =:> <li>...)}`).
+  /// a closure-body template opening inside an already-open
+  /// element (e.g. `<ul>{arr.map(fn(t) => <li>...)}`).
   template_element_depth: u32,
   /// Snapshot of `template_element_depth` taken when an
   /// interp-opened template frame begins. The frame is
@@ -583,7 +584,7 @@ impl<'a> Tokenizer<'a> {
     // Brace-depth above the current template frame's base
     // means we're inside a `{...}` interp — tokenize as
     // code. The base is 0 for top-level templates and
-    // bumped to the entry depth when `=:>` opens a new
+    // bumped to the entry depth when a closure body opens a new
     // template scope from inside an interp.
     if self.state.brace_depth() > self.template_frame_base {
       self.scan_code_token();
@@ -951,26 +952,6 @@ impl<'a> Tokenizer<'a> {
         } else if self.current() == b'>' {
           self.advance();
           self.tokens.push(Token::FatArrow, start as u32, 2);
-        } else if self.current() == b':' && self.peek(1) == b'>' {
-          // `=:>` — closure body opener that switches the
-          // lexer into TEMPLATE mode. Mirrors `::=`'s mode
-          // shift; distinct from the assignment binding form.
-          //
-          // When `=:>` fires from inside an interp (e.g.
-          // `<ul>{arr.map(fn(t) =:> <li>{t}</li>)}`), the
-          // closure body's `<li>...</li>` are template
-          // markup but `brace_depth > 0`. Bump the frame
-          // base so the markup gate fires for them, and
-          // snapshot the current element depth so we can
-          // detect the body's outermost close tag and
-          // restore code mode for the trailing `)`.
-          self.advance();
-          self.advance();
-          self.template_frame_base = self.state.brace_depth();
-          self.template_element_depth_at_frame_entry =
-            self.template_element_depth;
-          self.state.set_mode(ModeState::TEMPLATE);
-          self.tokens.push(Token::TemplateFatArrow, start as u32, 3);
         } else {
           self.tokens.push(Token::Eq, start as u32, 1);
         }
@@ -1078,7 +1059,7 @@ impl<'a> Tokenizer<'a> {
           // The whitelist is deliberately narrow: `::=` is the
           // one template *binding* form, so `:=` / `=` never
           // open templates. Enter a template frame exactly
-          // like `=:>` does (the interp gate and close
+          // like a closure-body template does (the interp gate and close
           // detection need the same snapshots); mode returns
           // to CODE when this root closes.
           self.template_frame_base = self.state.brace_depth();

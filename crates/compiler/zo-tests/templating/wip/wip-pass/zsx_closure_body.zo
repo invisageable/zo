@@ -1,12 +1,12 @@
 -- test-build-pass: closure body that returns a template
--- fragment via `=:>`. Distinct from `::=` (assignment) —
+-- fragment via `=>`. Distinct from `::=` (assignment) —
 -- this is a closure that *returns* the fragment.
 -- The closure value itself is unused here; once `.map`
 -- lands (PLAN_ZSX_TODOLIST step 3), it'll be the input to
 -- `arr.map(...)`.
 
 fun main() {
-  imu wrap := fn(text: str) =:> <div>{text}</div>; -- TODO: replace `=:>` with `::=`
+  imu wrap := fn(text: str) => <div>{text}</div>; -- TODO: replace `=>` with `::=`
   imu view: </> ::= <><warp text="hello world" /></>;
 
   #render view;

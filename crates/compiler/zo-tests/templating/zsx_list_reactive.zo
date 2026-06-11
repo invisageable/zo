@@ -4,7 +4,7 @@ fun main() {
   mut items: []str = [];
   imu view: </> ::= <>
     <button @click={fn() => items.push("hi")}>add</button>
-    <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>
+    <ul>{items.map(fn(t) => <li>{t}</li>)}</ul>
   </>;
 
   #render view;

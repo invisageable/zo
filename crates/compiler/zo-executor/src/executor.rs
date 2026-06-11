@@ -8449,7 +8449,7 @@ impl<'a> Executor<'a> {
 
           break;
         }
-        Token::LBrace | Token::FatArrow | Token::TemplateFatArrow => break,
+        Token::LBrace | Token::FatArrow => break,
         _ => idx += 1,
       }
     }
@@ -8527,34 +8527,23 @@ impl<'a> Executor<'a> {
 
     let (body_start_idx, body_end_idx) =
       if idx < end_idx && self.tree.nodes[idx].token == Token::FatArrow {
-        // Inline form: fn(x) => expr
+        // Inline form: fn(x) => expr. A body that opens a
+        // template (`fn(t) => <li>{t}</li>`) parses behind a
+        // synthetic `TemplateFragmentStart`, identical to a
+        // `::=` binding's shape — force the return type to
+        // `</>` so capture/store unifications agree with how
+        // the template-fragment executor emits the result.
+        if self
+          .tree
+          .nodes
+          .get(idx + 1)
+          .is_some_and(|n| n.token == Token::TemplateFragmentStart)
+        {
+          return_ty = self.ty_checker.template_ty();
+        }
+
         // Exclude trailing Semicolon — it belongs to the
         // enclosing declaration, not the closure body.
-        let end = if end_idx > 0
-          && self
-            .tree
-            .nodes
-            .get(end_idx - 1)
-            .is_some_and(|n| n.token == Token::Semicolon)
-        {
-          end_idx - 1
-        } else {
-          end_idx
-        };
-
-        (idx + 1, end)
-      } else if idx < end_idx
-        && self.tree.nodes[idx].token == Token::TemplateFatArrow
-      {
-        // Template-returning form: fn(t) =:> <li>{t}</li>
-        // The parser auto-wraps the leading named tag in a
-        // synthetic `TemplateFragmentStart`, so the body
-        // shape downstream is identical to a `::=` binding.
-        // Force the closure's return type to `</>` so
-        // capture/store unifications agree with how the
-        // template-fragment executor emits the result.
-        return_ty = self.ty_checker.template_ty();
-
         let end = if end_idx > 0
           && self
             .tree
@@ -25047,7 +25036,7 @@ impl<'a> Executor<'a> {
           }
 
           // List-rendering fast path:
-          // `{arr.map(fn(t) =:> <body>)}`. Recognized
+          // `{arr.map(fn(t) => <body>)}`. Recognized
           // syntactically via token-shape match — lets us
           // keep the per-item template at compile time
           // (a `Vec<ListItemCmd>`) and the runtime simply
@@ -26074,7 +26063,7 @@ impl<'a> Executor<'a> {
   /// `idx` unchanged so the caller can try the normal path.
   ///
   /// Shape (MVP): `#` `Ident("html")` `Ident(src)` where `src`
-  /// Detect `arr.map(fn(t) =:> <body>)` in template interp
+  /// Detect `arr.map(fn(t) => <body>)` in template interp
   /// position and extract the per-item template recipe.
   /// Returns `(items_var, item_template)` when the brace
   /// content matches; `None` otherwise (caller falls
@@ -26125,7 +26114,8 @@ impl<'a> Executor<'a> {
     }
 
     // Walk the Fn closure: find the param Ident and the
-    // body opener (`=:>`). The param must be a single
+    // body opener (`=>` followed by a template fragment).
+    // The param must be a single
     // Ident inside `(...)`; the body must use the
     // template-fat-arrow opener so we know it produces a
     // fragment.
@@ -26161,7 +26151,14 @@ impl<'a> Executor<'a> {
 
     walk += 1;
 
-    if nodes[walk].token != Token::TemplateFatArrow {
+    // The arrow's body must be a template (the parser wraps a
+    // leading tag in a synthetic fragment) — an expression body
+    // (`.map(fn(x) => x + 1)`) is not a list recipe.
+    if nodes[walk].token != Token::FatArrow
+      || nodes
+        .get(walk + 1)
+        .is_none_or(|n| n.token != Token::TemplateFragmentStart)
+    {
       return None;
     }
 

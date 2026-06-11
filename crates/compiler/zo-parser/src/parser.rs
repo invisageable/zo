@@ -257,7 +257,6 @@ impl<'a> Parser<'a> {
       Token::TemplateAssign => self.handle_template_assign(),
       Token::Arrow => self.handle_arrow(),
       Token::FatArrow => self.handle_fat_arrow(),
-      Token::TemplateFatArrow => self.handle_template_fat_arrow(),
       Token::Comma => self.handle_comma(),
       Token::Ellipsis => self.handle_ellipsis(),
       Token::Semicolon => self.handle_semicolon(),
@@ -973,7 +972,7 @@ impl<'a> Parser<'a> {
     //
     // The cascade also closes a synthetic
     // `TemplateFragmentStart` opened by
-    // `handle_template_fat_arrow` (for `=:>` bodies) when
+    // the closure-body template door when
     // that fragment sits directly above an `Fn` — i.e. it's
     // the closure body's wrapper, not a top-level
     // `imu view ::= <body>` whose synthetic fragment must
@@ -1323,33 +1322,6 @@ impl<'a> Parser<'a> {
     self.emit_node(Token::FatArrow);
 
     self.state = ParserState::Expression;
-  }
-
-  fn handle_template_fat_arrow(&mut self) {
-    // `=:>` is a closure body opener whose body is a
-    // template literal: `fn(t) =:> <li>{t}</li>`. Mirror
-    // `handle_template_assign` — emit the marker, switch the
-    // parser state to TemplateMode, and auto-wrap a leading
-    // named tag in a synthetic fragment so
-    // `execute_template_fragment` handles all template
-    // content uniformly. Distinct from `::=` because there's
-    // no binding here, the closure simply *returns* the
-    // fragment.
-    self.flush_expr();
-    self.emit_node(Token::TemplateFatArrow);
-
-    self.state = ParserState::TemplateMode;
-
-    if self.peek() == Some(Token::LAngle) {
-      let node_index = self.emit_node(Token::TemplateFragmentStart);
-
-      self.introducer_stack.push(Introducer {
-        state: self.state,
-        token: Token::TemplateFragmentStart,
-        node_index,
-        children_start: self.tree.nodes.len() as u32,
-      });
-    }
   }
 
   fn handle_comma(&mut self) {
@@ -2277,7 +2249,7 @@ impl<'a> Parser<'a> {
       // generics are re-labeled by `parse_type_params`), so an
       // `LAngle` reaching a code state is the named-tag root the
       // tokenizer switched on (`return <h1>…`, a block tail, a
-      // match arm). Mirror `::=` / `=:>`: wrap in a synthetic
+      // match arm). Mirror `::=`: wrap in a synthetic
       // fragment so `execute_template_fragment` handles all
       // template content uniformly, and enter TemplateMode.
       self.flush_expr();
