@@ -1430,3 +1430,194 @@ fun main() {
     },
   );
 }
+
+#[test]
+fn slot_splices_children_at_the_marked_position() {
+  // `<card …><p>body</p></card>` — children build in the parent's
+  // scope and land exactly where the component body says
+  // `<slot />`: between the card's heading and footer.
+  assert_sir_structure(
+    r#"
+fun card(title: str) -> </> {
+  return <div>
+    <h2>{title}</h2>
+    <slot />
+    <p>footer</p>
+  </div>;
+}
+
+fun main() {
+  imu who := "zo";
+
+  imu page ::= <card title="hi"><p>body {who}</p></card>;
+
+  #render page;
+}"#,
+    |sir| {
+      use zo_ui_protocol::UiCommand;
+
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let texts: Vec<&str> = page
+        .iter()
+        .filter_map(|c| match c {
+          UiCommand::Text(t) => Some(t.as_str()),
+          _ => None,
+        })
+        .collect();
+
+      let hi = texts.iter().position(|t| t.contains("hi"));
+      let body = texts.iter().position(|t| t.contains("body zo"));
+      let footer = texts.iter().position(|t| t.contains("footer"));
+
+      assert!(
+        hi.is_some() && body.is_some() && footer.is_some(),
+        "missing slot pieces: {texts:?}"
+      );
+      assert!(
+        hi < body && body < footer,
+        "slot content out of position: {texts:?}"
+      );
+    },
+  );
+}
+
+#[test]
+fn slotless_component_appends_children_instead_of_dropping() {
+  assert_sir_structure(
+    r#"
+fun badge(label: str) -> </> {
+  return <span>{label}</span>;
+}
+
+fun main() {
+  imu page ::= <div><badge label="new"><p>extra</p></badge></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      use zo_ui_protocol::UiCommand;
+
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let texts: Vec<&str> = page
+        .iter()
+        .filter_map(|c| match c {
+          UiCommand::Text(t) => Some(t.as_str()),
+          _ => None,
+        })
+        .collect();
+
+      assert!(
+        texts.iter().any(|t| t.contains("new"))
+          && texts.iter().any(|t| t.contains("extra")),
+        "children dropped by slotless component: {texts:?}"
+      );
+    },
+  );
+}
+
+#[test]
+fn self_closing_slotted_component_renders_empty_slot() {
+  assert_sir_structure(
+    r#"
+fun card(title: str) -> </> {
+  return <div>
+    <h2>{title}</h2>
+    <slot />
+  </div>;
+}
+
+fun main() {
+  imu page ::= <div><card title="alone" /></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      use zo_ui_protocol::UiCommand;
+
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let has_title = page
+        .iter()
+        .any(|c| matches!(c, UiCommand::Text(t) if t.contains("alone")));
+      let stray_slot = page.iter().any(|c| {
+        matches!(c, UiCommand::Element { tag, .. }
+          if format!("{tag:?}").to_lowercase().contains("slot"))
+      });
+
+      assert!(has_title, "self-closing slotted card missing: {page:#?}");
+      assert!(!stray_slot, "literal slot element leaked: {page:#?}");
+    },
+  );
+}
+
+#[test]
+fn reactive_children_keep_bindings_through_the_slot() {
+  // Children build in the parent's scope: a `mut` interpolation
+  // inside them must arrive in the page template as a live text
+  // binding, drained from the parent walk, carried through the
+  // slot, and rebased twice (children-relative, then instance
+  // splice position).
+  assert_sir_structure(
+    r#"
+fun card() -> </> {
+  return <div><slot /></div>;
+}
+
+fun main() {
+  mut count := 0;
+
+  imu page ::= <card><span>{count}</span></card>;
+
+  #render page;
+}"#,
+    |sir| {
+      use zo_ui_protocol::UiCommand;
+
+      let (commands, bindings) = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template {
+            commands, bindings, ..
+          } => Some((commands, bindings)),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      assert!(
+        !bindings.text.is_empty(),
+        "reactive child lost its binding through the slot: {bindings:?}"
+      );
+
+      for (cmd_idx, _) in &bindings.text {
+        assert!(
+          matches!(commands.get(*cmd_idx), Some(UiCommand::Text(_))),
+          "slot-carried binding mistargeted: {commands:#?}"
+        );
+      }
+    },
+  );
+}

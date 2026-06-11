@@ -203,6 +203,15 @@ pub struct ExportedTreeSlice {
   pub origin_start: u32,
 }
 
+/// Whether a component body contains a `<slot />`. An enum
+/// rather than a bare bool so construction sites read
+/// unambiguously (`slot: Slot::Yes`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Slot {
+  Yes,
+  No,
+}
+
 /// A `pub fun … -> </>` body fragment exported for cross-module
 /// component instantiation: the importer splices the fragment into
 /// its own tree and re-executes it per use site.
@@ -212,6 +221,10 @@ pub struct ExportedComponentBody {
   pub name: Symbol,
   /// The portable fragment subtree.
   pub slice: ExportedTreeSlice,
+  /// Whether the fragment contains a `<slot />` — a slotted
+  /// component must always instantiate (its registration-time
+  /// bake has no slot content to show).
+  pub slot: Slot,
 }
 
 /// Post-splice metadata for one generic body — the executor
@@ -238,6 +251,8 @@ pub struct SplicedComponentBody {
   /// Range in the importer's tree where the splice landed,
   /// `(start_inclusive, end_exclusive)`.
   pub range: (u32, u32),
+  /// Carried through from [`ExportedComponentBody::slot`].
+  pub slot: Slot,
 }
 
 /// Imported module symbols to pre-load into the executor.
@@ -362,6 +377,7 @@ pub fn splice_component_bodies(
       out.push(SplicedComponentBody {
         name: body.name,
         range,
+        slot: body.slot,
       });
     }
   }

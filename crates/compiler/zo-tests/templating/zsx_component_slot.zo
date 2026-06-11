@@ -1,0 +1,20 @@
+-- test-run-pass: slots — children splice into the component body.
+-- The content between `<card …>` and `</card>` builds in main's
+-- scope and lands where `card` says `<slot />`, between heading
+-- and footer.
+
+fun card(title: str) -> </> {
+  return <div>
+    <h2>{title}</h2>
+    <slot />
+    <p>footer</p>
+  </div>;
+}
+
+fun main() {
+  imu page ::= <card title="hello">
+    <p>slotted body</p>
+  </card>;
+
+  #render page;
+}

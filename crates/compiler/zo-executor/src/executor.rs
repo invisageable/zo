@@ -6,7 +6,7 @@ use zo_interner::{
 };
 use zo_module_resolver::{
   AbstractDef, AbstractImpl, AbstractMethod, ExportedComponentBody,
-  ExportedGenericBody, ExportedLiteral, ExportedTreeSlice,
+  ExportedGenericBody, ExportedLiteral, ExportedTreeSlice, Slot,
 };
 use zo_reporter::{
   Detail, TyNames, report_error, report_error_with_detail,
@@ -76,6 +76,45 @@ pub struct ExecuteOutput {
 /// Far past any real component tree; exceeding it reports
 /// `CircularComponent` with the chain.
 const MAX_COMPONENT_DEPTH: usize = 64;
+
+/// One registered component body fragment.
+#[derive(Clone, Copy)]
+struct ComponentFragment {
+  /// Fragment node range in this executor's tree.
+  range: (usize, usize),
+  /// Whether the fragment contains `<slot />`. A slotted
+  /// component must always instantiate — its registration-time
+  /// bake has no slot content to show.
+  slot: Slot,
+}
+
+/// One component tag opened with children
+/// (`<card title="hi"> … </card>`), awaiting its closing tag.
+struct ComponentUseFrame {
+  /// The component's symbol — matched against the closing tag.
+  name: Symbol,
+  /// The use site's attributes (props), held until the close
+  /// instantiates.
+  attrs: Vec<Attr>,
+  /// The opening tag's span, for diagnostics at instantiation.
+  tag_span: Span,
+  /// `commands.len()` at the open — everything past this is the
+  /// children stream.
+  commands_mark: usize,
+}
+
+/// Children of one component tag, awaiting the body's `<slot />`.
+struct SlotContent {
+  /// The children's command stream, built in the parent's scope.
+  commands: Vec<UiCommand>,
+  /// The children's reactive bindings, indices relative to
+  /// `commands`.
+  bindings: TemplateBindings,
+  /// Set when a `<slot />` consumed the content. Unconsumed
+  /// children append after the instance, so a slotless component
+  /// never silently drops markup.
+  consumed: bool,
+}
 
 /// Index newtype: position in `Executor::funs`.
 /// Reserves `u32::MAX` as the absent sentinel so a
@@ -285,12 +324,25 @@ pub struct Executor<'a> {
   /// function registers only after its body completes, so
   /// self/mutual splices can never recurse.
   component_templates: HashMap<Symbol, ValueId>,
-  /// Body-fragment node range per component function, for
-  /// parametrized instantiation: `<greeting name="world" />`
-  /// re-executes the range with the params bound as compile-time
-  /// constants, so each use site bakes its own values and draws
-  /// fresh widget ids.
-  component_fragments: HashMap<Symbol, (usize, usize)>,
+  /// Body fragment per component function, for instantiation:
+  /// `<greeting name="world" />` re-executes the range with the
+  /// params bound as compile-time constants, so each use site
+  /// bakes its own values and draws fresh widget ids.
+  component_fragments: HashMap<Symbol, ComponentFragment>,
+  /// Slot content for the instantiation in flight, innermost
+  /// last: the commands + bindings built from the children of a
+  /// component tag (`<card><p>…</p></card>`), in the *parent's*
+  /// scope, consumed by the component body's `<slot />`.
+  pending_slot: Vec<SlotContent>,
+  /// Set when a fragment walk meets `<slot />` with no slot
+  /// content in flight — i.e. at component *definition* time.
+  /// Consumed at registration into
+  /// `ComponentFragment::has_slot`.
+  saw_slot_tag: bool,
+  /// Component tags opened with children, awaiting their close
+  /// tag. Stack discipline matches the tag nesting; marks index
+  /// the walk-local commands vec of the fragment being built.
+  slot_frames: Vec<ComponentUseFrame>,
   /// Non-zero while re-executing a component body for one use
   /// site. Suppresses component registration (the enclosing
   /// function must not re-register with an instance's template).
@@ -954,6 +1006,9 @@ impl<'a> Executor<'a> {
       current_function: None,
       component_templates: HashMap::default(),
       component_fragments: HashMap::default(),
+      pending_slot: Vec::new(),
+      saw_slot_tag: false,
+      slot_frames: Vec::new(),
       instantiating: 0,
       instantiation_stack: Vec::new(),
       saved_outer_funs: Vec::new(),
@@ -2217,9 +2272,13 @@ impl<'a> Executor<'a> {
     // re-executing the spliced range, exactly like a component
     // defined in this module.
     for entry in &spliced_components {
-      self
-        .component_fragments
-        .insert(entry.name, (entry.range.0 as usize, entry.range.1 as usize));
+      self.component_fragments.insert(
+        entry.name,
+        ComponentFragment {
+          range: (entry.range.0 as usize, entry.range.1 as usize),
+          slot: entry.slot,
+        },
+      );
     }
 
     for entry in spliced_bodies {
@@ -24423,15 +24482,35 @@ impl<'a> Executor<'a> {
 
           if next.token == Token::Slash2 {
             // Closing tag: </ ident >
-            // Skip slash, tag name, and closing >
-            idx += 1; // skip ident
+            idx += 1; // skip slash, now at the tag name
+
+            let mut closing_sym = None;
+
             if idx < end_idx && self.tree.nodes[idx].token == Token::Ident {
+              closing_sym = self.node_value(idx).and_then(|v| match v {
+                NodeValue::Symbol(s) => Some(s),
+                _ => None,
+              });
               idx += 1; // skip past ident
             }
             if idx < end_idx && self.tree.nodes[idx].token == Token::RAngle {
               idx += 1;
             }
-            self.close_template_tag(&mut commands);
+
+            // A close tag matching the innermost open component
+            // frame ends that component's children — instantiate
+            // with the slot content instead of emitting an
+            // EndElement (the open emitted nothing).
+            if let Some(sym) = closing_sym
+              && self.slot_frames.last().is_some_and(|f| f.name == sym)
+            {
+              let frame =
+                self.slot_frames.pop().expect("frame presence just checked");
+
+              self.close_component_frame(frame, &mut commands);
+            } else {
+              self.close_template_tag(&mut commands);
+            }
           } else if next.token == Token::Ident {
             // Opening tag: < ident [attrs...] > or
             //              < ident [attrs...] / >
@@ -24787,13 +24866,34 @@ impl<'a> Executor<'a> {
               }
             }
 
-            self.emit_opening_tag(
-              &tag_name,
-              &attrs,
-              self_closing,
-              &mut commands,
-              tag_span,
-            );
+            // A non-self-closing component tag frames its
+            // children: nothing is emitted now — the matching
+            // close tag drains the children built in between and
+            // instantiates with them as slot content.
+            let component_sym = self
+              .interner
+              .symbol(&tag_name)
+              .filter(|s| self.component_fragments.contains_key(s));
+
+            match component_sym {
+              Some(sym) if !self_closing => {
+                self.slot_frames.push(ComponentUseFrame {
+                  name: sym,
+                  attrs,
+                  tag_span,
+                  commands_mark: commands.len(),
+                });
+              }
+              _ => {
+                self.emit_opening_tag(
+                  &tag_name,
+                  &attrs,
+                  self_closing,
+                  &mut commands,
+                  tag_span,
+                );
+              }
+            }
           } else {
             idx += 1;
           }
@@ -25326,9 +25426,20 @@ impl<'a> Executor<'a> {
       && ctx.return_ty == self.ty_checker.template_ty()
     {
       let name = ctx.name;
+      let slot = if std::mem::take(&mut self.saw_slot_tag) {
+        Slot::Yes
+      } else {
+        Slot::No
+      };
 
       self.component_templates.insert(name, template_id);
-      self.component_fragments.insert(name, (start_idx, end_idx));
+      self.component_fragments.insert(
+        name,
+        ComponentFragment {
+          range: (start_idx, end_idx),
+          slot,
+        },
+      );
 
       // Export the fragment for cross-module use: a `pub`
       // component's importer re-executes this subtree from its own
@@ -25341,9 +25452,11 @@ impl<'a> Executor<'a> {
         && let Some(slice) =
           self.export_tree_slice(start_idx as u32, end_idx as u32)
       {
-        self
-          .recorded_component_bodies
-          .push(ExportedComponentBody { name, slice });
+        self.recorded_component_bodies.push(ExportedComponentBody {
+          name,
+          slice,
+          slot,
+        });
       }
     }
 
@@ -25395,6 +25508,30 @@ impl<'a> Executor<'a> {
     commands: &mut Vec<UiCommand>,
     tag_span: Span,
   ) {
+    // `<slot />` — splice the children the current instantiation
+    // carried, exactly where the component body says. At
+    // definition time (no instantiation in flight) it only marks
+    // the component as slotted; the registration-time bake is
+    // never used for slotted components.
+    if tag == "slot" {
+      if let Some(slot) = self.pending_slot.last_mut() {
+        slot.consumed = true;
+
+        let base = commands.len();
+        let slot_cmds = slot.commands.clone();
+        let slot_bindings = slot.bindings.clone();
+
+        commands.extend(slot_cmds);
+        self.merge_child_bindings(slot_bindings, base);
+      } else if self.instantiating == 0 {
+        self.saw_slot_tag = true;
+      }
+      // Instantiating with no slot content (a self-closing use,
+      // `<card />`) renders an empty slot — emit nothing.
+
+      return;
+    }
+
     // Parametrized component: re-execute the component's body
     // with this tag's attributes bound to its parameters.
     // Checked before the baked-template path so a component
@@ -25512,6 +25649,103 @@ impl<'a> Executor<'a> {
   /// return that template's commands for inlining. Otherwise
   /// returns None. Preserves the component-resolution behavior
   /// from the legacy `TagKind::Unknown` path.
+  /// Finish a component used with children: drain the children
+  /// stream (and its bindings) built since the opening tag,
+  /// instantiate the component with that slot content, and splice
+  /// the instance where the component opened. Children are never
+  /// silently dropped — unconsumed slot content (a slotless
+  /// component, or an instantiation refused by the cycle guard)
+  /// appends after whatever the component produced.
+  fn close_component_frame(
+    &mut self,
+    frame: ComponentUseFrame,
+    commands: &mut Vec<UiCommand>,
+  ) {
+    let children = commands.split_off(frame.commands_mark);
+    let children_bindings = self.drain_children_bindings(frame.commands_mark);
+    let tag = self.interner.get(frame.name).to_string();
+
+    self.pending_slot.push(SlotContent {
+      commands: children,
+      bindings: children_bindings,
+      consumed: false,
+    });
+
+    let instance =
+      self.try_instantiate_component(&tag, &frame.attrs, frame.tag_span);
+
+    let slot = self
+      .pending_slot
+      .pop()
+      .expect("slot stack balanced around instantiation");
+
+    if let Some((child_cmds, child_bindings)) = instance {
+      let base = commands.len();
+
+      commands.extend(child_cmds);
+      self.merge_child_bindings(child_bindings, base);
+    }
+
+    if !slot.consumed && !slot.commands.is_empty() {
+      let base = commands.len();
+
+      commands.extend(slot.commands);
+      self.merge_child_bindings(slot.bindings, base);
+    }
+  }
+
+  /// Split the bindings recorded past `commands_mark` out of the
+  /// in-progress collection and rebase them to the drained
+  /// children stream (index 0 = `commands_mark`).
+  fn drain_children_bindings(
+    &mut self,
+    commands_mark: usize,
+  ) -> TemplateBindings {
+    let mut children = TemplateBindings::default();
+
+    let text = std::mem::take(&mut self.template_bindings.text);
+
+    for (idx, sym) in text {
+      if idx >= commands_mark {
+        children.text.push((idx - commands_mark, sym));
+      } else {
+        self.template_bindings.text.push((idx, sym));
+      }
+    }
+
+    let attrs = std::mem::take(&mut self.template_bindings.attrs);
+
+    for (idx, attr) in attrs {
+      if idx >= commands_mark {
+        children.attrs.push((idx - commands_mark, attr));
+      } else {
+        self.template_bindings.attrs.push((idx, attr));
+      }
+    }
+
+    let computed = std::mem::take(&mut self.template_bindings.computed);
+
+    for (idx, cb) in computed {
+      if idx >= commands_mark {
+        children.computed.push((idx - commands_mark, cb));
+      } else {
+        self.template_bindings.computed.push((idx, cb));
+      }
+    }
+
+    let list = std::mem::take(&mut self.template_bindings.list);
+
+    for (idx, lb) in list {
+      if idx >= commands_mark {
+        children.list.push((idx - commands_mark, lb));
+      } else {
+        self.template_bindings.list.push((idx, lb));
+      }
+    }
+
+    children
+  }
+
   /// Instantiate a parametrized component for one use site: bind
   /// the tag's attributes to the function's parameters as
   /// compile-time constants, re-execute the body fragment (each
@@ -25526,7 +25760,8 @@ impl<'a> Executor<'a> {
     tag_span: Span,
   ) -> Option<(Vec<UiCommand>, TemplateBindings)> {
     let sym = self.interner.symbol(tag)?;
-    let (frag_start, frag_end) = *self.component_fragments.get(&sym)?;
+    let fragment = *self.component_fragments.get(&sym)?;
+    let (frag_start, frag_end) = fragment.range;
 
     // Instantiating a component already on the stack (or past the
     // depth cap) can only expand forever — report the cycle with
@@ -25556,11 +25791,16 @@ impl<'a> Executor<'a> {
 
     let params = self.find_fun(sym)?.params.clone();
 
-    if params.is_empty() && self.component_templates.contains_key(&sym) {
-      // A local zero-prop component has a baked registration-time
-      // template identical for every use — the clone path is
-      // cheaper. An imported component has no local bake, so it
-      // falls through to instantiation of its spliced fragment.
+    if params.is_empty()
+      && fragment.slot == Slot::No
+      && self.pending_slot.is_empty()
+      && self.component_templates.contains_key(&sym)
+    {
+      // A local zero-prop, slot-free component has a baked
+      // registration-time template identical for every use — the
+      // clone path is cheaper. A slotted component (or one used
+      // with children) must instantiate, and an imported component
+      // has no local bake; both fall through.
       return None;
     }
 
