@@ -1,5 +1,9 @@
-# contribution.
+# contributing.
+
+WE LOVE CONTRiBUTORS. THiS iS A PLAYGROUND FOR COMPiLER __NERDS__, FRONTEND __HACKERS__, AND __CREATIVES__.
 
 WE DON'T CARE iF YOU ARE USiNG Ai TO CONTRiBUTE. WHAT WE CARE iS TO ENSURE THAT A HUMAiN BEiNG PiLOT, VERiFY AND SUPERViSE AN Ai TO PRODUCE THE EXPECTED SOLUTiON. WE LiVE NOW iN AN Ai WORLD MEANiNG THAT EVERYTHiNG iS POTENTiALLY Ai. WE ALREADY HAVE A BUNCH OF Ai SLOP, OUR GOAL iS TO REDUCE iT. PLEASE, ENSURE THAT YOU REViEWED Ai OUTPUT BEFORE CREATiNG ANY iSUUE.
 
-> *If something is not clear feel free to join the [discord](https://discord.gg/JaNc4Nk5xw).*
+OPEN AN [iSSUE](https://github.com/invisageable/zo/issues), A [DiSCUSSiON](https://github.com/invisageable/zo/discussions), OR COME SAY HELLO ON [discord](https://discord.gg/JaNc4Nk5xw). YOU CAN ALSO CONTACT US AT `echo -n 'dGhlQGNvbXBpbG9yZHMuaG91c2U=' | base64 --decode`.    
+
+OPEN A [DiSCUSSiON](https://github.com/invisageable/zo/discussions), iF YOU WANT TO SUGGEST A NEW FEATURE.

@@ -1,5 +1,6 @@
 pub(crate) mod common;
 pub(crate) mod errors;
+pub(crate) mod expression_templates;
 pub(crate) mod interpolation;
 
 use crate::tests::common::assert_tokens_stream;
@@ -605,18 +606,18 @@ fn test_nested_code_templates() {
 
 #[test]
 fn test_template_fat_arrow_closure_body() {
-  // `=:>` opens a closure body that is a template fragment.
-  // It must (a) tokenize as a single token, (b) switch the
-  // lexer into TEMPLATE mode so the following `<li>` is a
-  // template element, not a comparison.
+  // `=>` opens a closure body; a following `<` plus tag name
+  // rides the expression-template door, switching the lexer
+  // into TEMPLATE mode so `<li>` is a template element, not a
+  // comparison.
   assert_tokens_stream(
-    "fn(t) =:> <li>{t}</li>",
+    "fn(t) => <li>{t}</li>",
     &[
       (Token::Fn, "fn"),
       (Token::LParen, "("),
       (Token::Ident, "t"),
       (Token::RParen, ")"),
-      (Token::TemplateFatArrow, "=:>"),
+      (Token::FatArrow, "=>"),
       (Token::LAngle, "<"),
       (Token::Ident, "li"),
       (Token::RAngle, ">"),
@@ -645,6 +646,35 @@ fn test_style_block_simple() {
       (Token::Ident, "color"),
       (Token::Colon, ":"),
       (Token::StyleValue, "cyan"),
+      (Token::Semicolon, ";"),
+      (Token::RBrace, "}"),
+      (Token::RBrace, "}"),
+      (Token::Eof, ""),
+    ],
+  );
+}
+
+#[test]
+fn test_style_block_pseudo_class_selector() {
+  // The selector colon (`.btn:hover {`) must NOT trigger the
+  // property-value scan — `hover` stays an Ident and the rule's
+  // braces stay balanced. The lookahead distinguishes it from the
+  // property colon (`bg: red;`) by which structural byte comes
+  // first (`{` = selector, `;`/`}` = property).
+  assert_tokens_stream(
+    "$: { .btn:hover { bg: red; } }",
+    &[
+      (Token::Dollar, "$"),
+      (Token::Colon, ":"),
+      (Token::LBrace, "{"),
+      (Token::Dot, "."),
+      (Token::Ident, "btn"),
+      (Token::Colon, ":"),
+      (Token::Ident, "hover"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "bg"),
+      (Token::Colon, ":"),
+      (Token::StyleValue, "red"),
       (Token::Semicolon, ";"),
       (Token::RBrace, "}"),
       (Token::RBrace, "}"),
@@ -797,7 +827,7 @@ fn test_style_grouped_selector() {
 
 #[test]
 fn test_template_fat_arrow_inside_interp() {
-  // `{arr.map(fn(t) =:> <li>{t}</li>)}` — `=:>` fires from
+  // `{arr.map(fn(t) => <li>{t}</li>)}` — `=>` fires from
   // inside an interp (`brace_depth > 0`). The closure body
   // tokens (`<li>{t}</li>`) must lex as template markup,
   // and the trailing `)` of `.map(...)` must re-tokenize
@@ -808,7 +838,7 @@ fn test_template_fat_arrow_inside_interp() {
   // `Gt` and the final `;` of the surrounding statement
   // got absorbed as Fn children.
   assert_tokens_stream(
-    r#"imu view: </> ::= <ul>{x.map(fn(t) =:> <li>{t}</li>)}</ul>;"#,
+    r#"imu view: </> ::= <ul>{x.map(fn(t) => <li>{t}</li>)}</ul>;"#,
     &[
       (Token::Imu, "imu"),
       (Token::Ident, "view"),
@@ -827,7 +857,7 @@ fn test_template_fat_arrow_inside_interp() {
       (Token::LParen, "("),
       (Token::Ident, "t"),
       (Token::RParen, ")"),
-      (Token::TemplateFatArrow, "=:>"),
+      (Token::FatArrow, "=>"),
       (Token::LAngle, "<"),
       (Token::Ident, "li"),
       (Token::RAngle, ">"),

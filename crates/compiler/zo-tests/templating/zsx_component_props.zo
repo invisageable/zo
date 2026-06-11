@@ -1,0 +1,21 @@
+-- test-run-pass: parametrized components.
+-- `<greeting name="..." />` re-executes the component body with
+-- `name` bound at compile time — each instance bakes its own text
+-- and draws fresh widget ids. Braced values (`name={user}`) bind
+-- the local's eager value the same way.
+
+fun greeting(name: str) -> </> {
+  return <h1>hello, {name}!</h1>;
+}
+
+fun main() {
+  imu user := "you";
+
+  imu page ::= <div>
+    <greeting name="world" />
+    <greeting name="zo" />
+    <greeting name={user} />
+  </div>;
+
+  #render page;
+}

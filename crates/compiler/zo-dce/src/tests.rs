@@ -437,6 +437,7 @@ fn dead_insn_preserves_array_store() {
       index: ValueId(1),
       value: ValueId(2),
       ty_id: TyId(8),
+      owner: None,
     },
     Insn::Return {
       value: None,

@@ -6,14 +6,14 @@ use zo_value::FunctionKind;
 
 #[test]
 fn test_closure_template_fat_arrow_emits_fundef() {
-  // `fn(t: str) =:> <li>{t}</li>` — closure body is a
+  // `fn(t: str) => <li>{t}</li>` — closure body is a
   // template fragment. Should produce a single closure
   // FunDef just like the regular `=>` form. The body's
   // template emission is shared with the `::=` binding form
   // and verified separately in template tests.
   assert_sir_structure(
     r#"fun main() {
-  imu wrap := fn(t: str) =:> <li>{t}</li>;
+  imu wrap := fn(t: str) => <li>{t}</li>;
 }"#,
     |sir| {
       let closure_count = sir
@@ -857,7 +857,7 @@ fn event_handler_pushing_to_list_leaves_it_free() {
   mut items: []str = [];
   imu view: </> ::= <>
     <button @click={fn() => items.push("x")}>add</button>
-    <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>
+    <ul>{items.map(fn(t) => <li>{t}</li>)}</ul>
   </>;
 
   #render view;
@@ -876,6 +876,53 @@ fn event_handler_pushing_to_list_leaves_it_free() {
         Some(0),
         "the list push handler must not capture its array",
       );
+    },
+  );
+}
+
+#[test]
+fn closure_body_indexed_assignment_emits_array_store() {
+  // `fn() => arr[0] = v` must lower the store — the closure body
+  // has no Semicolon, so the array-assign pending finalizes at
+  // body end (the same seam that finalizes `count += 1`).
+  assert_sir_structure(
+    r#"
+fun main() {
+  mut arr := [1, 2];
+  imu f := fn() => arr[0] = 9;
+
+  f();
+  showln("{arr[0]}");
+}"#,
+    |sir| {
+      let stores = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::ArrayStore { .. }))
+        .count();
+
+      assert!(stores >= 1, "closure assignment lost its ArrayStore");
+    },
+  );
+}
+
+#[test]
+fn event_handler_closure_indexed_assignment_emits_array_store() {
+  assert_sir_structure(
+    r#"
+fun main() {
+  mut arr := [1, 2];
+
+  imu page ::= <button @click={fn() => arr[0] = 9}>x</button>;
+
+  #render page;
+}"#,
+    |sir| {
+      let stores = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::ArrayStore { .. }))
+        .count();
+
+      assert!(stores >= 1, "handler assignment lost its ArrayStore");
     },
   );
 }

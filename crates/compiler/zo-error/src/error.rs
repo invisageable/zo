@@ -573,4 +573,21 @@ pub enum ErrorKind {
   /// arguments, struct fields, `abstract` functions) that is
   /// not snake_case.
   NonSnakeCaseName,
+
+  /// A component instantiation that includes itself, directly or
+  /// through other components. Caught by the executor's
+  /// instantiation stack — reachable only through imported
+  /// (spliced) components, since local registration order forbids
+  /// self-reference.
+  CircularComponent,
+  /// An `@event` attribute on a component tag. Components receive
+  /// events as function props (`on_click: fn()`); an event attr
+  /// there attaches to nothing and must not drop silently.
+  EventOnComponent,
+  /// A statement (`for` / `while` / `loop`) opening a template
+  /// interpolation. Statements produce no template content —
+  /// without this check the inner tags leak an unconsumed
+  /// fragment and die later as a misattributed type error at the
+  /// enclosing function.
+  StatementInTemplate,
 }

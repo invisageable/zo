@@ -12,7 +12,8 @@
 //! pipeline.
 
 use crate::exports::{
-  ExportedGenericBody, ExportedLiteral, splice_generic_bodies,
+  ExportedGenericBody, ExportedLiteral, ExportedTreeSlice, ModuleHarvest,
+  splice_generic_bodies,
 };
 
 use zo_interner::Interner;
@@ -87,11 +88,13 @@ fn build_origin_body(
 
   let body = ExportedGenericBody {
     name: interner.intern("arr_$::first"),
-    nodes: body_nodes,
-    spans: body_spans,
-    node_values: body_values,
-    literal_payloads: vec![(n_int, ExportedLiteral::Int(0))],
-    origin_start,
+    slice: ExportedTreeSlice {
+      nodes: body_nodes,
+      spans: body_spans,
+      node_values: body_values,
+      literal_payloads: vec![(n_int, ExportedLiteral::Int(0))],
+      origin_start,
+    },
     type_params: vec![interner.intern("T")],
     apply_context: interner.intern("arr_$"),
   };
@@ -302,8 +305,17 @@ fn extract_exports_round_trips_abstract_impls() {
     },
   );
 
-  let exports =
-    extract_exports(Sir::new(), None, &interner, &[], Vec::new(), src_impls);
+  let exports = extract_exports(
+    ModuleHarvest {
+      sir: Sir::new(),
+      funs: &[],
+      generic_bodies: Vec::new(),
+      component_bodies: Vec::new(),
+      abstract_impls: src_impls,
+    },
+    None,
+    &interner,
+  );
 
   assert_eq!(
     exports.abstract_impls.len(),
@@ -345,12 +357,15 @@ fn extract_exports_filters_abstract_impls_on_selective_load() {
   src_impls.insert((eq_sym, other_sym), entry_for("/tmp/b.zo"));
 
   let exports = extract_exports(
-    Sir::new(),
+    ModuleHarvest {
+      sir: Sir::new(),
+      funs: &[],
+      generic_bodies: Vec::new(),
+      component_bodies: Vec::new(),
+      abstract_impls: src_impls,
+    },
     Some("Point"),
     &interner,
-    &[],
-    Vec::new(),
-    src_impls,
   );
 
   assert_eq!(

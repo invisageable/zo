@@ -38,7 +38,7 @@ pub struct TemplateBindings {
   /// and splats `item_template` once per element into a
   /// fresh sub-command list — replacing the placeholder
   /// with the rendered batch. Used for
-  /// `<X>{arr.map(fn(t) =:> <body>)}</X>`.
+  /// `<X>{arr.map(fn(t) => <body>)}</X>`.
   pub list: Vec<(usize, ListBinding)>,
 }
 
@@ -54,7 +54,7 @@ pub struct ComputedBinding {
   pub captures: Vec<Symbol>,
 }
 
-/// Side-channel for a `<X>{arr.map(fn(t) =:> <body>)}</X>`
+/// Side-channel for a `<X>{arr.map(fn(t) => <body>)}</X>`
 /// list rendering. The executor doesn't expand the closure
 /// at compile time — instead it captures the per-item
 /// "template recipe" (`item_template`) plus the array
@@ -421,6 +421,20 @@ impl Sir {
     self.node_idxs.push(self.node_cursor);
 
     value_id
+  }
+
+  /// Rolls back every instruction emitted past `len` — component
+  /// instantiation uses this because an instance's emissions live
+  /// only as commands inlined into the parent's template. Keeps
+  /// `node_idxs` (and `spans`, when already resolved) aligned 1:1
+  /// with `instructions`.
+  pub fn truncate(&mut self, len: usize) {
+    self.instructions.truncate(len);
+    self.node_idxs.truncate(len);
+
+    if !self.spans.is_empty() {
+      self.spans.truncate(len);
+    }
   }
 
   /// Parse-node index of the instruction that defines
@@ -1106,6 +1120,11 @@ pub enum Insn {
     index: ValueId,
     value: ValueId,
     ty_id: TyId,
+    /// The array's root binding, when the store names one
+    /// (`todos[i] = v`). Codegen routes stores on reactive
+    /// `[]str` slots through the runtime (`_zo_state_arr_set`)
+    /// the same way `ArrayPush::owner` routes pushes.
+    owner: Option<Symbol>,
   },
   /// Enum type definition.
   EnumDef {

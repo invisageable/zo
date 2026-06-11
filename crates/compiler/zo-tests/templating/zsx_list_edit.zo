@@ -1,0 +1,15 @@
+-- test-run-pass: in-place list item write. `todos[0] = "edited"`
+-- in a handler routes through reactive state (zo_state_arr_set):
+-- the item count is unchanged, so the keyed diff reports a
+-- non-structural update and only the touched item re-renders.
+
+fun main() {
+  mut todos := ["alpha", "beta"];
+
+  imu page ::= <div>
+    <ul>{todos.map(fn(todo) => <li>{todo}</li>)}</ul>
+    <button @click={fn() => todos[0] = "edited"}>edit</button>
+  </div>;
+
+  #render page;
+}

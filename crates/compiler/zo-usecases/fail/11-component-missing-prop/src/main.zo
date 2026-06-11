@@ -1,0 +1,13 @@
+-- A component imported from another pack, used without its
+-- required prop. The build must fail with
+-- `argument-count-mismatch` at the tag — which also proves the
+-- cross-pack component RESOLVED (an unknown tag would fall
+-- through to a plain element and build cleanly).
+
+load widgets::*;
+
+fun main() {
+  imu page ::= <div><greeting /></div>;
+
+  #render page;
+}

@@ -1,0 +1,16 @@
+-- Components defined in the `widgets` pack, used from `main`:
+-- the zero-prop `header` splices its baked template; the
+-- parametrized `greeting` re-executes its fragment with `name`
+-- bound at compile time. Windowed (`#render`), so the runner
+-- builds it on every invocation and launches it only with --all.
+
+load widgets::*;
+
+fun main() {
+  imu page ::= <div>
+    <header />
+    <greeting name="zo" />
+  </div>;
+
+  #render page;
+}

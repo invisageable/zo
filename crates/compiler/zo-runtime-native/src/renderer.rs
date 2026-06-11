@@ -2,9 +2,12 @@
 
 use crate::loader::image::{ImageLoader, ImageState};
 
+use zo_runtime_render::layout::InteractionAuthors;
 use zo_runtime_render::layout::{LayoutTree, collapse_text};
 use zo_runtime_render::render::{EventId, EventPayload, Render, WidgetId};
-use zo_ui_protocol::style::{ComputedStyle, FontFamily, Rgba, StylePatch};
+use zo_ui_protocol::style::{
+  ComputedStyle, FontFamily, Rgba, StylePatch, cascade,
+};
 use zo_ui_protocol::{Attr, ElementTag, EventKind, UiCommand};
 
 use eframe::egui;
@@ -71,6 +74,7 @@ impl Renderer {
     let rects = tree.solve((available.x, available.y));
     let styles = tree.styles();
     let authors = tree.authors();
+    let interactions = tree.interactions();
     let origin = ui.min_rect().min;
 
     for (i, (idx, rect)) in rects.iter().enumerate() {
@@ -79,7 +83,28 @@ impl Renderer {
         egui::vec2(rect.width, rect.height),
       );
 
-      self.put_command(ui, &commands, *idx, placement, &styles[i], &authors[i]);
+      // Interaction states resolve at paint time: immediate mode
+      // re-runs this every frame, so overlaying the matching state
+      // patch on the static author patch is the whole mechanism —
+      // no retained state machine. Focus needs the widget id egui
+      // assigns during `put`, which doesn't exist yet here; it
+      // lands with the form-controls phase.
+      let (effective_style, effective_author) = resolve_interaction_state(
+        ui,
+        &commands[*idx],
+        placement,
+        (&styles[i], &authors[i]),
+        &interactions[i],
+      );
+
+      self.put_command(
+        ui,
+        &commands,
+        *idx,
+        placement,
+        &effective_style,
+        &effective_author,
+      );
     }
   }
 
@@ -115,6 +140,19 @@ impl Renderer {
             button = button.fill(rgba_to_color32(style.background));
           }
 
+          if author.border_width.is_some() || author.border_color.is_some() {
+            button = button.stroke(egui::Stroke::new(
+              style.border_width.max(1.0),
+              rgba_to_color32(style.border_color),
+            ));
+          }
+
+          if author.border_radius.is_some() {
+            button = button.corner_radius(egui::CornerRadius::same(
+              style.border_radius as u8,
+            ));
+          }
+
           if ui.put(rect, button).clicked() {
             self.state.pending_events.push((
               id,
@@ -141,8 +179,11 @@ impl Renderer {
           ui.put(rect, egui::Label::new(text));
         }
 
-        // Containers are geometry only — nothing to paint at v1.
-        _ => {}
+        // Containers paint their surface (shadow, fill, border)
+        // behind the children the layout placed after them.
+        _ => {
+          paint_surface(ui, rect, style, author);
+        }
       },
 
       UiCommand::Text(content) => {
@@ -319,6 +360,108 @@ fn attr_str<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a str> {
 }
 
 /// Look up the numeric value of a named attribute.
+/// Overlay the interaction-state patches matching the element's
+/// current pointer state onto its author patch, re-cascading when
+/// anything applied. Returns the untouched base for elements
+/// without state rules (the common case — one `is_empty` check).
+fn resolve_interaction_state(
+  ui: &egui::Ui,
+  command: &UiCommand,
+  rect: egui::Rect,
+  base: (&ComputedStyle, &StylePatch),
+  interactions: &InteractionAuthors,
+) -> (ComputedStyle, StylePatch) {
+  let (style, author) = base;
+
+  if interactions.is_empty() {
+    return (*style, *author);
+  }
+
+  let UiCommand::Element { tag, attrs, .. } = command else {
+    return (*style, *author);
+  };
+
+  let hovered = ui.rect_contains_pointer(rect);
+  let pressed = hovered && ui.input(|input| input.pointer.primary_down());
+  let disabled = attr_flag(attrs, "disabled");
+
+  let mut effective = *author;
+  let mut applied = false;
+
+  // Overlay order is specificity-by-state: hover under active
+  // (a pressed pointer is also hovering), disabled last — a
+  // disabled control must not light up under the pointer.
+  if hovered && let Some(patch) = &interactions.hover {
+    effective.overlay(patch);
+    applied = true;
+  }
+
+  if pressed && let Some(patch) = &interactions.active {
+    effective.overlay(patch);
+    applied = true;
+  }
+
+  if disabled && let Some(patch) = &interactions.disabled {
+    effective = *author;
+    effective.overlay(patch);
+    applied = true;
+  }
+
+  if !applied {
+    return (*style, *author);
+  }
+
+  let resolved = cascade::resolve(tag.as_str(), Some(&effective), None);
+
+  (resolved, effective)
+}
+
+/// True when a boolean attribute (`<button disabled>`) is present.
+fn attr_flag(attrs: &[Attr], name: &str) -> bool {
+  attrs.iter().any(|attr| attr.name() == name)
+}
+
+/// Paint a container's surface at its solved rect: shadow first
+/// (behind), then the background fill, then the border stroke.
+/// Each layer paints only when the stylesheet declared it, so
+/// undeclared containers stay invisible exactly as before.
+fn paint_surface(
+  ui: &egui::Ui,
+  rect: egui::Rect,
+  style: &ComputedStyle,
+  author: &StylePatch,
+) {
+  let radius = egui::CornerRadius::same(style.border_radius as u8);
+  let painter = ui.painter();
+
+  if let Some(shadow) = style.box_shadow {
+    let egui_shadow = egui::epaint::Shadow {
+      offset: [shadow.offset_x as i8, shadow.offset_y as i8],
+      blur: shadow.blur as u8,
+      spread: 0,
+      color: rgba_to_color32(shadow.color),
+    };
+
+    painter.add(egui_shadow.as_shape(rect, radius));
+  }
+
+  if author.background.is_some() {
+    painter.rect_filled(rect, radius, rgba_to_color32(style.background));
+  }
+
+  if style.border_width > 0.0 {
+    painter.rect_stroke(
+      rect,
+      radius,
+      egui::Stroke::new(
+        style.border_width,
+        rgba_to_color32(style.border_color),
+      ),
+      egui::StrokeKind::Inside,
+    );
+  }
+}
+
 fn attr_num(attrs: &[Attr], name: &str) -> Option<u32> {
   for attr in attrs {
     if attr.name() == name {

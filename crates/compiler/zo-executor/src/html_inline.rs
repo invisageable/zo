@@ -82,7 +82,7 @@ pub(crate) fn parse_raw_html(input: &str) -> Vec<UiCommand> {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _, _, _) = executor.execute();
+  let sir = executor.execute().sir;
 
   // Pull commands from the first `Insn::Template` the sub-
   // pipeline produced.

@@ -1,12 +1,12 @@
 # install.
 
-> *This is the beginning of zo. Get started.*
+> *This is the beginning of the devolution.*
 
-## about.
+## get started.
 
-TO **JOiN THE DEVOLUTiON** ON LiNUX, MACOS AND WiNDOWS SYSTEMS:
+  1. RUN THE iNSTALLATiON SCRiPT:
 
-  1. RUN THiS SCRiPT:
+  **macos**
 
   ```sh
   curl --proto '=https' --tlsv1.2 -sSf https://zo.compilords.house/install.sh | sh
@@ -14,7 +14,7 @@ TO **JOiN THE DEVOLUTiON** ON LiNUX, MACOS AND WiNDOWS SYSTEMS:
 
 iT DOWNLOADS AND EXTRACTS THE zo COMPiLER iNTO `bin/zo` FOLDER, SETS THE ENViRONMENT WiTH THE `PATH` TO RETRiEVE THE zo BiNARY.
 
-  1. THEN RUN `zo --version` — EFFECTiVELY iT RETURNS:
+  2. THEN RUN `zo --version` — SUCCESSFULLY iT RETURNS:
 
   ```
   zo x.x.x
@@ -25,8 +25,6 @@ iT DOWNLOADS AND EXTRACTS THE zo COMPiLER iNTO `bin/zo` FOLDER, SETS THE ENViRON
   3. DONE! TO KNOW HOW YOU CAN COMPiLE A zo PROGRAM:
 
   - @SEE: [@build-run-and-repl](./03-build-run-and-repl.md)
-
-> *zo is in work in progress, if you find bugs, please feel open an [issue](https://github.com/invisageable/zo/issues).*
 
 ## dev.
 

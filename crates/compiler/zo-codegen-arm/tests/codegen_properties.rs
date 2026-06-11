@@ -30,7 +30,7 @@ fn compile_to_code(source: &str) -> Vec<u8> {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _, _, _) = executor.execute();
+  let sir = executor.execute().sir;
 
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
@@ -55,7 +55,7 @@ fn compile_sir(source: &str) -> Vec<Insn> {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _, _, _) = executor.execute();
+  let sir = executor.execute().sir;
 
   sir.instructions
 }

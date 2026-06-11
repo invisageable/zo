@@ -12,9 +12,11 @@
 //! on every platform (swap for a `cosmic-text` shaper when tight
 //! glyph metrics are needed — a separate plan).
 
+use crate::reactive::DirtyCommands;
+
 use zo_ui_protocol::style::{
-  Align, ComputedStyle, Display, FlexDirection, Justify, Material,
-  Size as ZoSize, StylePatch, cascade, css,
+  Align, ComputedStyle, Display, FlexDirection, FlexWrap, Justify, Material,
+  Size, StylePatch, cascade, css,
 };
 use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
@@ -22,9 +24,9 @@ use rustc_hash::FxHashMap as HashMap;
 use taffy::style_helpers::{length, percent};
 use taffy::{
   AlignItems, AvailableSpace, Dimension, Display as TaffyDisplay,
-  FlexDirection as TaffyFlexDirection, JustifyContent, LengthPercentage,
-  LengthPercentageAuto, NodeId, Rect as TaffyRect, Size as TaffySize,
-  Style as TaffyStyle, TaffyTree,
+  FlexDirection as TaffyFlexDirection, FlexWrap as TaffyFlexWrap,
+  JustifyContent, LengthPercentage, LengthPercentageAuto, NodeId,
+  Rect as TaffyRect, Size as TaffySize, Style as TaffyStyle, TaffyTree,
 };
 
 /// Default image side when an `<img>` declares no dimensions, matching
@@ -74,6 +76,10 @@ pub struct LayoutTree {
   /// it). Its `Some` fields tell a runtime which declared properties
   /// to paint over a native widget's defaults.
   authors: Vec<StylePatch>,
+  /// Interaction-state patches per placement, parallel to `authors`.
+  /// The renderer overlays the patch matching the element's current
+  /// state (hover/active/focus/disabled) at paint time.
+  interactions: Vec<InteractionAuthors>,
   /// The enclosing paintable container per placed leaf, as a placement
   /// index into this same parallel order (`None` for a leaf that sits
   /// directly on the root). A retained-mode runtime that nests glass
@@ -143,6 +149,7 @@ impl LayoutTree {
       nodes: builder.nodes,
       styles: builder.styles,
       authors: builder.authors,
+      interactions: builder.interactions,
       parents: builder.parents,
       texts: builder.texts,
       source: commands.to_vec(),
@@ -198,6 +205,186 @@ impl LayoutTree {
     Some(changed)
   }
 
+  /// Patch only the placements whose source commands are dirty —
+  /// the fine-grained half of [`Self::reconcile`]. The caller
+  /// guarantees the dirty refresh rewrote text/attrs in place (no
+  /// structural edits), so neither the structural scan nor the
+  /// full-stream clone happens here: cost is O(dirty), not O(N).
+  /// Returns the touched placements as `(placement, new_text)`.
+  pub fn apply_dirty(
+    &mut self,
+    dirty: &DirtyCommands,
+    commands: &[UiCommand],
+  ) -> Vec<(usize, String)> {
+    let mut changed = Vec::new();
+
+    dirty.for_each_set(|cmd| {
+      let cmd = cmd as usize;
+
+      // Map the dirty command to its placement: an exact
+      // `cmd_index` hit is a free-text leaf; otherwise the dirty
+      // index is a text/attr command inside the preceding
+      // placement's region. `cmd_index` is ascending (built in
+      // walk order), so partition_point finds it.
+      let at = self.cmd_index.partition_point(|&idx| idx <= cmd);
+
+      if at == 0 {
+        return;
+      }
+
+      let placement = at - 1;
+      let source_idx = self.cmd_index[placement];
+      let text = leaf_text(commands, source_idx);
+
+      if text != self.texts[placement] {
+        self.texts[placement] = text.clone();
+
+        let leaf = Leaf {
+          text: text.clone(),
+          style: self.styles[placement],
+        };
+
+        self
+          .tree
+          .set_node_context(self.nodes[placement], Some(leaf))
+          .expect("taffy set context");
+
+        changed.push((placement, text));
+      } else if matches!(commands.get(cmd), Some(UiCommand::Element { .. }))
+        && changed.last().map(|(p, _)| *p) != Some(placement)
+      {
+        // An attr-only patch (`value`, `class`) moves no text but
+        // the view must still repaint the widget. Geometry is
+        // text-driven, so no Taffy re-measure.
+        changed.push((placement, text));
+      }
+
+      // Keep `source` in sync entry-wise — the next structural
+      // comparison must see the patched stream without paying a
+      // full-stream clone per event.
+      if cmd < self.source.len() {
+        self.source[cmd] = commands[cmd].clone();
+      }
+    });
+
+    changed
+  }
+
+  /// Append a list's tail items without rebuilding the tree — the
+  /// push fast path. Each new item clones the ANCHOR item's shape
+  /// (the last existing item): its container node's Taffy style
+  /// and its text leaf's resolved style rows — recipe items are
+  /// homogeneous, so the clone is exact. Placements after the
+  /// splice shift their command indices; `source` splices the new
+  /// commands in. Returns the new placement indices, or `None`
+  /// when the shape disqualifies the fast path (no existing item
+  /// to anchor on, or an item too deep to mirror) — the caller
+  /// falls back to a full rebuild.
+  pub fn append_list_items(
+    &mut self,
+    at: usize,
+    added: usize,
+    commands: &[UiCommand],
+  ) -> Option<std::ops::Range<usize>> {
+    // The anchor: the placement of the last existing item's text
+    // leaf — the one whose command sits immediately before the
+    // splice. Its parent node is the item container (`<li>`),
+    // whose parent is the list container (`<ul>`).
+    let anchor = (0..self.cmd_index.len())
+      .rev()
+      .find(|&i| self.cmd_index[i] < at)?;
+
+    let anchor_item = self.tree.parent(self.nodes[anchor])?;
+    let list_node = self.tree.parent(anchor_item)?;
+    let item_style = self.tree.style(anchor_item).ok()?.clone();
+
+    // Shift downstream placements past the splice point.
+    for idx in self.cmd_index.iter_mut() {
+      if *idx >= at {
+        *idx += added;
+      }
+    }
+
+    let first_new = self.cmd_index.len();
+    let mut cursor = at;
+
+    while cursor < at + added {
+      // Each item group: a container Element, its text content,
+      // its EndElement. Anything deeper than the anchor's
+      // two-node shape bails to the rebuild.
+      let UiCommand::Element { tag, .. } = &commands[cursor] else {
+        return None;
+      };
+
+      if is_leaf_tag(tag) {
+        return None;
+      }
+
+      // The text content up to the matching EndElement.
+      let text = collapse_text(commands, cursor + 1);
+      let text_idx = cursor + 1;
+
+      let mut depth = 1usize;
+
+      cursor += 1;
+
+      while cursor < at + added && depth > 0 {
+        match &commands[cursor] {
+          UiCommand::Element {
+            self_closing: false,
+            ..
+          } => return None,
+          UiCommand::EndElement => depth -= 1,
+          _ => {}
+        }
+
+        cursor += 1;
+      }
+
+      let style = self.styles[anchor];
+      let leaf = Leaf {
+        text: text.clone(),
+        style,
+      };
+
+      let taffy_leaf_style = TaffyStyle {
+        margin: edges_to_margin(&style),
+        size: TaffySize {
+          width: Dimension::auto(),
+          height: Dimension::auto(),
+        },
+        ..Default::default()
+      };
+
+      let leaf_node = self
+        .tree
+        .new_leaf_with_context(taffy_leaf_style, leaf)
+        .expect("taffy leaf");
+      let item_node = self
+        .tree
+        .new_with_children(item_style.clone(), &[leaf_node])
+        .expect("taffy item");
+
+      self
+        .tree
+        .add_child(list_node, item_node)
+        .expect("taffy child");
+      self.cmd_index.push(text_idx);
+      self.nodes.push(leaf_node);
+      self.styles.push(style);
+      self.authors.push(self.authors[anchor]);
+      self.interactions.push(self.interactions[anchor].clone());
+      self.parents.push(self.parents[anchor]);
+      self.texts.push(text);
+    }
+
+    self
+      .source
+      .splice(at..at, commands[at..at + added].iter().cloned());
+
+    Some(first_new..self.cmd_index.len())
+  }
+
   /// The resolved style for each placed leaf, parallel to `solve`'s
   /// returned order. Runtimes read it to paint native widgets (font,
   /// colour) so the on-screen text matches the measured geometry.
@@ -210,6 +397,13 @@ impl LayoutTree {
   /// the patch's field is `Some`, leaving native defaults otherwise.
   pub fn authors(&self) -> &[StylePatch] {
     &self.authors
+  }
+
+  /// The interaction-state patches for each placement, parallel to
+  /// `authors`. Empty entries mean no state rule targets the element
+  /// — the renderer skips state tracking for those.
+  pub fn interactions(&self) -> &[InteractionAuthors] {
+    &self.interactions
   }
 
   /// The enclosing paintable container for each placed leaf, as a
@@ -298,12 +492,15 @@ struct Builder {
   tree: TaffyTree<Leaf>,
   /// Author rules parsed from the stream's stylesheets, scanned per
   /// element to resolve its style and record what it declared.
-  author: Vec<(String, StylePatch)>,
+  author: Vec<css::CssRule>,
   cursor: usize,
   cmd_index: Vec<usize>,
   nodes: Vec<NodeId>,
   styles: Vec<ComputedStyle>,
   authors: Vec<StylePatch>,
+  /// Interaction-state patches per placement — see
+  /// `LayoutTree::interactions`.
+  interactions: Vec<InteractionAuthors>,
   /// The enclosing paintable container per placement, parallel to
   /// `cmd_index` — see `LayoutTree::parents`.
   parents: Vec<Option<usize>>,
@@ -311,7 +508,7 @@ struct Builder {
 }
 
 impl Builder {
-  fn new(author: Vec<(String, StylePatch)>) -> Self {
+  fn new(author: Vec<css::CssRule>) -> Self {
     Self {
       tree: TaffyTree::new(),
       author,
@@ -320,6 +517,7 @@ impl Builder {
       nodes: Vec::new(),
       styles: Vec::new(),
       authors: Vec::new(),
+      interactions: Vec::new(),
       parents: Vec::new(),
       texts: Vec::new(),
     }
@@ -355,14 +553,15 @@ impl Builder {
         UiCommand::Text(text) => {
           let idx = self.cursor;
           let text = text.clone();
-          let node = self.leaf(
+          let node = self.leaf(LeafPlacement {
             idx,
             text,
-            ComputedStyle::ROOT,
-            StylePatch::EMPTY,
-            None,
+            style: ComputedStyle::ROOT,
+            author: StylePatch::EMPTY,
+            interactions: InteractionAuthors::default(),
+            size: None,
             parent,
-          );
+          });
 
           children.push(node);
           self.cursor += 1;
@@ -376,6 +575,8 @@ impl Builder {
           let idx = self.cursor;
           let self_closing = *self_closing;
           let author = resolve_author(&self.author, tag.as_str(), attrs);
+          let interactions =
+            resolve_interactions(&self.author, tag.as_str(), attrs);
           let style = cascade::resolve(tag.as_str(), author.as_ref(), None);
           let leaf = is_leaf_tag(tag);
           let size = leaf_size_override(tag, attrs);
@@ -389,7 +590,15 @@ impl Builder {
               collapse_text(cmds, self.cursor)
             };
             let author = author.unwrap_or(StylePatch::EMPTY);
-            let node = self.leaf(idx, text, style, author, size, parent);
+            let node = self.leaf(LeafPlacement {
+              idx,
+              text,
+              style,
+              author,
+              interactions,
+              size,
+              parent,
+            });
 
             children.push(node);
 
@@ -420,6 +629,7 @@ impl Builder {
               self.nodes.push(node);
               self.styles.push(style);
               self.authors.push(author.unwrap_or(StylePatch::EMPTY));
+              self.interactions.push(interactions);
               self.parents.push(parent);
               self.texts.push(leaf_text(cmds, idx));
 
@@ -470,15 +680,16 @@ impl Builder {
   /// `size` pins an explicit box (images, inputs); otherwise the box
   /// is `auto` and the measure closure sizes it from the text.
   /// `parent` is the enclosing paintable container's placement index.
-  fn leaf(
-    &mut self,
-    idx: usize,
-    text: String,
-    style: ComputedStyle,
-    author: StylePatch,
-    size: Option<TaffySize<Dimension>>,
-    parent: Option<usize>,
-  ) -> NodeId {
+  fn leaf(&mut self, placement: LeafPlacement) -> NodeId {
+    let LeafPlacement {
+      idx,
+      text,
+      style,
+      author,
+      interactions,
+      size,
+      parent,
+    } = placement;
     let taffy_style = TaffyStyle {
       // Padding is folded into the text measure, so the leaf's own box
       // padding stays zero — setting both would double-count it.
@@ -505,6 +716,7 @@ impl Builder {
     self.nodes.push(node);
     self.styles.push(style);
     self.authors.push(author);
+    self.interactions.push(interactions);
     self.parents.push(parent);
     self.texts.push(text);
 
@@ -512,13 +724,29 @@ impl Builder {
   }
 }
 
+/// Everything one measured leaf records in the side tables.
+struct LeafPlacement {
+  /// Index of the element's command in the source stream.
+  idx: usize,
+  /// The collapsed text the measure closure sizes.
+  text: String,
+  /// The cascaded style (UA + author).
+  style: ComputedStyle,
+  /// The author patch (declared properties to paint).
+  author: StylePatch,
+  /// Interaction-state patches for the paint-time overlay.
+  interactions: InteractionAuthors,
+  /// Explicit box override (images, inputs); `None` sizes from text.
+  size: Option<TaffySize<Dimension>>,
+  /// Enclosing paintable container's placement index.
+  parent: Option<usize>,
+}
+
 /// Parse every `StyleSheet` command into one ordered list of author
 /// rules plus the combined image catalog the cascade folds in. Each
 /// sheet's `background_image` handles are offset into the combined
 /// catalog so indices stay valid when several sheets are concatenated.
-fn collect_author(
-  commands: &[UiCommand],
-) -> (Vec<(String, StylePatch)>, Vec<String>) {
+fn collect_author(commands: &[UiCommand]) -> (Vec<css::CssRule>, Vec<String>) {
   let mut rules = Vec::new();
   let mut images = Vec::new();
 
@@ -528,8 +756,8 @@ fn collect_author(
       let base = images.len() as u32;
 
       if base > 0 {
-        for (_, patch) in &mut sheet.rules {
-          if let Some(id) = patch.background_image.as_mut() {
+        for rule in &mut sheet.rules {
+          if let Some(id) = rule.patch.background_image.as_mut() {
             *id += base;
           }
         }
@@ -548,7 +776,7 @@ fn collect_author(
 /// — higher specificity). Keeps native styling in step with the web,
 /// where `.card { … }` already applies. `None` when nothing targets it.
 fn resolve_author(
-  rules: &[(String, StylePatch)],
+  rules: &[css::CssRule],
   tag: &str,
   attrs: &[Attr],
 ) -> Option<StylePatch> {
@@ -563,6 +791,60 @@ fn resolve_author(
   }
 
   author
+}
+
+/// Per-element patches for each interaction state, resolved once at
+/// build (the rules are static); the renderer overlays the one
+/// matching the element's current state at paint time.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InteractionAuthors {
+  pub hover: Option<StylePatch>,
+  pub active: Option<StylePatch>,
+  pub focus: Option<StylePatch>,
+  pub disabled: Option<StylePatch>,
+}
+
+impl InteractionAuthors {
+  /// True when no state rule targets the element — the renderer's
+  /// fast path skips state tracking entirely.
+  pub fn is_empty(&self) -> bool {
+    self.hover.is_none()
+      && self.active.is_none()
+      && self.focus.is_none()
+      && self.disabled.is_none()
+  }
+}
+
+/// Resolve an element's interaction-state patches: tag rules, then
+/// `.class` rules folded on top — the same specificity order as
+/// `resolve_author`.
+fn resolve_interactions(
+  rules: &[css::CssRule],
+  tag: &str,
+  attrs: &[Attr],
+) -> InteractionAuthors {
+  let fold = |state: css::Interaction| {
+    let mut merged = css::author_state_patch(rules, tag, state);
+
+    if let Some(classes) = class_attr(attrs) {
+      for class in classes.split_whitespace() {
+        if let Some(patch) =
+          css::author_state_patch(rules, &format!(".{class}"), state)
+        {
+          merged.get_or_insert(StylePatch::EMPTY).overlay(&patch);
+        }
+      }
+    }
+
+    merged
+  };
+
+  InteractionAuthors {
+    hover: fold(css::Interaction::Hover),
+    active: fold(css::Interaction::Active),
+    focus: fold(css::Interaction::Focus),
+    disabled: fold(css::Interaction::Disabled),
+  }
 }
 
 /// The element's `class` attribute value, if any.
@@ -626,10 +908,18 @@ fn to_taffy(
       _ => TaffyDisplay::Flex,
     },
     flex_direction: direction,
+    flex_wrap: match style.flex_wrap {
+      FlexWrap::Wrap => TaffyFlexWrap::Wrap,
+      FlexWrap::NoWrap => TaffyFlexWrap::NoWrap,
+    },
+    flex_grow: style.flex_grow,
+    flex_shrink: style.flex_shrink,
     justify_content: Some(to_justify(style.justify_content)),
     align_items: Some(to_align(style.align_items)),
     gap: length(style.gap),
     size: to_size(style.width, style.height),
+    max_size: to_size(style.max_width, style.max_height),
+    aspect_ratio: (style.aspect_ratio > 0.0).then_some(style.aspect_ratio),
     padding: edges_to_padding(style),
     margin: edges_to_margin(style),
     ..Default::default()
@@ -832,19 +1122,19 @@ fn attr_num(attrs: &[Attr], name: &str) -> Option<u32> {
 }
 
 /// `zo::Size` width/height → `taffy::Size<Dimension>`.
-fn to_size(width: ZoSize, height: ZoSize) -> TaffySize<Dimension> {
+fn to_size(width: Size, height: Size) -> TaffySize<Dimension> {
   TaffySize {
     width: to_dimension(width),
     height: to_dimension(height),
   }
 }
 
-fn to_dimension(size: ZoSize) -> Dimension {
+fn to_dimension(size: Size) -> Dimension {
   match size {
-    ZoSize::Auto => Dimension::auto(),
-    ZoSize::Px(value) => Dimension::length(value),
+    Size::Auto => Dimension::auto(),
+    Size::Px(value) => Dimension::length(value),
     // zo stores percent as 0–100; taffy wants a 0–1 fraction.
-    ZoSize::Percent(value) => Dimension::percent(value / 100.0),
+    Size::Percent(value) => Dimension::percent(value / 100.0),
   }
 }
 
@@ -1237,5 +1527,213 @@ mod tests {
     let changed = tree.reconcile(&counter()).expect("same structure");
 
     assert!(changed.is_empty(), "identical stream changes nothing");
+  }
+}
+
+#[cfg(test)]
+mod apply_dirty_tests {
+  use super::*;
+
+  use crate::reactive::DirtyCommands;
+
+  use zo_ui_protocol::{Attr, ElementTag, PropValue};
+
+  /// `<div> <button>a</button> <span>b</span> </div>` — two
+  /// placements, text at command indices 2 and 5.
+  fn two_leaf_stream() -> Vec<UiCommand> {
+    vec![
+      UiCommand::Element {
+        tag: ElementTag::Div,
+        attrs: vec![],
+        self_closing: false,
+      },
+      UiCommand::Element {
+        tag: ElementTag::Button,
+        attrs: vec![],
+        self_closing: false,
+      },
+      UiCommand::Text("a".into()),
+      UiCommand::EndElement,
+      UiCommand::Element {
+        tag: ElementTag::Span,
+        attrs: vec![],
+        self_closing: false,
+      },
+      UiCommand::Text("b".into()),
+      UiCommand::EndElement,
+      UiCommand::EndElement,
+    ]
+  }
+
+  #[test]
+  fn dirty_text_touches_exactly_its_placement() {
+    let commands = two_leaf_stream();
+    let mut tree = LayoutTree::build(&commands);
+
+    tree.solve((320.0, 240.0));
+
+    let mut patched = commands.clone();
+
+    patched[5] = UiCommand::Text("B!".into());
+
+    let mut dirty = DirtyCommands::with_capacity(patched.len());
+
+    dirty.mark(5);
+
+    let changed = tree.apply_dirty(&dirty, &patched);
+
+    assert_eq!(changed.len(), 1, "exactly one placement repaints");
+    assert_eq!(changed[0].1, "B!");
+
+    // The other placement's cached text is untouched.
+    assert!(tree.texts.iter().any(|t| t == "a"));
+  }
+
+  #[test]
+  fn unchanged_dirty_command_repaints_nothing() {
+    let commands = two_leaf_stream();
+    let mut tree = LayoutTree::build(&commands);
+
+    tree.solve((320.0, 240.0));
+
+    let mut dirty = DirtyCommands::with_capacity(commands.len());
+
+    dirty.mark(5);
+
+    // Marked dirty but the text is identical — no repaint.
+    let changed = tree.apply_dirty(&dirty, &commands);
+
+    assert!(changed.is_empty(), "no-op write must not repaint");
+  }
+
+  #[test]
+  fn attr_only_patch_surfaces_its_placement() {
+    let commands = two_leaf_stream();
+    let mut tree = LayoutTree::build(&commands);
+
+    tree.solve((320.0, 240.0));
+
+    let mut patched = commands.clone();
+
+    patched[4] = UiCommand::Element {
+      tag: ElementTag::Span,
+      attrs: vec![Attr::Prop {
+        name: "class".into(),
+        value: PropValue::Str("lit".into()),
+      }],
+      self_closing: false,
+    };
+
+    let mut dirty = DirtyCommands::with_capacity(patched.len());
+
+    dirty.mark(4);
+
+    let changed = tree.apply_dirty(&dirty, &patched);
+
+    assert_eq!(changed.len(), 1, "attr patch repaints its widget");
+  }
+}
+
+#[cfg(test)]
+mod append_list_items_tests {
+  use super::*;
+
+  use zo_ui_protocol::ElementTag;
+
+  fn li(text: &str) -> Vec<UiCommand> {
+    vec![
+      UiCommand::Element {
+        tag: ElementTag::Li,
+        attrs: vec![],
+        self_closing: false,
+      },
+      UiCommand::Text(text.into()),
+      UiCommand::EndElement,
+    ]
+  }
+
+  /// `<ul><li>a</li><li>b</li></ul><button>go</button>`.
+  fn list_stream() -> Vec<UiCommand> {
+    let mut cmds = vec![UiCommand::Element {
+      tag: ElementTag::Ul,
+      attrs: vec![],
+      self_closing: false,
+    }];
+
+    cmds.extend(li("a"));
+    cmds.extend(li("b"));
+    cmds.push(UiCommand::EndElement);
+    cmds.push(UiCommand::Element {
+      tag: ElementTag::Button,
+      attrs: vec![],
+      self_closing: false,
+    });
+    cmds.push(UiCommand::Text("go".into()));
+    cmds.push(UiCommand::EndElement);
+
+    cmds
+  }
+
+  #[test]
+  fn tail_append_adds_one_placement_and_shifts_downstream() {
+    let commands = list_stream();
+    let mut tree = LayoutTree::build(&commands);
+
+    tree.solve((320.0, 480.0));
+
+    let placements_before = tree.cmd_index.len();
+    let button_before = *tree.cmd_index.last().unwrap();
+
+    // Push "c": splice one recipe stride before the `</ul>` at
+    // index 7.
+    let mut patched = commands.clone();
+
+    patched.splice(7..7, li("c"));
+
+    let range = tree
+      .append_list_items(7, 3, &patched)
+      .expect("tail append rides the fast path");
+
+    assert_eq!(range.len(), 1, "one new leaf placement");
+    assert_eq!(tree.cmd_index.len(), placements_before + 1);
+    assert_eq!(
+      *tree.cmd_index.last().unwrap(),
+      8,
+      "the placement records the item's text leaf (element + 1), \
+       matching the build convention"
+    );
+
+    // The button placement shifted by the spliced length.
+    let button_after = tree.cmd_index[placements_before - 1];
+
+    assert_eq!(button_after, button_before + 3);
+
+    // The new leaf measures into geometry on the next solve.
+    let rects = tree.solve((320.0, 480.0));
+
+    assert_eq!(rects.len(), placements_before + 1);
+    assert!(tree.texts.iter().any(|t| t == "c"));
+  }
+
+  #[test]
+  fn append_without_existing_items_falls_back() {
+    // `<ul></ul>` — nothing to anchor on; the caller rebuilds.
+    let commands = vec![
+      UiCommand::Element {
+        tag: ElementTag::Ul,
+        attrs: vec![],
+        self_closing: false,
+      },
+      UiCommand::EndElement,
+    ];
+    let mut tree = LayoutTree::build(&commands);
+
+    tree.solve((320.0, 480.0));
+
+    let mut patched = commands.clone();
+
+    patched.splice(1..1, li("a"));
+
+    assert!(tree.append_list_items(1, 3, &patched).is_none());
   }
 }

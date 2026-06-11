@@ -31,7 +31,8 @@ pub(crate) fn assert_annotations_stream(
     &mut ty_checker,
   );
 
-  let (sir, annotations, _, _, _, _, _) = executor.execute();
+  let out = executor.execute();
+  let (sir, annotations) = (out.sir, out.annotations);
   let mut actual = Vec::new();
 
   // Zip annotations with non-Nop SIR instructions.
@@ -74,7 +75,7 @@ pub(crate) fn assert_sir_stream(source: &str, expected: &[Insn]) {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _, _, _) = executor.execute();
+  let sir = executor.execute().sir;
 
   assert_eq!(
     sir.instructions, expected,
@@ -101,7 +102,7 @@ pub(crate) fn assert_sir_structure(source: &str, check: impl Fn(&[Insn])) {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _, _, _) = executor.execute();
+  let sir = executor.execute().sir;
 
   check(&sir.instructions);
 }
@@ -243,7 +244,8 @@ pub(crate) fn execute_raw(source: &str) -> (Vec<Insn>, Vec<Annotation>) {
     &mut ty_checker,
   );
 
-  let (sir, annotations, _, _, _, _, _) = executor.execute();
+  let out = executor.execute();
+  let (sir, annotations) = (out.sir, out.annotations);
 
   (sir.instructions, annotations)
 }

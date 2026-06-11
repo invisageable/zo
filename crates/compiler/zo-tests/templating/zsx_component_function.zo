@@ -1,0 +1,13 @@
+-- test-run-pass: component function in tag position.
+-- `header` is a `-> </>` function; `<header />` splices its
+-- template into the page exactly like a `::=` variable component.
+
+fun header() -> </> {
+  return <h1>hello</h1>;
+}
+
+fun main() {
+  imu page ::= <div><header /></div>;
+
+  #render page;
+}

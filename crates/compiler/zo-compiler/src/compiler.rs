@@ -13,7 +13,7 @@ use zo_error::{Error, ErrorKind, Severity};
 use zo_interner::Symbol;
 use zo_module_resolver::{
   ImportedSymbols, ModuleExports, ModuleResolver, extract_exports,
-  splice_generic_bodies,
+  splice_component_bodies, splice_generic_bodies,
 };
 use zo_ownership::Ownership;
 use zo_parser::{Parser, ParsingResult};
@@ -376,6 +376,9 @@ fn fold_imports_into(into: &mut ImportedSymbols, other: &ImportedSymbols) {
   into
     .exported_generic_bodies
     .extend(other.exported_generic_bodies.iter().cloned());
+  into
+    .exported_component_bodies
+    .extend(other.exported_component_bodies.iter().cloned());
 }
 
 /// Converts the harvested `ModuleExports` (pub items only)
@@ -416,7 +419,9 @@ fn module_exports_to_imports(exports: &ModuleExports) -> ImportedSymbols {
     abstract_defs: HashMap::default(),
     abstract_impls: exports.abstract_impls.clone(),
     exported_generic_bodies: exports.generic_bodies.clone(),
+    exported_component_bodies: exports.component_bodies.clone(),
     generic_bodies: Vec::new(),
+    component_bodies: Vec::new(),
   }
 }
 
@@ -1012,6 +1017,11 @@ impl Compiler {
           &mut mod_tok.literals,
           std::mem::take(&mut mod_imports.exported_generic_bodies),
         );
+        mod_imports.component_bodies = splice_component_bodies(
+          &mut mod_par.tree,
+          &mut mod_tok.literals,
+          std::mem::take(&mut mod_imports.exported_component_bodies),
+        );
 
         let mod_sem = Analyzer::new(
           &mod_par.tree,
@@ -1029,12 +1039,15 @@ impl Compiler {
         .analyze();
 
         let mut exports = extract_exports(
-          mod_sem.sir,
+          zo_module_resolver::ModuleHarvest {
+            sir: mod_sem.sir,
+            funs: &mod_sem.funs,
+            generic_bodies: mod_sem.generic_bodies,
+            component_bodies: mod_sem.component_bodies,
+            abstract_impls: mod_sem.abstract_impls,
+          },
           None,
           &session.interner,
-          &mod_sem.funs,
-          mod_sem.generic_bodies,
-          mod_sem.abstract_impls,
         );
 
         // Each pack's SIR starts its own value-id counter
@@ -1161,6 +1174,11 @@ impl Compiler {
       &mut parsing.tree,
       &mut tokenization.literals,
       std::mem::take(&mut user_seed.exported_generic_bodies),
+    );
+    user_seed.component_bodies = splice_component_bodies(
+      &mut parsing.tree,
+      &mut tokenization.literals,
+      std::mem::take(&mut user_seed.exported_component_bodies),
     );
 
     let analyzer = Analyzer::new(
@@ -1406,6 +1424,11 @@ impl Compiler {
           &mut pack.tokenization.literals,
           std::mem::take(&mut pack_imports.exported_generic_bodies),
         );
+        pack_imports.component_bodies = splice_component_bodies(
+          &mut pack.parsing.tree,
+          &mut pack.tokenization.literals,
+          std::mem::take(&mut pack_imports.exported_component_bodies),
+        );
 
         let pack_sem = Analyzer::new(
           &pack.parsing.tree,
@@ -1423,12 +1446,15 @@ impl Compiler {
         .analyze();
 
         let mut pack_exports = extract_exports(
-          pack_sem.sir,
+          zo_module_resolver::ModuleHarvest {
+            sir: pack_sem.sir,
+            funs: &pack_sem.funs,
+            generic_bodies: pack_sem.generic_bodies,
+            component_bodies: pack_sem.component_bodies,
+            abstract_impls: pack_sem.abstract_impls,
+          },
           None,
           &session.interner,
-          &pack_sem.funs,
-          pack_sem.generic_bodies,
-          pack_sem.abstract_impls,
         );
 
         // Merge this pack's SIR into the main stream NOW —
@@ -1695,6 +1721,11 @@ impl Compiler {
       &mut mod_tokenization.literals,
       std::mem::take(&mut mod_imports.exported_generic_bodies),
     );
+    mod_imports.component_bodies = splice_component_bodies(
+      &mut mod_parsing.tree,
+      &mut mod_tokenization.literals,
+      std::mem::take(&mut mod_imports.exported_component_bodies),
+    );
 
     let mod_semantic = Analyzer::new(
       &mod_parsing.tree,
@@ -1712,12 +1743,15 @@ impl Compiler {
     .analyze();
 
     let mut exports = extract_exports(
-      mod_semantic.sir,
+      zo_module_resolver::ModuleHarvest {
+        sir: mod_semantic.sir,
+        funs: &mod_semantic.funs,
+        generic_bodies: mod_semantic.generic_bodies,
+        component_bodies: mod_semantic.component_bodies,
+        abstract_impls: mod_semantic.abstract_impls,
+      },
       selective,
       &session.interner,
-      &mod_semantic.funs,
-      mod_semantic.generic_bodies,
-      mod_semantic.abstract_impls,
     );
 
     // Selective imports that hit a non-pub item — one

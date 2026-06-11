@@ -28,7 +28,7 @@ tokens:
     - Ident
     - RParen
     - FatArrow
-    - Lt
+    - LAngle
     - Ident
     - Ident
     - Eq
@@ -37,20 +37,20 @@ tokens:
     - Dot
     - Ident
     - RBrace
-    - Gt
-    - Lt
+    - RAngle
+    - LAngle
     - Ident
-    - Gt
+    - RAngle
     - LBrace
     - Ident
     - Dot
     - Ident
     - RBrace
-    - Lt
+    - LAngle
     - Slash2
     - Ident
-    - Gt
-    - Lt
+    - RAngle
+    - LAngle
     - Ident
     - Ident
     - Eq
@@ -64,17 +64,16 @@ tokens:
     - Ident
     - RParen
     - RBrace
-    - Gt
-    - Unknown
-    - Unknown
-    - Lt
+    - RAngle
+    - TemplateText
+    - LAngle
     - Slash2
     - Ident
-    - Gt
-    - Lt
+    - RAngle
+    - LAngle
     - Slash2
     - Ident
-    - Gt
+    - RAngle
     - RParen
     - RBrace
     - LAngle
@@ -151,7 +150,6 @@ tokens:
     - 207
     - 208
     - 209
-    - 210
     - 211
     - 212
     - 213
@@ -235,8 +233,7 @@ tokens:
     - 1
     - 1
     - 1
-    - 1
-    - 1
+    - 2
     - 1
     - 1
     - 6
@@ -320,17 +317,10 @@ tokens:
     - 0
     - 0
     - 0
-    - 0
-    - 0
-    - 0
-    - 0
     - 19
     - 0
     - 0
-    - 0
     - 20
-    - 0
-    - 0
     - 0
     - 0
     - 0
@@ -338,8 +328,14 @@ tokens:
     - 0
     - 0
     - 0
+    - 0
+    - 0
     - 22
+    - 0
+    - 0
+    - 0
     - 23
+    - 24
     - 0
     - 0
     - 0
@@ -366,10 +362,11 @@ literals:
     - 39
     - 40
     - 32
+    - 41
     - 38
     - 33
     - 27
-    - 41
+    - 42
     - 26
   bytes_literals: []
   char_literals: []

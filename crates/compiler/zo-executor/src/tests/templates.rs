@@ -1,13 +1,16 @@
 use crate::Executor;
-use crate::tests::common::{assert_execution_error, assert_sir_structure};
+use crate::tests::common::{
+  assert_execution_error, assert_no_errors, assert_sir_structure,
+};
 
 use zo_error::ErrorKind;
 use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_reporter::collect_errors;
-use zo_sir::Insn;
+use zo_sir::{Insn, ListItemCmd};
 use zo_tokenizer::Tokenizer;
 use zo_ty_checker::TyChecker;
+use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 use zo_value::FunctionKind;
 
 // === TEMPLATE DECLARATION ===
@@ -62,7 +65,7 @@ fn test_template_var_registered() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _, _, _) = executor.execute();
+  executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -97,7 +100,7 @@ fn test_template_interp_str_variable() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _, _, _) = executor.execute();
+  executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -130,7 +133,7 @@ fn test_template_interp_int_variable() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _, _, _) = executor.execute();
+  executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -164,7 +167,7 @@ fn test_template_interp_multiple_vars() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _, _, _) = executor.execute();
+  executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -197,7 +200,7 @@ fn test_template_interp_named_tag() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _, _, _) = executor.execute();
+  executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -256,7 +259,7 @@ fn test_template_attr_interpolation() {
     &mut ty_checker,
   );
 
-  let (_, _, _, _, _, _, _) = executor.execute();
+  executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -269,8 +272,6 @@ fn test_template_attr_interpolation() {
 /// Walk a `Vec<Insn>`, find the first `Insn::Template`, and
 /// return the attributes of its first `UiCommand::Element`.
 fn first_element_attrs(sir: &[Insn]) -> Vec<zo_ui_protocol::Attr> {
-  use zo_ui_protocol::UiCommand;
-
   for insn in sir {
     if let Insn::Template { commands, .. } = insn {
       for cmd in commands {
@@ -287,8 +288,6 @@ fn first_element_attrs(sir: &[Insn]) -> Vec<zo_ui_protocol::Attr> {
 /// Look up a `Prop` attribute by name, returning its display
 /// string value. Ignores `Event`, `Style`, `Dynamic` variants.
 fn prop_value(attrs: &[zo_ui_protocol::Attr], name: &str) -> Option<String> {
-  use zo_ui_protocol::Attr;
-
   for attr in attrs {
     if let Attr::Prop { name: n, value } = attr
       && n == name
@@ -574,8 +573,6 @@ fn test_template_attr_eager_expr_form_regression() {
 
 #[test]
 fn test_event_attribute_with_inline_closure() {
-  use zo_ui_protocol::UiCommand;
-
   assert_sir_structure(
     r#"fun main() {
   imu app: </> ::= <>
@@ -640,8 +637,6 @@ fn test_dom_directive_emits_insn() {
 /// output. Used by the smoke test below with `--nocapture` so
 /// the user can visually verify the splice landed correctly.
 fn format_template_commands(sir: &[Insn]) -> String {
-  use zo_ui_protocol::UiCommand;
-
   let mut out = String::new();
 
   for insn in sir {
@@ -721,8 +716,6 @@ fn test_html_directive_diagnose_sub_parse() {
 /// ```
 #[test]
 fn test_html_directive_smoke() {
-  use zo_ui_protocol::{ElementTag, UiCommand};
-
   let source = r#"fun main() {
   imu strong: str = "here's some <strong>html!!!</strong>";
   imu paragraph: </> ::= <p>{#html strong}</p>;
@@ -744,7 +737,7 @@ fn test_html_directive_smoke() {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _, _, _) = executor.execute();
+  let sir = executor.execute().sir;
 
   // Print the rendered template commands. Visible with
   // `--nocapture`.
@@ -846,7 +839,7 @@ fn test_html_directive_rejects_mut_source() {
     &mut ty_checker,
   );
 
-  let _ = executor.execute();
+  executor.execute();
   let errors = collect_errors();
 
   assert!(
@@ -885,7 +878,7 @@ fn test_compound_interp_emits_computed_binding() {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _, _, _) = executor.execute();
+  let sir = executor.execute().sir;
 
   // The Insn::Template must carry exactly one computed
   // binding for the `{when …}` interp.
@@ -955,7 +948,7 @@ fn test_compound_interp_emits_text_placeholder() {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _, _, _) = executor.execute();
+  let sir = executor.execute().sir;
 
   let (commands, computed) = sir
     .instructions
@@ -1008,7 +1001,7 @@ fn test_simple_ident_interp_uses_text_binding_not_computed() {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _, _, _) = executor.execute();
+  let sir = executor.execute().sir;
 
   let bindings = sir
     .instructions
@@ -1028,12 +1021,10 @@ fn test_simple_ident_interp_uses_text_binding_not_computed() {
 
 #[test]
 fn test_template_list_binding_extracted_from_map_call() {
-  use zo_sir::ListItemCmd;
-
   assert_sir_structure(
     r#"fun main() {
   imu items: []str = ["a", "b"];
-  imu view: </> ::= <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>;
+  imu view: </> ::= <ul>{items.map(fn(t) => <li>{t}</li>)}</ul>;
   #render view;
 }"#,
     |sir| {
@@ -1084,12 +1075,10 @@ fn test_template_list_binding_emits_template_insn() {
   // even when the interp expands to a list binding. Without
   // this, the runtime sees zero UI commands and the window
   // never opens.
-  use zo_sir::Insn;
-
   assert_sir_structure(
     r#"fun main() {
   imu items: []str = ["a", "b"];
-  imu view: </> ::= <ul>{items.map(fn(t) =:> <li>{t}</li>)}</ul>;
+  imu view: </> ::= <ul>{items.map(fn(t) => <li>{t}</li>)}</ul>;
   #render view;
 }"#,
     |sir| {
@@ -1107,5 +1096,658 @@ fn test_template_list_binding_emits_template_insn() {
         "expected at least Element(ul) + Text(placeholder) + EndElement, got {n}",
       );
     },
+  );
+}
+
+#[test]
+fn component_function_splices_in_tag_position() {
+  // `header` is a `-> </>` function; `<header />` must splice its
+  // template commands into `page` exactly like a `::=` variable
+  // component — an `<h1>` element and its text land between the
+  // `<div>`'s open and close.
+  assert_sir_structure(
+    r#"
+fun header() -> </> {
+  return <h1>hello</h1>;
+}
+
+fun main() {
+  imu page ::= <div><header /></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      // The LAST template is `page` (the component's own template
+      // is emitted first, inside `header`'s body).
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let has_h1 = page
+        .iter()
+        .any(|c| matches!(c, UiCommand::Element { tag, .. } if *tag == ElementTag::H1));
+      let has_text = page
+        .iter()
+        .any(|c| matches!(c, UiCommand::Text(t) if t == "hello"));
+
+      assert!(has_h1, "spliced <h1> missing from page: {page:#?}");
+      assert!(has_text, "spliced text missing from page: {page:#?}");
+    },
+  );
+}
+
+#[test]
+fn unknown_component_tag_stays_a_plain_element() {
+  // A tag that resolves to neither a template variable nor a
+  // component function falls through to plain-element emission —
+  // same behavior as before the component registry.
+  assert_sir_structure(
+    r#"
+fun main() {
+  imu page ::= <div><mystery /></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let has_template = sir.iter().any(|i| matches!(i, Insn::Template { .. }));
+
+      assert!(has_template, "page template should still build");
+    },
+  );
+}
+
+#[test]
+fn component_function_tail_form_splices_too() {
+  // Same component, tail expression instead of explicit `return` —
+  // the fragment is the body's value either way.
+  assert_sir_structure(
+    r#"
+fun header() -> </> {
+  <h1>hello</h1>
+}
+
+fun main() {
+  imu page ::= <div><header /></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let has_h1 = page
+        .iter()
+        .any(|c| matches!(c, UiCommand::Element { tag, .. } if *tag == ElementTag::H1));
+
+      assert!(has_h1, "tail-form splice missing <h1>: {page:#?}");
+    },
+  );
+}
+
+#[test]
+fn component_props_bake_per_instance() {
+  // `<greeting name="..." />` re-executes the component body with
+  // `name` bound — two instances bake two different texts.
+  assert_sir_structure(
+    r#"
+fun greeting(name: str) -> </> {
+  return <h1>hello, {name}!</h1>;
+}
+
+fun main() {
+  imu page ::= <div>
+    <greeting name="world" />
+    <greeting name="zo" />
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let texts: Vec<&str> = page
+        .iter()
+        .filter_map(|c| match c {
+          UiCommand::Text(t) => Some(t.as_str()),
+          _ => None,
+        })
+        .collect();
+
+      assert!(
+        texts.iter().any(|t| t.contains("world")),
+        "first instance text missing: {texts:?}"
+      );
+      assert!(
+        texts.iter().any(|t| t.contains("zo")),
+        "second instance text missing: {texts:?}"
+      );
+    },
+  );
+}
+
+#[test]
+fn component_missing_prop_reports_argument_mismatch() {
+  assert_execution_error(
+    r#"
+fun greeting(name: str) -> </> {
+  return <h1>hello, {name}!</h1>;
+}
+
+fun main() {
+  imu page ::= <div><greeting /></div>;
+
+  #render page;
+}"#,
+    ErrorKind::ArgumentCountMismatch,
+  );
+}
+
+#[test]
+fn component_prop_from_braced_local() {
+  // `name={user}` — an immutable local arrives as an eager
+  // `Attr::Prop`; a mutable one as `Attr::Dynamic` whose
+  // `initial` carries the same eager value. Both bind.
+  assert_sir_structure(
+    r#"
+fun greeting(name: str) -> </> {
+  return <h1>hello, {name}!</h1>;
+}
+
+fun main() {
+  imu user := "world";
+  mut who := "zo";
+
+  imu page ::= <div>
+    <greeting name={user} />
+    <greeting name={who} />
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let texts: Vec<&str> = page
+        .iter()
+        .filter_map(|c| match c {
+          UiCommand::Text(t) => Some(t.as_str()),
+          _ => None,
+        })
+        .collect();
+
+      assert!(
+        texts.iter().any(|t| t.contains("world")),
+        "imu-local prop missing: {texts:?}"
+      );
+      assert!(
+        texts.iter().any(|t| t.contains("zo")),
+        "mut-local prop missing: {texts:?}"
+      );
+    },
+  );
+}
+
+#[test]
+fn nested_reactive_component_keeps_its_bindings() {
+  // A component with its own `mut` used to lose its reactive
+  // bindings at the splice (only `commands` were cloned). The
+  // page template must carry the child's text binding, rebased to
+  // the splice offset — the bound `UiCommand::Text` at that index
+  // is the child's.
+  assert_sir_structure(
+    r#"
+fun main() {
+  mut count := 0;
+
+  imu badge ::= <span>{count}</span>;
+  imu page ::= <div><p>items:</p><badge /></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let (commands, bindings) = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template {
+            commands, bindings, ..
+          } => Some((commands, bindings)),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let all: Vec<_> = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { bindings, .. } => Some(bindings.clone()),
+          _ => None,
+        })
+        .collect();
+
+      assert!(
+        !bindings.text.is_empty(),
+        "child's text binding lost at splice; all templates: {all:#?}"
+      );
+
+      // The rebased index must point at a Text command (the
+      // child's `{count}` slot), not at arbitrary commands.
+      for (cmd_idx, _) in &bindings.text {
+        assert!(
+          matches!(commands.get(*cmd_idx), Some(UiCommand::Text(_))),
+          "binding index {cmd_idx} does not target a Text command: \
+           {commands:#?}"
+        );
+      }
+    },
+  );
+}
+
+#[test]
+fn twice_spliced_reactive_component_carries_both_bindings() {
+  // Two instances of one reactive component: each splice rebases
+  // the child's binding to its own offset, so the page carries
+  // two text bindings at distinct indices. (The instances share
+  // the `count` state cell — per-instance state is future work.)
+  assert_sir_structure(
+    r#"
+fun main() {
+  mut count := 0;
+
+  imu badge ::= <span>{count}</span>;
+  imu page ::= <div><badge /><badge /></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let bindings = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { bindings, .. } => Some(bindings),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      assert_eq!(
+        bindings.text.len(),
+        2,
+        "each instance must carry its own rebased binding: {bindings:?}"
+      );
+      assert_ne!(
+        bindings.text[0].0, bindings.text[1].0,
+        "the two instances' bindings must target distinct commands"
+      );
+    },
+  );
+}
+
+#[test]
+fn slot_splices_children_at_the_marked_position() {
+  // `<card …><p>body</p></card>` — children build in the parent's
+  // scope and land exactly where the component body says
+  // `<slot />`: between the card's heading and footer.
+  assert_sir_structure(
+    r#"
+fun card(title: str) -> </> {
+  return <div>
+    <h2>{title}</h2>
+    <slot />
+    <p>footer</p>
+  </div>;
+}
+
+fun main() {
+  imu who := "zo";
+
+  imu page ::= <card title="hi"><p>body {who}</p></card>;
+
+  #render page;
+}"#,
+    |sir| {
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let texts: Vec<&str> = page
+        .iter()
+        .filter_map(|c| match c {
+          UiCommand::Text(t) => Some(t.as_str()),
+          _ => None,
+        })
+        .collect();
+
+      let hi = texts.iter().position(|t| t.contains("hi"));
+      let body = texts.iter().position(|t| t.contains("body zo"));
+      let footer = texts.iter().position(|t| t.contains("footer"));
+
+      assert!(
+        hi.is_some() && body.is_some() && footer.is_some(),
+        "missing slot pieces: {texts:?}"
+      );
+      assert!(
+        hi < body && body < footer,
+        "slot content out of position: {texts:?}"
+      );
+    },
+  );
+}
+
+#[test]
+fn slotless_component_appends_children_instead_of_dropping() {
+  assert_sir_structure(
+    r#"
+fun badge(label: str) -> </> {
+  return <span>{label}</span>;
+}
+
+fun main() {
+  imu page ::= <div><badge label="new"><p>extra</p></badge></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let texts: Vec<&str> = page
+        .iter()
+        .filter_map(|c| match c {
+          UiCommand::Text(t) => Some(t.as_str()),
+          _ => None,
+        })
+        .collect();
+
+      assert!(
+        texts.iter().any(|t| t.contains("new"))
+          && texts.iter().any(|t| t.contains("extra")),
+        "children dropped by slotless component: {texts:?}"
+      );
+    },
+  );
+}
+
+#[test]
+fn self_closing_slotted_component_renders_empty_slot() {
+  assert_sir_structure(
+    r#"
+fun card(title: str) -> </> {
+  return <div>
+    <h2>{title}</h2>
+    <slot />
+  </div>;
+}
+
+fun main() {
+  imu page ::= <div><card title="alone" /></div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let has_title = page
+        .iter()
+        .any(|c| matches!(c, UiCommand::Text(t) if t.contains("alone")));
+      let stray_slot = page.iter().any(|c| {
+        matches!(c, UiCommand::Element { tag, .. }
+          if format!("{tag:?}").to_lowercase().contains("slot"))
+      });
+
+      assert!(has_title, "self-closing slotted card missing: {page:#?}");
+      assert!(!stray_slot, "literal slot element leaked: {page:#?}");
+    },
+  );
+}
+
+#[test]
+fn reactive_children_keep_bindings_through_the_slot() {
+  // Children build in the parent's scope: a `mut` interpolation
+  // inside them must arrive in the page template as a live text
+  // binding, drained from the parent walk, carried through the
+  // slot, and rebased twice (children-relative, then instance
+  // splice position).
+  assert_sir_structure(
+    r#"
+fun card() -> </> {
+  return <div><slot /></div>;
+}
+
+fun main() {
+  mut count := 0;
+
+  imu page ::= <card><span>{count}</span></card>;
+
+  #render page;
+}"#,
+    |sir| {
+      let (commands, bindings) = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template {
+            commands, bindings, ..
+          } => Some((commands, bindings)),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      assert!(
+        !bindings.text.is_empty(),
+        "reactive child lost its binding through the slot: {bindings:?}"
+      );
+
+      for (cmd_idx, _) in &bindings.text {
+        assert!(
+          matches!(commands.get(*cmd_idx), Some(UiCommand::Text(_))),
+          "slot-carried binding mistargeted: {commands:#?}"
+        );
+      }
+    },
+  );
+}
+
+#[test]
+fn event_on_component_tag_reports_instead_of_dropping() {
+  assert_execution_error(
+    r#"
+fun card(title: str) -> </> {
+  return <div><h2>{title}</h2></div>;
+}
+
+fun main() {
+  mut count := 0;
+
+  imu page ::= <div>
+    <card title="hi" @click={fn() => count += 1} />
+  </div>;
+
+  #render page;
+}"#,
+    ErrorKind::EventOnComponent,
+  );
+}
+
+#[test]
+fn callback_prop_routes_event_to_parent_closure() {
+  // `on_close={fn() => open = false}` lowers the closure to a
+  // named handler; the component binds it to its fn-typed param
+  // and wires `@click={on_close}` — the page's Event command must
+  // dispatch to the parent's synthesized closure, not to the
+  // literal name `on_close`.
+  assert_sir_structure(
+    r#"
+fun card(title: str, on_close: Fn() -> unit) -> </> {
+  return <div>
+    <h2>{title}</h2>
+    <button @click={on_close}>x</button>
+  </div>;
+}
+
+fun main() {
+  mut open := 1;
+
+  imu page ::= <div>
+    <card title="hi" on_close={fn() => open = 0} />
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let handler = page
+        .iter()
+        .find_map(|c| match c {
+          UiCommand::Event { handler, .. } => Some(handler.as_str()),
+          _ => None,
+        })
+        .expect("event command missing from page");
+
+      assert_ne!(
+        handler, "on_close",
+        "event must dispatch to the parent's closure, not the \
+         parameter's own name"
+      );
+
+      // The handler must be a synthesized closure name (symbol ids
+      // aren't resolvable here, but the `__closure_` prefix plus a
+      // Closure-kind FunDef in SIR pin the chain).
+      assert!(
+        handler.starts_with("__closure_"),
+        "handler must be a synthesized closure name, got `{handler}`"
+      );
+
+      let has_closure_def = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            kind: FunctionKind::Closure { .. },
+            ..
+          }
+        )
+      });
+
+      assert!(has_closure_def, "parent closure FunDef missing from SIR");
+    },
+  );
+}
+
+#[test]
+fn indexed_assignment_to_reactive_array_in_handler_compiles() {
+  // `todos[0] = "z"` inside a handler closure on a template-bound
+  // array died with a misattributed `Type mismatch: this function
+  // has no return type` pointed at `fun main` — the closure body
+  // had no Semicolon, so the array-assign pending never finalized
+  // and the RHS leaked as the implicit return.
+  assert_no_errors(
+    r#"
+fun main() {
+  mut todos := ["a", "b"];
+
+  imu page ::= <div>
+    <ul>{todos.map(fn(t) => <li>{t}</li>)}</ul>
+    <button @click={fn() => todos[0] = "z"}>edit</button>
+  </div>;
+
+  #render page;
+}"#,
+  );
+}
+
+#[test]
+fn indexed_assignment_handler_before_list_compiles() {
+  // Handler order must not matter relative to the list binding.
+  assert_no_errors(
+    r#"
+fun main() {
+  mut todos := ["a", "b"];
+
+  imu page ::= <div>
+    <button @click={fn() => todos[0] = "z"}>edit</button>
+    <ul>{todos.map(fn(t) => <li>{t}</li>)}</ul>
+  </div>;
+
+  #render page;
+}"#,
+  );
+}
+
+#[test]
+fn for_in_template_interp_reports_statement_in_template() {
+  assert_execution_error(
+    r#"
+fun main() {
+  mut todos := ["a", "b"];
+
+  imu page ::= <ul>{for t := todos { <li>{t}</li> }}</ul>;
+
+  #render page;
+}"#,
+    ErrorKind::StatementInTemplate,
+  );
+}
+
+#[test]
+fn while_in_template_interp_reports_statement_in_template() {
+  assert_execution_error(
+    r#"
+fun main() {
+  mut n := 0;
+
+  imu page ::= <div>{while n < 3 { n += 1 }}</div>;
+
+  #render page;
+}"#,
+    ErrorKind::StatementInTemplate,
   );
 }

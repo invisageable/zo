@@ -157,17 +157,35 @@ pub struct ExportedConst {
 /// own tree and register a fresh `generic_tree_ranges` entry
 /// pointing at the spliced offset.
 ///
-/// @note — `nodes[0]` is the `Fun` introducer; the rest of
-/// the slice walks postorder through the body up to the
-/// closing `}`. Child indices inside the nodes are *absolute*
-/// in the defining module's tree — the splice path adds the
-/// importer's pre-splice `nodes.len()` to rebase them.
 #[derive(Clone)]
 pub struct ExportedGenericBody {
   /// Mangled apply-level symbol, e.g. `arr_$::first`.
   pub name: Symbol,
-  /// Body subtree nodes (postorder), cloned from the
-  /// defining module's `Tree::nodes`.
+  /// The portable body subtree.
+  pub slice: ExportedTreeSlice,
+  /// Apply-level type params (e.g. `[$T]`) so the importer
+  /// can mirror `apply_type_params` against the spliced
+  /// symbol.
+  pub type_params: Vec<Symbol>,
+  /// Apply-context symbol — the prefix the re-exec pass
+  /// reads to look up `apply_type_params`. For
+  /// `apply []$T { fun first(self) ... }` this is `arr_$`;
+  /// the body's mangled name is `arr_$::first`.
+  pub apply_context: Symbol,
+}
+
+/// One tree subrange in portable, cross-module form — the carrier
+/// both generic bodies and component bodies ship across the wire.
+///
+/// @note — `nodes[0]` is the introducer; the rest walks postorder
+/// through the body up to the closing `}`. Child indices inside
+/// the nodes are *absolute* in the defining module's tree — the
+/// splice adds the importer's pre-splice `nodes.len()` to rebase
+/// them.
+#[derive(Clone)]
+pub struct ExportedTreeSlice {
+  /// Subtree nodes (postorder), cloned from the defining
+  /// module's `Tree::nodes`.
   pub nodes: Vec<NodeHeader>,
   /// Spans parallel to `nodes`.
   pub spans: Vec<Span>,
@@ -184,15 +202,30 @@ pub struct ExportedGenericBody {
   /// First node index in the defining module's tree — used
   /// by the importer to compute the rebase offset.
   pub origin_start: u32,
-  /// Apply-level type params (e.g. `[$T]`) so the importer
-  /// can mirror `apply_type_params` against the spliced
-  /// symbol.
-  pub type_params: Vec<Symbol>,
-  /// Apply-context symbol — the prefix the re-exec pass
-  /// reads to look up `apply_type_params`. For
-  /// `apply []$T { fun first(self) ... }` this is `arr_$`;
-  /// the body's mangled name is `arr_$::first`.
-  pub apply_context: Symbol,
+}
+
+/// Whether a component body contains a `<slot />`. An enum
+/// rather than a bare bool so construction sites read
+/// unambiguously (`slot: Slot::Yes`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Slot {
+  Yes,
+  No,
+}
+
+/// A `pub fun … -> </>` body fragment exported for cross-module
+/// component instantiation: the importer splices the fragment into
+/// its own tree and re-executes it per use site.
+#[derive(Clone)]
+pub struct ExportedComponentBody {
+  /// The component function's symbol — the tag name.
+  pub name: Symbol,
+  /// The portable fragment subtree.
+  pub slice: ExportedTreeSlice,
+  /// Whether the fragment contains a `<slot />` — a slotted
+  /// component must always instantiate (its registration-time
+  /// bake has no slot content to show).
+  pub slot: Slot,
 }
 
 /// Post-splice metadata for one generic body — the executor
@@ -208,6 +241,19 @@ pub struct SplicedGenericBody {
   pub range: (u32, u32),
   pub apply_context: Symbol,
   pub type_params: Vec<Symbol>,
+}
+
+/// Post-splice metadata for one component body — `with_imports`
+/// registers each `(name, range)` in the executor's component
+/// registry so `<name />` instantiates the spliced fragment.
+#[derive(Clone, Debug)]
+pub struct SplicedComponentBody {
+  pub name: Symbol,
+  /// Range in the importer's tree where the splice landed,
+  /// `(start_inclusive, end_exclusive)`.
+  pub range: (u32, u32),
+  /// Carried through from [`ExportedComponentBody::slot`].
+  pub slot: Slot,
 }
 
 /// Imported module symbols to pre-load into the executor.
@@ -249,6 +295,11 @@ pub struct ImportedSymbols {
   /// `Analyzer`, then stores the post-splice metadata in
   /// [`Self::generic_bodies`].
   pub exported_generic_bodies: Vec<ExportedGenericBody>,
+  /// Component-function body fragments (`pub fun … -> </>`)
+  /// from loaded modules — a component instantiates by
+  /// re-executing its fragment, so the importer needs the
+  /// subtree spliced into its own tree.
+  pub exported_component_bodies: Vec<ExportedComponentBody>,
   /// Post-splice metadata for generic apply-block bodies
   /// the compiler pre-pass already wove into the shared
   /// `Tree` / `LiteralStore`. The executor registers each
@@ -256,6 +307,11 @@ pub struct ImportedSymbols {
   /// at `with_imports` time; the body nodes themselves are
   /// already live in `Tree`.
   pub generic_bodies: Vec<SplicedGenericBody>,
+  /// Post-splice component ranges, parallel to
+  /// [`Self::generic_bodies`] — `with_imports` registers each
+  /// `(name, range)` in the executor's component registry
+  /// instead of the generic re-exec tables.
+  pub component_bodies: Vec<SplicedComponentBody>,
 }
 
 impl ImportedSymbols {
@@ -279,25 +335,11 @@ impl ImportedSymbols {
       && self.abstract_impls.is_empty()
       && self.exported_generic_bodies.is_empty()
       && self.generic_bodies.is_empty()
+      && self.exported_component_bodies.is_empty()
+      && self.component_bodies.is_empty()
   }
 }
 
-/// Splices a batch of `ExportedGenericBody` payloads into
-/// the importer's `Tree` and `LiteralStore`. Returns one
-/// [`SplicedGenericBody`] entry per body the executor needs
-/// to register against the standard mono re-execute path.
-///
-/// The mutation happens here (compiler pre-pass) so the
-/// executor can keep `Tree` / `LiteralStore` as `&` refs
-/// during execution. Each body's nodes/spans/values land
-/// at the tail of `tree`; literal payloads land at the tail
-/// of `literals`; `NodeValue::Literal(i)` indices and node
-/// `child_start` fields get rebased onto the new offsets.
-///
-/// @note — bails on one body without bringing down the
-/// others when its spliced range would overflow
-/// `NodeHeader.child_start` (`u16`). v1 cap is `u16::MAX`;
-/// widening is a separate refactor.
 pub fn splice_generic_bodies(
   tree: &mut Tree,
   literals: &mut LiteralStore,
@@ -306,21 +348,54 @@ pub fn splice_generic_bodies(
   let mut out: Vec<SplicedGenericBody> = Vec::with_capacity(bodies.len());
 
   for body in bodies {
-    if let Some(meta) = splice_one(tree, literals, body) {
-      out.push(meta);
+    if let Some(range) = splice_tree_slice(tree, literals, &body.slice) {
+      out.push(SplicedGenericBody {
+        name: body.name,
+        range,
+        apply_context: body.apply_context,
+        type_params: body.type_params,
+      });
     }
   }
 
   out
 }
 
-fn splice_one(
+/// Splices component body fragments into the importer's tree —
+/// same rebase as generic bodies, different registration target
+/// (`with_imports` routes the ranges into the component registry).
+pub fn splice_component_bodies(
   tree: &mut Tree,
   literals: &mut LiteralStore,
-  body: ExportedGenericBody,
-) -> Option<SplicedGenericBody> {
+  bodies: Vec<ExportedComponentBody>,
+) -> Vec<SplicedComponentBody> {
+  let mut out: Vec<SplicedComponentBody> = Vec::with_capacity(bodies.len());
+
+  for body in bodies {
+    if let Some(range) = splice_tree_slice(tree, literals, &body.slice) {
+      out.push(SplicedComponentBody {
+        name: body.name,
+        range,
+        slot: body.slot,
+      });
+    }
+  }
+
+  out
+}
+
+/// Splices one portable tree slice into the importer's tree,
+/// rebasing child indices, replaying literal payloads into the
+/// importer's `LiteralStore`, and re-attaching node values.
+/// Returns the landed `(start, end)` range, or `None` (with a
+/// diagnostic) when the slice can't be spliced soundly.
+fn splice_tree_slice(
+  tree: &mut Tree,
+  literals: &mut LiteralStore,
+  slice: &ExportedTreeSlice,
+) -> Option<(u32, u32)> {
   let splice_start = tree.nodes.len();
-  let splice_end = splice_start + body.nodes.len();
+  let splice_end = splice_start + slice.nodes.len();
 
   // u32 cap on `NodeHeader.child_start` — past this the
   // rebase below silently truncates and the spliced bodies'
@@ -330,7 +405,7 @@ fn splice_one(
   // "Undefined variable" cascade. 4 billion nodes is far
   // beyond any real program; the guard stays as a canary.
   if splice_end > u32::MAX as usize {
-    let span = body.spans.first().copied().unwrap_or_default();
+    let span = slice.spans.first().copied().unwrap_or_default();
     report_error(Error::new(ErrorKind::CrossModuleGenericTooLarge, span));
 
     return None;
@@ -345,7 +420,7 @@ fn splice_one(
   // `child_start` is absolute in the defining tree; shift
   // by `splice_start - origin_start` so it lands at the
   // same relative offset inside the spliced range.
-  let offset = splice_start as i64 - body.origin_start as i64;
+  let offset = splice_start as i64 - slice.origin_start as i64;
 
   // Replay literal payloads into the importer's
   // `LiteralStore`, mapping orig→new index so the
@@ -353,7 +428,7 @@ fn splice_one(
   // in one pass.
   let mut literal_remap: FxHashMap<u32, u32> = FxHashMap::default();
 
-  for (orig_node_idx, payload) in &body.literal_payloads {
+  for (orig_node_idx, payload) in &slice.literal_payloads {
     let new_lit_idx = match payload {
       ExportedLiteral::Int(v) => literals.push_int(*v),
       ExportedLiteral::Float(v) => literals.push_float(*v),
@@ -369,7 +444,7 @@ fn splice_one(
   // children always precede their parent inside the body
   // subrange, so `+ offset` keeps every parent->child edge
   // pointing inside the spliced block.
-  for node in &body.nodes {
+  for node in &slice.nodes {
     let mut clone = *node;
 
     // FLAG_HAS_EXPLICIT_CHILDREN (sidecar `child_indices`
@@ -379,7 +454,7 @@ fn splice_one(
     // explicitly until that lands, rather than silently
     // splicing wrong references.
     if clone.has_explicit_children() {
-      let span = body.spans.first().copied().unwrap_or_default();
+      let span = slice.spans.first().copied().unwrap_or_default();
       report_error(Error::new(ErrorKind::CrossModuleGenericTooLarge, span));
 
       // Rewind any partial pushes from this body so the
@@ -408,14 +483,14 @@ fn splice_one(
     tree.nodes.push(clone);
   }
 
-  for span in &body.spans {
+  for span in &slice.spans {
     tree.spans.push(*span);
   }
 
   // Push `node_values` with rebased indices and rewritten
   // literal slots. `value_map` stays sorted because
   // `splice_start` is always above any pre-existing entry.
-  for (orig_node_idx, value) in &body.node_values {
+  for (orig_node_idx, value) in &slice.node_values {
     let new_node_idx = (*orig_node_idx as i64 + offset) as u32;
     let new_value = match value {
       NodeValue::Literal(_) => {
@@ -432,8 +507,7 @@ fn splice_one(
 
   // Parallel-length / sortedness invariants — debug only
   // so release stays branchless. The lock-in here catches
-  // the moment phase 4 adds a second caller and forgets
-  // any of the three arrays.
+  // the moment a new caller forgets any of the three arrays.
   debug_assert_eq!(
     tree.nodes.len(),
     tree.spans.len(),
@@ -449,12 +523,7 @@ fn splice_one(
     "splice broke value_map sort invariant"
   );
 
-  Some(SplicedGenericBody {
-    name: body.name,
-    range: (splice_start as u32, splice_end as u32),
-    apply_context: body.apply_context,
-    type_params: body.type_params,
-  })
+  Some((splice_start as u32, splice_end as u32))
 }
 
 /// Literal payload snapshotted at body-record time. The
@@ -515,6 +584,9 @@ pub struct ModuleExports {
   /// into its own tree to re-execute on mono dispatch. See
   /// [`ExportedGenericBody`].
   pub generic_bodies: Vec<ExportedGenericBody>,
+  /// Component body fragments recorded by this module's
+  /// executor.
+  pub component_bodies: Vec<ExportedComponentBody>,
   /// `(abstract_name, target_type) -> AbstractImpl` for
   /// every `apply Abstract for Type { ... }` block the
   /// module declared in a public pack. Importers fold
@@ -522,6 +594,17 @@ pub struct ModuleExports {
   /// a struct defined in a sibling module routes to the
   /// custom `Type::eq` instead of falling back to a
   /// primitive pointer compare.
+  pub abstract_impls: FxHashMap<(Symbol, Symbol), AbstractImpl>,
+}
+
+/// Everything a compiled module hands the export harvester — the
+/// owned SIR plus the executor-recorded bodies and impl registry;
+/// `funs` borrows the analyzer's table.
+pub struct ModuleHarvest<'a> {
+  pub sir: Sir,
+  pub funs: &'a [zo_value::FunDef],
+  pub generic_bodies: Vec<ExportedGenericBody>,
+  pub component_bodies: Vec<ExportedComponentBody>,
   pub abstract_impls: FxHashMap<(Symbol, Symbol), AbstractImpl>,
 }
 
@@ -533,13 +616,17 @@ pub struct ModuleExports {
 /// If `selective` is `Some(name)`, only the matching export
 /// is included.
 pub fn extract_exports(
-  sir: Sir,
+  harvest: ModuleHarvest<'_>,
   selective: Option<&str>,
   interner: &Interner,
-  src_funs: &[zo_value::FunDef],
-  src_generic_bodies: Vec<ExportedGenericBody>,
-  src_abstract_impls: FxHashMap<(Symbol, Symbol), AbstractImpl>,
 ) -> ModuleExports {
+  let ModuleHarvest {
+    sir,
+    funs: src_funs,
+    generic_bodies: src_generic_bodies,
+    component_bodies: src_component_bodies,
+    abstract_impls: src_abstract_impls,
+  } = harvest;
   // Funs that ship a generic body — only these need
   // `type_params` carried across. Without this filter,
   // pre-existing apply-block type-param leakage (e.g.
@@ -976,6 +1063,7 @@ pub fn extract_exports(
     re_exports,
     private_selective_hits,
     generic_bodies: src_generic_bodies,
+    component_bodies: src_component_bodies,
     abstract_impls,
   }
 }

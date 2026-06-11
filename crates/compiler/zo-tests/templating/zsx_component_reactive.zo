@@ -1,0 +1,17 @@
+-- test-run-pass: a reactive component stays reactive when nested.
+-- `badge` carries its own text binding on `count`; splicing it into
+-- `page` rebases the binding to the splice offset instead of
+-- dropping it, so the runtime patches the right Text slot on tap.
+
+fun main() {
+  mut count := 0;
+
+  imu badge ::= <span>{count}</span>;
+
+  imu page ::= <div>
+    <button @click={fn() => count += 1}>+</button>
+    <badge />
+  </div>;
+
+  #render page;
+}

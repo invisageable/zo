@@ -183,6 +183,26 @@ pub enum GlassStyle {
   Clear,
 }
 
+/// Flex line wrapping.
+#[derive(
+  Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize,
+)]
+pub enum FlexWrap {
+  #[default]
+  NoWrap,
+  Wrap,
+}
+
+/// A drop shadow behind the element's box. Kept POD so
+/// `ComputedStyle` stays `Copy`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub struct Shadow {
+  pub offset_x: f32,
+  pub offset_y: f32,
+  pub blur: f32,
+  pub color: Rgba,
+}
+
 /// Fully resolved style for one element. Renderers consume this
 /// after the cascade has folded UA + author + inline patches.
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
@@ -195,12 +215,20 @@ pub struct ComputedStyle {
   pub height: Size,
   pub min_width: Size,
   pub min_height: Size,
+  pub max_width: Size,
+  pub max_height: Size,
+  /// Width / height; `0.0` means unconstrained (no aspect lock).
+  /// An f32 sentinel rather than `Option` keeps the struct POD.
+  pub aspect_ratio: f32,
 
   // flex.
   pub flex_direction: FlexDirection,
   pub justify_content: Justify,
   pub align_items: Align,
   pub gap: f32,
+  pub flex_wrap: FlexWrap,
+  pub flex_grow: f32,
+  pub flex_shrink: f32,
 
   // typography.
   pub font_family: FontFamily,
@@ -221,6 +249,15 @@ pub struct ComputedStyle {
   /// stylesheet's image catalog (`css::ParsedSheet::images`). `None`
   /// means no image. A `u32` handle keeps this struct POD + `Copy`.
   pub background_image: Option<u32>,
+
+  // border + shadow.
+  /// Uniform border width; `0.0` paints no border.
+  pub border_width: f32,
+  pub border_color: Rgba,
+  /// Uniform corner radius in pixels.
+  pub border_radius: f32,
+  /// `None` paints no shadow.
+  pub box_shadow: Option<Shadow>,
 }
 
 impl ComputedStyle {
@@ -234,10 +271,16 @@ impl ComputedStyle {
     height: Size::Auto,
     min_width: Size::Auto,
     min_height: Size::Auto,
+    max_width: Size::Auto,
+    max_height: Size::Auto,
+    aspect_ratio: 0.0,
     flex_direction: FlexDirection::Row,
     justify_content: Justify::Start,
     align_items: Align::Stretch,
     gap: 0.0,
+    flex_wrap: FlexWrap::NoWrap,
+    flex_grow: 0.0,
+    flex_shrink: 1.0,
     font_family: FontFamily::Sans,
     font_size: 16.0,
     font_weight: 400,
@@ -249,6 +292,10 @@ impl ComputedStyle {
     background: Rgba::WHITE,
     material: Material::Solid,
     background_image: None,
+    border_width: 0.0,
+    border_color: Rgba::BLACK,
+    border_radius: 0.0,
+    box_shadow: None,
   };
 }
 
@@ -270,11 +317,17 @@ pub struct StylePatch {
   pub height: Option<Size>,
   pub min_width: Option<Size>,
   pub min_height: Option<Size>,
+  pub max_width: Option<Size>,
+  pub max_height: Option<Size>,
+  pub aspect_ratio: Option<f32>,
 
   pub flex_direction: Option<FlexDirection>,
   pub justify_content: Option<Justify>,
   pub align_items: Option<Align>,
   pub gap: Option<f32>,
+  pub flex_wrap: Option<FlexWrap>,
+  pub flex_grow: Option<f32>,
+  pub flex_shrink: Option<f32>,
 
   pub font_family: Option<FontFamily>,
   pub font_size: Option<f32>,
@@ -289,6 +342,11 @@ pub struct StylePatch {
 
   pub material: Option<Material>,
   pub background_image: Option<u32>,
+
+  pub border_width: Option<f32>,
+  pub border_color: Option<Rgba>,
+  pub border_radius: Option<f32>,
+  pub box_shadow: Option<Shadow>,
 }
 
 impl StylePatch {
@@ -300,10 +358,16 @@ impl StylePatch {
     height: None,
     min_width: None,
     min_height: None,
+    max_width: None,
+    max_height: None,
+    aspect_ratio: None,
     flex_direction: None,
     justify_content: None,
     align_items: None,
     gap: None,
+    flex_wrap: None,
+    flex_grow: None,
+    flex_shrink: None,
     font_family: None,
     font_size: None,
     font_weight: None,
@@ -315,6 +379,10 @@ impl StylePatch {
     background: None,
     material: None,
     background_image: None,
+    border_width: None,
+    border_color: None,
+    border_radius: None,
+    box_shadow: None,
   };
 
   /// Merge another patch on top of this one. Set fields in `other`
@@ -386,6 +454,36 @@ impl StylePatch {
     }
     if other.background_image.is_some() {
       self.background_image = other.background_image;
+    }
+    if other.max_width.is_some() {
+      self.max_width = other.max_width;
+    }
+    if other.max_height.is_some() {
+      self.max_height = other.max_height;
+    }
+    if other.aspect_ratio.is_some() {
+      self.aspect_ratio = other.aspect_ratio;
+    }
+    if other.flex_wrap.is_some() {
+      self.flex_wrap = other.flex_wrap;
+    }
+    if other.flex_grow.is_some() {
+      self.flex_grow = other.flex_grow;
+    }
+    if other.flex_shrink.is_some() {
+      self.flex_shrink = other.flex_shrink;
+    }
+    if other.border_width.is_some() {
+      self.border_width = other.border_width;
+    }
+    if other.border_color.is_some() {
+      self.border_color = other.border_color;
+    }
+    if other.border_radius.is_some() {
+      self.border_radius = other.border_radius;
+    }
+    if other.box_shadow.is_some() {
+      self.box_shadow = other.box_shadow;
     }
   }
 
@@ -459,6 +557,37 @@ impl StylePatch {
     // a handle, not a value), so set it whole rather than unwrap.
     if self.background_image.is_some() {
       base.background_image = self.background_image;
+    }
+    if let Some(v) = self.max_width {
+      base.max_width = v;
+    }
+    if let Some(v) = self.max_height {
+      base.max_height = v;
+    }
+    if let Some(v) = self.aspect_ratio {
+      base.aspect_ratio = v;
+    }
+    if let Some(v) = self.flex_wrap {
+      base.flex_wrap = v;
+    }
+    if let Some(v) = self.flex_grow {
+      base.flex_grow = v;
+    }
+    if let Some(v) = self.flex_shrink {
+      base.flex_shrink = v;
+    }
+    if let Some(v) = self.border_width {
+      base.border_width = v;
+    }
+    if let Some(v) = self.border_color {
+      base.border_color = v;
+    }
+    if let Some(v) = self.border_radius {
+      base.border_radius = v;
+    }
+    // `Option` on both sides — set whole, like background_image.
+    if self.box_shadow.is_some() {
+      base.box_shadow = self.box_shadow;
     }
   }
 }

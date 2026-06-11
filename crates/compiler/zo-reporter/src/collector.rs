@@ -39,6 +39,9 @@ pub enum Detail {
   /// The convention-correct rendering of a wrongly-cased name —
   /// `MyStruct` for `my_struct`. Yields a replace fix.
   Rename(Box<str>),
+  /// The instantiation chain of a circular component, rendered
+  /// `a → b → a`.
+  Cycle(Box<str>),
   /// A call passed the wrong number of arguments. Carries the
   /// callee name, the expected/given counts, and the callee's
   /// rendered signature for the help.
@@ -100,7 +103,9 @@ impl Detail {
       Detail::ArgCount {
         expected, given, ..
       } => format!("expected {expected} arguments, found {given}"),
-      Detail::Suggestion(_) | Detail::Rename(_) => return None,
+      Detail::Suggestion(_) | Detail::Rename(_) | Detail::Cycle(_) => {
+        return None;
+      }
     })
   }
 
@@ -127,6 +132,7 @@ impl Detail {
     match self {
       Detail::Suggestion(name) => Some(format!("did you mean `{name}`?")),
       Detail::Rename(name) => Some(format!("rename it to `{name}`")),
+      Detail::Cycle(chain) => Some(format!("instantiation cycle: {chain}")),
       Detail::ArgCount {
         callee, signature, ..
       }

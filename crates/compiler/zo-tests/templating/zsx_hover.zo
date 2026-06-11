@@ -1,0 +1,28 @@
+-- test-run-pass: interaction states — `.btn:hover` and
+-- `.btn:active` rules ride the scoped stylesheet to every target.
+-- Native overlays the state patch at paint time; the web bundle
+-- ships the pseudo-class selectors to the browser as-is.
+
+$: {
+  .btn {
+    bg: #2563eb;
+    c: white;
+  }
+  .btn:hover {
+    bg: red;
+  }
+  .btn:active {
+    bg: #172554;
+  }
+}
+
+fun main() {
+  mut count := 0;
+
+  imu page ::= <main>
+    <button class="btn" @click={fn() => count += 1}>press me</button>
+    <span>{count}</span>
+  </main>;
+
+  #render page;
+}

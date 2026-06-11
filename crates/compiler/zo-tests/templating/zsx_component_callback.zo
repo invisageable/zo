@@ -1,0 +1,22 @@
+-- test-run-pass: callback props — events flow into components as
+-- function-typed parameters. The parent passes a closure; the
+-- component wires it to a real element with the ordinary `@click`;
+-- the dispatched handler is the parent's closure, mutating the
+-- parent's state.
+
+fun stepper(label: str, on_step: Fn() -> unit) -> </> {
+  return <div>
+    <button @click={on_step}>{label}</button>
+  </div>;
+}
+
+fun main() {
+  mut count := 0;
+
+  imu page ::= <div>
+    <stepper label="+" on_step={fn() => count += 1} />
+    <span>{count}</span>
+  </div>;
+
+  #render page;
+}

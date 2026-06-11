@@ -171,10 +171,9 @@ pub enum Token {
   RAngle,                // <, >
   Slash,                 // /
   TemplateAssign,        // ::=
-  TemplateFatArrow, // =:>  — closure-body opener; body is a template fragment.
   TemplateFragmentStart, // <>
-  TemplateFragmentEnd, // </>
-  TemplateText,     // Raw text inside a tag - uses main token span
+  TemplateFragmentEnd,   // </>
+  TemplateText,          // Raw text inside a tag - uses main token span
 
   // Style Syntax Tokens
   StyleValue, // Raw CSS value text: "cyan", "#b2f5ea", "100%"
@@ -249,6 +248,24 @@ impl Token {
         | Self::If
         | Self::Else
         | Self::Match
+    )
+  }
+
+  /// Positive predicate: `true` when a `<` right after this
+  /// token opens a template (a tag, never a comparison).
+  ///
+  /// @note — deliberately narrower than `is_regex_prefix`:
+  /// only *value* positions — `return`, a block tail (after
+  /// `{` / `;`), a `match` arm (after `=>`). Assignment
+  /// operators are excluded by language design: `::=` is the
+  /// one and only template binding form, so `:= <p>` and
+  /// `= <p>` stay `Lt` and fail downstream as the invalid
+  /// programs they are.
+  #[inline(always)]
+  pub fn is_template_opener(&self) -> bool {
+    matches!(
+      self,
+      Self::Return | Self::LBrace | Self::Semicolon | Self::FatArrow
     )
   }
 

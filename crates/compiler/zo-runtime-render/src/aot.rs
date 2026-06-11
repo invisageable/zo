@@ -11,7 +11,8 @@
 //! and builds the registry through here, then drives its own UI.
 
 use crate::reactive::{
-  BindingGraph, BindingRef, DirtyCommands, DirtySet, refresh_dirty,
+  BindingGraph, BindingRef, DirtyCommands, DirtySet, ListEdit, reconcile_list,
+  refresh_dirty,
 };
 use crate::render::{EventHandler, EventRegistry};
 
@@ -354,6 +355,43 @@ pub unsafe extern "C" fn zo_state_arr_push(slot: u32, ptr: *const u8) {
     };
 
     slot_vec.push(item);
+  }
+
+  dirty().lock().unwrap().mark(slot);
+}
+
+/// Assign one item of a reactive `[]str` slot in place — the
+/// sibling of `zo_state_arr_push` for `todos[i] = v`. The value
+/// pointer is a length-prefixed string; an out-of-range index or
+/// slot is a no-op (never panic across the FFI boundary). Marks
+/// the slot dirty so the bound list re-renders.
+///
+/// # Safety
+///
+/// `ptr` must be null or point at a valid length-prefixed string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_state_arr_set(
+  slot: u32,
+  index: u64,
+  ptr: *const u8,
+) {
+  let bytes: &[u8] = if ptr.is_null() {
+    b""
+  } else {
+    unsafe { read_length_prefixed(ptr) }
+  };
+  let item = String::from_utf8_lossy(bytes).into_owned();
+
+  {
+    let mut arr_state = arr_state().lock().unwrap();
+    let Some(slot_vec) = arr_state.get_mut(slot as usize) else {
+      return;
+    };
+    let Some(entry) = slot_vec.get_mut(index as usize) else {
+      return;
+    };
+
+    *entry = item;
   }
 
   dirty().lock().unwrap().mark(slot);
@@ -746,6 +784,40 @@ fn state_slot_text(slot: u32, is_str: bool) -> Option<String> {
 /// Per-program inputs threaded into [`build_registry`] beyond the
 /// dispatcher and shared buffer — grouped so the call stays
 /// within the argument budget.
+/// What the last event's refresh did to the shared stream. A
+/// retained-mode view layer (iOS) patches exactly this instead of
+/// re-diffing the whole stream; immediate-mode targets ignore it.
+#[derive(Default)]
+pub struct UpdateReport {
+  /// Command indices the refresh rewrote in place.
+  pub touched: DirtyCommands,
+  /// The refresh replaced the stream wholesale (a list write
+  /// changed the item count), so indices shifted — the view must
+  /// rebuild until it consumes `list_edits`.
+  pub structural: bool,
+  /// Set when the structural change is a pure tail append on the
+  /// template's single list (the push case): the command block
+  /// `[at, at + count)` in the rebuilt stream is new, everything
+  /// before it is unchanged. A view layer can build just those
+  /// items instead of rebuilding.
+  pub appended: Option<AppendedItems>,
+  /// Keyed edit script per written list (list index in the
+  /// decoded order, edits from [`reconcile_list`]). A
+  /// same-length write reports no structural flag — its regions
+  /// land in `touched` instead.
+  pub list_edits: Vec<(usize, Vec<ListEdit>)>,
+}
+
+/// A pure tail append's command block — see
+/// [`UpdateReport::appended`].
+#[derive(Clone, Copy, Debug)]
+pub struct AppendedItems {
+  /// First command index of the appended block.
+  pub at: usize,
+  /// How many commands the block spans.
+  pub count: usize,
+}
+
 pub struct RegistryInputs {
   /// The static template (placeholders unbaked). The dedup walk
   /// reads it for `Event` commands, and the handler rebuilds the
@@ -758,6 +830,8 @@ pub struct RegistryInputs {
   /// The `TextBinding` array pointer + count.
   pub bindings_ptr: SendPtr<*const TextBinding>,
   pub bindings_count: usize,
+  /// Per-event update report the view layer reads after dispatch.
+  pub report: Arc<Mutex<UpdateReport>>,
 }
 
 /// Build an `EventRegistry` whose callbacks dispatch through
@@ -785,8 +859,19 @@ pub fn build_registry(
     attrs,
     bindings_ptr,
     bindings_count,
+    report,
   } = inputs;
   let mut registry = EventRegistry::new();
+
+  // Last-rendered item keys per list, diffed against the next
+  // write. Seeded from the current state so the first event diffs
+  // against the initial render, not an empty list.
+  let list_keys: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(
+    lists
+      .iter()
+      .map(|list| arr_slot_items(list.items_slot))
+      .collect(),
+  ));
   let mut seen: HashSet<String> = HashSet::new();
   let mut handler_idx: u32 = 0;
 
@@ -827,6 +912,8 @@ pub fn build_registry(
     let base = Arc::clone(&base);
     let lists = Arc::clone(&lists);
     let attrs = Arc::clone(&attrs);
+    let report = Arc::clone(&report);
+    let list_keys = Arc::clone(&list_keys);
     let cb: EventHandler = Box::new(move |payload| {
       // RFC 2229 disjoint captures would otherwise pull
       // `dispatch_send.0` / `bindings_send.0` directly into the
@@ -866,7 +953,39 @@ pub fn build_registry(
       let mut cmds = cmds_arc.lock().unwrap();
 
       if hits_list {
-        *cmds = unsafe {
+        // Keyed diff per written list: same item count means the
+        // stream keeps its shape (fixed stride per item), so the
+        // write patches in place — only the changed commands mark
+        // touched and the view skips the rebuild. A length change
+        // shifts every index after the splice; report it
+        // structural and carry the edit script for view layers
+        // that can apply it.
+        let mut keys = list_keys.lock().unwrap();
+        let mut edits = Vec::new();
+        let mut shape_kept = true;
+
+        for (list_idx, list) in lists.iter().enumerate() {
+          if !written.contains(&list.items_slot) {
+            continue;
+          }
+
+          let new_items = arr_slot_items(list.items_slot);
+          let old_items = keys.get(list_idx).cloned().unwrap_or_default();
+
+          if old_items.len() != new_items.len() {
+            shape_kept = false;
+          }
+
+          edits.push((list_idx, reconcile_list(&old_items, &new_items)));
+
+          if list_idx >= keys.len() {
+            keys.resize(list_idx + 1, Vec::new());
+          }
+
+          keys[list_idx] = new_items;
+        }
+
+        let rebuilt = unsafe {
           rebuild_with_lists(
             base.as_slice(),
             bindings_send.0,
@@ -875,6 +994,50 @@ pub fn build_registry(
             lists.as_slice(),
           )
         };
+
+        let mut report = report.lock().unwrap();
+
+        // The push fast path: one list, all edits tail inserts,
+        // existing items to anchor on — the appended command
+        // block is everything past the old region end.
+        report.appended =
+          if lists.len() == 1 && edits.len() == 1 && !keys.is_empty() {
+            let stride = lists[0].recipe.len();
+            let new_count = keys[0].len();
+            let inserts = edits[0].1.len();
+            let old_count = new_count - inserts.min(new_count);
+            let tail_only = old_count > 0
+              && edits[0].1.iter().enumerate().all(|(offset, edit)| {
+                matches!(edit, ListEdit::Insert { to }
+                if *to as usize == old_count + offset)
+              });
+
+            tail_only.then(|| AppendedItems {
+              at: lists[0].cmd_idx + old_count * stride,
+              count: inserts * stride,
+            })
+          } else {
+            None
+          };
+
+        report.list_edits = edits;
+
+        if shape_kept && rebuilt.len() == cmds.len() {
+          report.structural = false;
+          report.touched.clear();
+          report.touched.ensure(rebuilt.len());
+
+          for (idx, (old, new)) in cmds.iter().zip(&rebuilt).enumerate() {
+            if old != new {
+              report.touched.mark(idx as u32);
+            }
+          }
+        } else {
+          report.structural = true;
+          report.touched.clear();
+        }
+
+        *cmds = rebuilt;
       } else {
         let mut touched = DirtyCommands::with_capacity(cmds.len());
 
@@ -890,6 +1053,20 @@ pub fn build_registry(
         apply_attr_bindings(&mut cmds, attrs.as_slice(), |slot| {
           written.contains(&slot)
         });
+
+        // Attr-bound commands count as touched: the view re-reads
+        // their attrs even though no text moved.
+        for binding in attrs.iter() {
+          if written.contains(&binding.slot) {
+            touched.mark(binding.cmd_idx as u32);
+          }
+        }
+
+        let mut report = report.lock().unwrap();
+
+        report.structural = false;
+        report.appended = None;
+        report.touched = touched;
       }
     });
 
@@ -903,7 +1080,20 @@ pub fn build_registry(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  use crate::render::EventPayload;
+
   use zo_ui_protocol::{ElementTag, EventKind, UiCommand};
+
+  /// Serializes tests that touch the process-global state cells.
+  /// `drain_dirty` empties the WHOLE dirty set, so two tests
+  /// draining in parallel steal each other's marks — unique slot
+  /// ids alone can't prevent that.
+  fn state_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+  }
 
   fn empty_ctx_with_template(bytes: *const u8, len: usize) -> ZoRuntimeContext {
     ZoRuntimeContext {
@@ -984,6 +1174,7 @@ mod tests {
 
   #[test]
   fn refresh_bindings_replaces_text_from_state() {
+    let _serial = state_lock();
     let state = [42i64];
     let str_state: Vec<Vec<u8>> = vec![vec![]];
     let mut cmds = vec![
@@ -1014,6 +1205,7 @@ mod tests {
 
   #[test]
   fn refresh_bindings_replaces_text_from_str_state() {
+    let _serial = state_lock();
     let state: [i64; 1] = [0];
     let str_state: Vec<Vec<u8>> = vec![encode_length_prefixed(b"hello")];
     let mut cmds = vec![UiCommand::Text("".into())];
@@ -1088,6 +1280,7 @@ mod tests {
 
   #[test]
   fn state_set_get_str_round_trip() {
+    let _serial = state_lock();
     zo_state_init(202);
 
     let payload = encode_length_prefixed(b"world");
@@ -1109,6 +1302,7 @@ mod tests {
 
   #[test]
   fn state_get_set_round_trip() {
+    let _serial = state_lock();
     // Slot 100 to avoid contention with other tests
     // using low slots (cargo runs tests in parallel and
     // STATE is a process-global `OnceLock<Mutex<Vec>>`).
@@ -1122,6 +1316,7 @@ mod tests {
 
   #[test]
   fn state_set_marks_dirty_and_drain_clears() {
+    let _serial = state_lock();
     // Slot 305 is unique to this test, so no parallel test
     // marks it: the global DIRTY set is process-wide, but
     // only this test touches 305 — assertions stay robust.
@@ -1151,6 +1346,7 @@ mod tests {
 
   #[test]
   fn arr_state_push_len_items_and_dirty() {
+    let _serial = state_lock();
     // Slot 410 is unique to this test — the global ARR_STATE is
     // process-wide, but nothing else touches 410.
     zo_state_init(420);
@@ -1231,6 +1427,137 @@ mod tests {
     assert_eq!(offset_of!(ListBindingAbi, recipe_len), 16);
   }
 
+  #[test]
+  fn arr_state_set_replaces_item_and_marks_dirty() {
+    let _serial = state_lock();
+
+    zo_state_init(480);
+
+    let a = encode_length_prefixed(b"a");
+    let b = encode_length_prefixed(b"b");
+    let z = encode_length_prefixed(b"z");
+
+    unsafe {
+      zo_state_arr_push(475, a.as_ptr());
+      zo_state_arr_push(475, b.as_ptr());
+    }
+
+    let mut scratch = Vec::new();
+
+    drain_dirty(&mut scratch);
+
+    unsafe { zo_state_arr_set(475, 0, z.as_ptr()) };
+
+    assert_eq!(arr_slot_items(475), vec!["z", "b"]);
+
+    let mut drained = Vec::new();
+
+    drain_dirty(&mut drained);
+
+    assert!(drained.contains(&475), "item write marks the slot dirty");
+
+    // Out-of-range index and slot are no-ops, never panics.
+    unsafe { zo_state_arr_set(475, 99, z.as_ptr()) };
+    unsafe { zo_state_arr_set(999_999, 0, z.as_ptr()) };
+
+    assert_eq!(arr_slot_items(475), vec!["z", "b"]);
+  }
+
+  #[test]
+  fn list_write_reports_keyed_edit_script() {
+    let _serial = state_lock();
+
+    zo_state_init(470);
+
+    // Seed slot 460 = ["a", "b"] before the registry builds, so
+    // the key cache starts from the initial render.
+    let a = encode_length_prefixed(b"a");
+    let b = encode_length_prefixed(b"b");
+
+    unsafe {
+      zo_state_arr_push(460, a.as_ptr());
+      zo_state_arr_push(460, b.as_ptr());
+    }
+
+    let base = vec![
+      UiCommand::Event {
+        widget_id: "1".into(),
+        event_kind: EventKind::Click,
+        handler: "__push".into(),
+      },
+      li(),
+    ];
+
+    let report = Arc::new(Mutex::new(UpdateReport::default()));
+    let shared = Arc::new(Mutex::new(base.clone()));
+    let registry = build_registry(
+      SendPtr(noop_dispatch as _),
+      Arc::clone(&shared),
+      RegistryInputs {
+        base,
+        lists: vec![ListBindingDecoded {
+          cmd_idx: 1,
+          items_slot: 460,
+          recipe: li_recipe(),
+        }],
+        attrs: Vec::new(),
+        bindings_ptr: SendPtr(std::ptr::null()),
+        bindings_count: 0,
+        report: Arc::clone(&report),
+      },
+    );
+
+    // Clear the seeding pushes' dirty marks — a real program's
+    // initial render drains before any event.
+    let mut scratch = Vec::new();
+
+    drain_dirty(&mut scratch);
+
+    // The "tap": the handler pushes "c" (the noop dispatcher runs
+    // no zo code, so the test performs the handler's write).
+    let c = encode_length_prefixed(b"c");
+
+    unsafe { zo_state_arr_push(460, c.as_ptr()) };
+    registry.dispatch("__push", &EventPayload::default());
+
+    {
+      let report = report.lock().unwrap();
+
+      assert!(report.structural, "a push changes the item count");
+      assert_eq!(
+        report.list_edits,
+        vec![(0, vec![ListEdit::Insert { to: 2 }])],
+        "push diffs to one insert at the tail"
+      );
+    }
+
+    // Second event: the cache moved with the last write, so the
+    // next push diffs against [a, b, c], not the seed.
+    let d = encode_length_prefixed(b"d");
+
+    unsafe { zo_state_arr_push(460, d.as_ptr()) };
+    registry.dispatch("__push", &EventPayload::default());
+
+    let report = report.lock().unwrap();
+
+    assert_eq!(
+      report.list_edits,
+      vec![(0, vec![ListEdit::Insert { to: 3 }])],
+      "the key cache advances with each write"
+    );
+
+    // The stream itself grew by one recipe stride per push.
+    let cmds = shared.lock().unwrap();
+    let li_count = cmds
+      .iter()
+      .filter(
+        |c| matches!(c, UiCommand::Element { tag, .. } if *tag == ElementTag::Li),
+      )
+      .count();
+
+    assert_eq!(li_count, 4, "four items rendered after two pushes");
+  }
+
   fn li() -> UiCommand {
     UiCommand::Element {
       tag: ElementTag::Li,
@@ -1287,6 +1614,7 @@ mod tests {
 
   #[test]
   fn rebuild_with_lists_splices_array_items() {
+    let _serial = state_lock();
     // Array slot 420 is unique to this test.
     zo_state_init(430);
 
@@ -1343,6 +1671,7 @@ mod tests {
 
   #[test]
   fn apply_attr_bindings_sets_value_from_state() {
+    let _serial = state_lock();
     use zo_ui_protocol::{Attr, PropValue};
 
     // Slot 430 = the input's `value` (a string), set to "typed".
@@ -1384,6 +1713,7 @@ mod tests {
 
   #[test]
   fn out_of_range_write_does_not_mark_dirty() {
+    let _serial = state_lock();
     zo_state_init(8);
 
     let mut drained = Vec::new();
@@ -1433,6 +1763,7 @@ mod tests {
         attrs: Vec::new(),
         bindings_ptr: SendPtr(std::ptr::null()),
         bindings_count: 0,
+        report: Arc::new(Mutex::new(UpdateReport::default())),
       },
     );
     let mut out: Vec<String> = cmds

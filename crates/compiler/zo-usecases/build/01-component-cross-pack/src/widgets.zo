@@ -1,0 +1,7 @@
+pub fun header() -> </> {
+  return <p>from widgets</p>;
+}
+
+pub fun greeting(name: str) -> </> {
+  return <h1>hello, {name}!</h1>;
+}

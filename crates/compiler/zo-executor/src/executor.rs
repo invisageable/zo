@@ -5,8 +5,8 @@ use zo_interner::{
   DenseMap, Interner, ScopeMark, ScopedDenseMap, Sentinel, Symbol,
 };
 use zo_module_resolver::{
-  AbstractDef, AbstractImpl, AbstractMethod, ExportedGenericBody,
-  ExportedLiteral,
+  AbstractDef, AbstractImpl, AbstractMethod, ExportedComponentBody,
+  ExportedGenericBody, ExportedLiteral, ExportedTreeSlice, Slot,
 };
 use zo_reporter::{
   Detail, TyNames, report_error, report_error_with_detail,
@@ -50,15 +50,71 @@ const TEMPLATE_INTERP_PREFIX: &str = "__interp_";
 /// signature stays under the rustfmt line cap and the
 /// analyzer / compiler crates destructure against a
 /// single nominal type.
-pub type ExecuteOutput = (
-  Sir,
-  Vec<Annotation>,
-  Vec<FunDef>,
-  HashMap<Symbol, AbstractDef>,
-  HashMap<(Symbol, Symbol), AbstractImpl>,
-  Vec<ExportedGenericBody>,
-  HashMap<Span, Span>,
-);
+pub struct ExecuteOutput {
+  /// The typed semantic IR the execution produced.
+  pub sir: Sir,
+  /// Per-node type annotations, parallel to executed nodes.
+  pub annotations: Vec<Annotation>,
+  /// The function table (carries `return_type_args` for ext
+  /// functions).
+  pub funs: Vec<FunDef>,
+  /// `abstract` interface definitions.
+  pub abstract_defs: HashMap<Symbol, AbstractDef>,
+  /// `(Abstract, Type) -> AbstractImpl` registrations.
+  pub abstract_impls: HashMap<(Symbol, Symbol), AbstractImpl>,
+  /// Generic bodies recorded for cross-module splicing.
+  pub generic_bodies: Vec<ExportedGenericBody>,
+  /// Component body fragments recorded for cross-module
+  /// instantiation.
+  pub component_bodies: Vec<ExportedComponentBody>,
+  /// Identifier use-span → definition-span map (LSP).
+  pub use_def_map: HashMap<Span, Span>,
+}
+
+/// Instantiation depth backstop for component splices the
+/// name-cycle check cannot see (pathological non-cyclic nesting).
+/// Far past any real component tree; exceeding it reports
+/// `CircularComponent` with the chain.
+const MAX_COMPONENT_DEPTH: usize = 64;
+
+/// One registered component body fragment.
+#[derive(Clone, Copy)]
+struct ComponentFragment {
+  /// Fragment node range in this executor's tree.
+  range: (usize, usize),
+  /// Whether the fragment contains `<slot />`. A slotted
+  /// component must always instantiate — its registration-time
+  /// bake has no slot content to show.
+  slot: Slot,
+}
+
+/// One component tag opened with children
+/// (`<card title="hi"> … </card>`), awaiting its closing tag.
+struct ComponentUseFrame {
+  /// The component's symbol — matched against the closing tag.
+  name: Symbol,
+  /// The use site's attributes (props), held until the close
+  /// instantiates.
+  attrs: Vec<Attr>,
+  /// The opening tag's span, for diagnostics at instantiation.
+  tag_span: Span,
+  /// `commands.len()` at the open — everything past this is the
+  /// children stream.
+  commands_mark: usize,
+}
+
+/// Children of one component tag, awaiting the body's `<slot />`.
+struct SlotContent {
+  /// The children's command stream, built in the parent's scope.
+  commands: Vec<UiCommand>,
+  /// The children's reactive bindings, indices relative to
+  /// `commands`.
+  bindings: TemplateBindings,
+  /// Set when a `<slot />` consumed the content. Unconsumed
+  /// children append after the instance, so a slotless component
+  /// never silently drops markup.
+  consumed: bool,
+}
 
 /// Index newtype: position in `Executor::funs`.
 /// Reserves `u32::MAX` as the absent sentinel so a
@@ -259,6 +315,45 @@ pub struct Executor<'a> {
   pending_unop: Option<(UnOp, usize)>,
   /// Current function context (if we're inside a function)
   current_function: Option<FunCtx>,
+  /// Templates built as the body value of a `-> </>` function —
+  /// the component registry. `<header />` in tag position resolves
+  /// here after the local-variable lookup misses. Keyed by the
+  /// function's (mangled) name; the value is the `Insn::Template`
+  /// id its body produced. Linear execution gives the same
+  /// declaration-before-use guarantee as `::=` variables: a
+  /// function registers only after its body completes, so
+  /// self/mutual splices can never recurse.
+  component_templates: HashMap<Symbol, ValueId>,
+  /// Body fragment per component function, for instantiation:
+  /// `<greeting name="world" />` re-executes the range with the
+  /// params bound as compile-time constants, so each use site
+  /// bakes its own values and draws fresh widget ids.
+  component_fragments: HashMap<Symbol, ComponentFragment>,
+  /// Slot content for the instantiation in flight, innermost
+  /// last: the commands + bindings built from the children of a
+  /// component tag (`<card><p>…</p></card>`), in the *parent's*
+  /// scope, consumed by the component body's `<slot />`.
+  pending_slot: Vec<SlotContent>,
+  /// Set when a fragment walk meets `<slot />` with no slot
+  /// content in flight — i.e. at component *definition* time.
+  /// Consumed at registration into
+  /// `ComponentFragment::slot`.
+  saw_slot_tag: bool,
+  /// Component tags opened with children, awaiting their close
+  /// tag. Stack discipline matches the tag nesting; marks index
+  /// the walk-local commands vec of the fragment being built.
+  slot_frames: Vec<ComponentUseFrame>,
+  /// Non-zero while re-executing a component body for one use
+  /// site. Suppresses component registration (the enclosing
+  /// function must not re-register with an instance's template).
+  instantiating: u32,
+  /// Components currently being instantiated, outermost first.
+  /// Local components can't recurse (registration order), but an
+  /// *imported* fragment re-executes where every spliced component
+  /// is already registered — without this stack, two mutually
+  /// referencing imported components would expand forever at
+  /// compile time.
+  instantiation_stack: Vec<Symbol>,
   /// Save-stack for nested `fun` inside a function body.
   /// Mirrors the `execute_closure` pattern: when the LBrace
   /// of a nested fun takes over `current_function`, we push
@@ -606,6 +701,10 @@ pub struct Executor<'a> {
   /// `with_imports` time. Empty until the first
   /// `execute_apply_block`/`execute_fun` records a generic.
   recorded_generic_bodies: Vec<ExportedGenericBody>,
+  /// Component body fragments (`pub fun … -> </>`) recorded for
+  /// export — the importer splices each into its own tree so
+  /// `<header />` can instantiate a component defined here.
+  recorded_component_bodies: Vec<ExportedComponentBody>,
   /// Name override applied to the next `execute_fun` call.
   /// Used by the instantiation pass: re-executing a generic
   /// parses the same `Fun` node, which would emit the
@@ -903,6 +1002,13 @@ impl<'a> Executor<'a> {
       pending_unop: None,
       local_scope: ScopedDenseMap::new(),
       current_function: None,
+      component_templates: HashMap::default(),
+      component_fragments: HashMap::default(),
+      pending_slot: Vec::new(),
+      saw_slot_tag: false,
+      slot_frames: Vec::new(),
+      instantiating: 0,
+      instantiation_stack: Vec::new(),
       saved_outer_funs: Vec::new(),
       pending_function: None,
       pending_fn_has_return_annotation: false,
@@ -945,6 +1051,7 @@ impl<'a> Executor<'a> {
       generic_tree_ranges: HashMap::default(),
       splice_boundary: None,
       recorded_generic_bodies: Vec::new(),
+      recorded_component_bodies: Vec::new(),
       mono_name_override: None,
       pending_instantiations: Vec::new(),
       reexecuted_instantiations: HashSet::default(),
@@ -1950,6 +2057,79 @@ impl<'a> Executor<'a> {
   /// @note — captured at the same site that inserts into
   /// `generic_tree_ranges`; see PLAN_CROSS_MODULE_GENERICS
   /// for the splice protocol.
+  /// Clone a tree subrange into the portable export shape —
+  /// nodes, spans, sparse node values, and literal payloads the
+  /// importer replays into its own `LiteralStore`. `None` (with a
+  /// diagnostic at the range start) when the range carries a
+  /// store-backed literal the wire format can't ship yet
+  /// (interp/regex range tables).
+  fn export_tree_slice(
+    &mut self,
+    range_start: u32,
+    range_end: u32,
+  ) -> Option<ExportedTreeSlice> {
+    let nodes =
+      self.tree.nodes[range_start as usize..range_end as usize].to_vec();
+    let spans =
+      self.tree.spans[range_start as usize..range_end as usize].to_vec();
+
+    let mut node_values = Vec::new();
+    let mut literal_payloads = Vec::new();
+
+    for idx in range_start..range_end {
+      let Some(value) = self.tree.value(idx) else {
+        continue;
+      };
+
+      node_values.push((idx, value));
+
+      // Snapshot the literal payload so the importer can re-push
+      // it into its own `LiteralStore`. The defining module's
+      // store is gone by the time `with_imports` runs — without
+      // capture, the cloned `NodeValue::Literal(i)` dereferences
+      // off the END of the importer's store and decodes garbage.
+      // v1 covers primitive literals; interp / regex carry range
+      // tables and reject loudly until a follow-up handles them.
+      if let NodeValue::Literal(literal_idx) = value {
+        let token = self.tree.nodes[idx as usize].token;
+        let payload = match token {
+          Token::Int => ExportedLiteral::Int(
+            self.literals.int_literals[literal_idx as usize],
+          ),
+          Token::Float => ExportedLiteral::Float(
+            self.literals.float_literals[literal_idx as usize],
+          ),
+          Token::Char => ExportedLiteral::Char(
+            self.literals.char_literals[literal_idx as usize],
+          ),
+          Token::String => ExportedLiteral::StringSym(
+            self.literals.string_literals[literal_idx as usize],
+          ),
+          Token::Bytes => ExportedLiteral::Bytes(
+            self.literals.bytes_literals[literal_idx as usize],
+          ),
+          _ => {
+            let span = self.tree.spans[range_start as usize];
+
+            self.report(ErrorKind::UnsupportedGenericLiteral, span);
+
+            return None;
+          }
+        };
+
+        literal_payloads.push((idx, payload));
+      }
+    }
+
+    Some(ExportedTreeSlice {
+      nodes,
+      spans,
+      node_values,
+      literal_payloads,
+      origin_start: range_start,
+    })
+  }
+
   pub fn take_generic_bodies(&mut self) -> Vec<ExportedGenericBody> {
     std::mem::take(&mut self.recorded_generic_bodies)
   }
@@ -1976,7 +2156,9 @@ impl<'a> Executor<'a> {
       abstract_defs,
       abstract_impls,
       exported_generic_bodies: _,
+      exported_component_bodies: _,
       generic_bodies: spliced_bodies,
+      component_bodies: spliced_components,
     } = imports;
 
     self.fun_by_name.clear();
@@ -2075,10 +2257,26 @@ impl<'a> Executor<'a> {
     // boundary the main pass / prescan caps at, so the
     // spliced bodies are visited only by the re-execute
     // pass, never by the outer walk.
-    if let Some(min_start) =
-      spliced_bodies.iter().map(|b| b.range.0 as usize).min()
-    {
+    let generic_starts = spliced_bodies.iter().map(|b| b.range.0 as usize);
+    let component_starts =
+      spliced_components.iter().map(|b| b.range.0 as usize);
+
+    if let Some(min_start) = generic_starts.chain(component_starts).min() {
       self.splice_boundary = Some(min_start);
+    }
+
+    // Imported component fragments register straight into the
+    // component registry — `<header />` instantiates them by
+    // re-executing the spliced range, exactly like a component
+    // defined in this module.
+    for entry in &spliced_components {
+      self.component_fragments.insert(
+        entry.name,
+        ComponentFragment {
+          range: (entry.range.0 as usize, entry.range.1 as usize),
+          slot: entry.slot,
+        },
+      );
     }
 
     for entry in spliced_bodies {
@@ -2581,15 +2779,16 @@ impl<'a> Executor<'a> {
     // merged stream carries final spans.
     self.sir.resolve_spans(&self.tree.spans);
 
-    (
-      self.sir,
-      self.annotations,
-      self.funs,
-      self.abstract_defs,
-      self.abstract_impls,
-      self.recorded_generic_bodies,
-      self.use_def_map,
-    )
+    ExecuteOutput {
+      sir: self.sir,
+      annotations: self.annotations,
+      funs: self.funs,
+      abstract_defs: self.abstract_defs,
+      abstract_impls: self.abstract_impls,
+      generic_bodies: self.recorded_generic_bodies,
+      component_bodies: self.recorded_component_bodies,
+      use_def_map: self.use_def_map,
+    }
   }
 
   /// Post-execution walk over SIR. Emits a
@@ -8054,6 +8253,50 @@ impl<'a> Executor<'a> {
             note(sym, &mut written);
           }
         }
+        // Indexed write (`arr[i] = v`, `arr[i] += v`): the target
+        // ident sits before the bracket pair. Walk back over the
+        // matching brackets so `arr` counts as written — without
+        // it the array gets captured and the store lands on the
+        // closure's copy instead of the reactive state.
+        Token::Eq
+        | Token::PlusEq
+        | Token::MinusEq
+        | Token::StarEq
+        | Token::SlashEq
+        | Token::PercentEq
+          if idx > body_start
+            && self.tree.nodes[idx - 1].token == Token::RBracket =>
+        {
+          let mut depth = 0usize;
+          let mut probe = idx - 1;
+
+          let root = loop {
+            match self.tree.nodes[probe].token {
+              Token::RBracket => depth += 1,
+              Token::LBracket => {
+                depth -= 1;
+
+                if depth == 0 {
+                  break (probe > body_start
+                    && self.tree.nodes[probe - 1].token == Token::Ident)
+                    .then(|| self.node_value(probe - 1))
+                    .flatten();
+                }
+              }
+              _ => {}
+            }
+
+            if probe == body_start {
+              break None;
+            }
+
+            probe -= 1;
+          };
+
+          if let Some(NodeValue::Symbol(sym)) = root {
+            note(sym, &mut written);
+          }
+        }
         // `recv.push(…)` / `recv.pop(…)` realloc the array in place.
         Token::Dot
           if idx >= body_start + 2
@@ -8206,7 +8449,7 @@ impl<'a> Executor<'a> {
 
           break;
         }
-        Token::LBrace | Token::FatArrow | Token::TemplateFatArrow => break,
+        Token::LBrace | Token::FatArrow => break,
         _ => idx += 1,
       }
     }
@@ -8284,34 +8527,23 @@ impl<'a> Executor<'a> {
 
     let (body_start_idx, body_end_idx) =
       if idx < end_idx && self.tree.nodes[idx].token == Token::FatArrow {
-        // Inline form: fn(x) => expr
+        // Inline form: fn(x) => expr. A body that opens a
+        // template (`fn(t) => <li>{t}</li>`) parses behind a
+        // synthetic `TemplateFragmentStart`, identical to a
+        // `::=` binding's shape — force the return type to
+        // `</>` so capture/store unifications agree with how
+        // the template-fragment executor emits the result.
+        if self
+          .tree
+          .nodes
+          .get(idx + 1)
+          .is_some_and(|n| n.token == Token::TemplateFragmentStart)
+        {
+          return_ty = self.ty_checker.template_ty();
+        }
+
         // Exclude trailing Semicolon — it belongs to the
         // enclosing declaration, not the closure body.
-        let end = if end_idx > 0
-          && self
-            .tree
-            .nodes
-            .get(end_idx - 1)
-            .is_some_and(|n| n.token == Token::Semicolon)
-        {
-          end_idx - 1
-        } else {
-          end_idx
-        };
-
-        (idx + 1, end)
-      } else if idx < end_idx
-        && self.tree.nodes[idx].token == Token::TemplateFatArrow
-      {
-        // Template-returning form: fn(t) =:> <li>{t}</li>
-        // The parser auto-wraps the leading named tag in a
-        // synthetic `TemplateFragmentStart`, so the body
-        // shape downstream is identical to a `::=` binding.
-        // Force the closure's return type to `</>` so
-        // capture/store unifications agree with how the
-        // template-fragment executor emits the result.
-        return_ty = self.ty_checker.template_ty();
-
         let end = if end_idx > 0
           && self
             .tree
@@ -8558,13 +8790,20 @@ impl<'a> Executor<'a> {
 
     // Compound/regular assignments are statements — they
     // don't produce a return value. Track whether one was
-    // finalized so the implicit return emits unit.
+    // finalized so the implicit return emits unit. Array and
+    // field assignments (`todos[0] = x`, `p.x = y`) finalize
+    // here too — without it the store never emits and the RHS
+    // leaks as the closure's implicit return.
     let had_compound =
       self.pending_compound.is_some() || self.pending_compound_field.is_some();
-    let had_assign = self.pending_assign.is_some();
+    let had_assign = self.pending_assign.is_some()
+      || self.pending_array_assign.is_some()
+      || self.pending_field_assign.is_some();
 
     self.finalize_pending_compound();
     self.finalize_pending_assign();
+    self.finalize_pending_array_assign();
+    self.finalize_pending_field_assign();
 
     // -- 10. Emit implicit return ----------------------------
 
@@ -9386,68 +9625,7 @@ impl<'a> Executor<'a> {
         let range_start = start_idx as u32;
         let range_end = end_of_block as u32;
 
-        let nodes =
-          self.tree.nodes[range_start as usize..range_end as usize].to_vec();
-        let spans =
-          self.tree.spans[range_start as usize..range_end as usize].to_vec();
-
-        let mut node_values = Vec::new();
-        let mut literal_payloads = Vec::new();
-        let mut unsupported_literal = false;
-
-        for idx in range_start..range_end {
-          let Some(value) = self.tree.value(idx) else {
-            continue;
-          };
-
-          node_values.push((idx, value));
-
-          // Snapshot the literal payload here so the
-          // importer can re-push it into its own
-          // `LiteralStore`. The defining module's store is
-          // gone by the time `with_imports` runs — without
-          // capture, the cloned `NodeValue::Literal(i)`
-          // dereferences off the END of the importer's
-          // store and decodes garbage. v1 covers
-          // primitive literals; interp / regex carry
-          // range tables and reject loudly until a
-          // follow-up handles them.
-          if let NodeValue::Literal(literal_idx) = value {
-            let token = self.tree.nodes[idx as usize].token;
-            let payload = match token {
-              Token::Int => ExportedLiteral::Int(
-                self.literals.int_literals[literal_idx as usize],
-              ),
-              Token::Float => ExportedLiteral::Float(
-                self.literals.float_literals[literal_idx as usize],
-              ),
-              Token::Char => ExportedLiteral::Char(
-                self.literals.char_literals[literal_idx as usize],
-              ),
-              Token::String => ExportedLiteral::StringSym(
-                self.literals.string_literals[literal_idx as usize],
-              ),
-              Token::Bytes => ExportedLiteral::Bytes(
-                self.literals.bytes_literals[literal_idx as usize],
-              ),
-              _ => {
-                unsupported_literal = true;
-                continue;
-              }
-            };
-
-            literal_payloads.push((idx, payload));
-          }
-        }
-
-        if unsupported_literal {
-          // Interp / regex / other store-backed literal in
-          // a generic body — surface the limitation at the
-          // defining site rather than silently shipping a
-          // body the importer can't decode.
-          let span = self.tree.spans[range_start as usize];
-          self.report(ErrorKind::UnsupportedGenericLiteral, span);
-        } else {
+        if let Some(slice) = self.export_tree_slice(range_start, range_end) {
           let type_params: Vec<Symbol> =
             self.type_params.iter().map(|(sym, _)| *sym).collect();
 
@@ -9460,11 +9638,7 @@ impl<'a> Executor<'a> {
 
           self.recorded_generic_bodies.push(ExportedGenericBody {
             name,
-            nodes,
-            spans,
-            node_values,
-            literal_payloads,
-            origin_start: range_start,
+            slice,
             type_params,
             apply_context: apply_context_sym,
           });
@@ -10081,6 +10255,7 @@ impl<'a> Executor<'a> {
           index: index_sir,
           value: sv,
           ty_id: value_ty,
+          owner: Some(array_name),
         });
       }
     }
@@ -19798,6 +19973,7 @@ impl<'a> Executor<'a> {
           index,
           value: new_val,
           ty_id: elem_ty,
+          owner: Some(root),
         });
       }
 
@@ -23099,11 +23275,13 @@ impl<'a> Executor<'a> {
           Token::Dot => selector.push('.'),
           Token::Hash => selector.push('#'),
           Token::Comma => selector.push_str(", "),
+          Token::Colon => selector.push(':'),
           Token::Ident => {
             if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
               if !selector.is_empty()
                 && !selector.ends_with('.')
                 && !selector.ends_with('#')
+                && !selector.ends_with(':')
                 && !selector.ends_with(' ')
               {
                 selector.push(' ');
@@ -24346,15 +24524,35 @@ impl<'a> Executor<'a> {
 
           if next.token == Token::Slash2 {
             // Closing tag: </ ident >
-            // Skip slash, tag name, and closing >
-            idx += 1; // skip ident
+            idx += 1; // skip slash, now at the tag name
+
+            let mut closing_sym = None;
+
             if idx < end_idx && self.tree.nodes[idx].token == Token::Ident {
+              closing_sym = self.node_value(idx).and_then(|v| match v {
+                NodeValue::Symbol(s) => Some(s),
+                _ => None,
+              });
               idx += 1; // skip past ident
             }
             if idx < end_idx && self.tree.nodes[idx].token == Token::RAngle {
               idx += 1;
             }
-            self.close_template_tag(&mut commands);
+
+            // A close tag matching the innermost open component
+            // frame ends that component's children — instantiate
+            // with the slot content instead of emitting an
+            // EndElement (the open emitted nothing).
+            if let Some(sym) = closing_sym
+              && self.slot_frames.last().is_some_and(|f| f.name == sym)
+            {
+              let frame =
+                self.slot_frames.pop().expect("frame presence just checked");
+
+              self.close_component_frame(frame, &mut commands);
+            } else {
+              self.close_template_tag(&mut commands);
+            }
           } else if next.token == Token::Ident {
             // Opening tag: < ident [attrs...] > or
             //              < ident [attrs...] / >
@@ -24366,6 +24564,7 @@ impl<'a> Executor<'a> {
               })
               .map(|s| self.interner.get(s).to_string())
               .unwrap_or_default();
+            let tag_span = self.tree.spans[idx];
 
             idx += 1;
 
@@ -24460,6 +24659,22 @@ impl<'a> Executor<'a> {
                     if let Some(sym) = single_ident_sym {
                       attrs.push(self.make_attr_from_local(&attr_name, sym));
                       idx += 1; // past ident
+                    } else if idx < end_idx
+                      && self.tree.nodes[idx].token == Token::Fn
+                    {
+                      // Callback prop: attr={fn() => …}. The
+                      // closure lowers to a named handler and the
+                      // attribute carries that name as a string —
+                      // instantiation binds it to the component's
+                      // fn-typed parameter, and the body's
+                      // `@event={param}` resolves it back to the
+                      // real handler.
+                      let handler = self.closure_attr_handler_name(&mut idx);
+
+                      attrs.push(Attr::Prop {
+                        name: attr_name.clone(),
+                        value: PropValue::Str(handler),
+                      });
                     } else {
                       // General expression — eager-only, no
                       // reactive tracking.
@@ -24531,14 +24746,40 @@ impl<'a> Executor<'a> {
                     let handler = if idx < end_idx
                       && self.tree.nodes[idx].token == Token::Ident
                     {
-                      let h = self
-                        .node_value(idx)
-                        .and_then(|v| match v {
+                      let handler_sym =
+                        self.node_value(idx).and_then(|v| match v {
                           NodeValue::Symbol(s) => Some(s),
                           _ => None,
+                        });
+
+                      // Callback-prop indirection: a fn-typed
+                      // local constant (a parameter bound from
+                      // `on_x={fn …}`) holds the real handler's
+                      // name — dispatch to that, not to the
+                      // parameter's own name.
+                      let h = handler_sym
+                        .and_then(|sym| {
+                          let local = self.lookup_local(sym)?;
+                          let is_fn = matches!(
+                            self.ty_checker.resolve_ty(local.ty_id),
+                            Ty::Fun(_)
+                          );
+                          let vi = local.value_id.0 as usize;
+
+                          if is_fn
+                            && vi < self.values.kinds.len()
+                            && matches!(self.values.kinds[vi], Value::String)
+                          {
+                            Some(self.value_to_string(local.value_id))
+                          } else {
+                            None
+                          }
                         })
-                        .map(|s| self.interner.get(s).to_string())
+                        .or_else(|| {
+                          handler_sym.map(|s| self.interner.get(s).to_string())
+                        })
                         .unwrap_or_default();
+
                       idx += 1;
                       h
                     } else if idx < end_idx
@@ -24546,10 +24787,6 @@ impl<'a> Executor<'a> {
                     {
                       // Inline closure as event handler:
                       // @click={fn() => expr}
-                      let header = self.tree.nodes[idx];
-                      let children_end = (header.child_start
-                        + header.child_count as u32)
-                        as usize;
 
                       // For payload-bearing events (`@input`,
                       // `@change`), synthesize a `Fn(Event) -> ?`
@@ -24592,53 +24829,12 @@ impl<'a> Executor<'a> {
                           None
                         };
 
-                      // Mark this as an event-handler closure so
-                      // `identify_captures` drops reactive
-                      // template mutables — they're read via
-                      // `_zo_state_get*`, not the dispatcher's
-                      // absent captures. Saved/restored for
-                      // correctness under nesting; the flag is
-                      // cleared inside `execute_closure` once
-                      // this closure's captures are analysed.
-                      let saved_event_flag = self.in_event_handler_closure;
-
-                      self.in_event_handler_closure = true;
-
-                      self.execute_closure(idx, children_end);
-
-                      self.in_event_handler_closure = saved_event_flag;
+                      let h = self.closure_attr_handler_name(&mut idx);
 
                       if let Some(saved) = saved_pending_decl {
                         self.pending_decl = saved;
                       }
 
-                      // Pop the closure value and extract its
-                      // generated function name.
-                      let h = self
-                        .value_stack
-                        .pop()
-                        .and_then(|vid| {
-                          let vi = vid.0 as usize;
-
-                          if vi < self.values.kinds.len()
-                            && matches!(self.values.kinds[vi], Value::Closure)
-                          {
-                            let ci = self.values.indices[vi] as usize;
-                            let name = self.values.closures[ci].fun_name;
-
-                            Some(self.interner.get(name).to_string())
-                          } else {
-                            None
-                          }
-                        })
-                        .unwrap_or_default();
-
-                      // Pop the type and SIR value that
-                      // execute_closure pushed.
-                      self.ty_stack.pop();
-                      self.sir_values.pop();
-
-                      idx = children_end;
                       h
                     } else {
                       String::new()
@@ -24709,12 +24905,34 @@ impl<'a> Executor<'a> {
               }
             }
 
-            self.emit_opening_tag(
-              &tag_name,
-              &attrs,
-              self_closing,
-              &mut commands,
-            );
+            // A non-self-closing component tag frames its
+            // children: nothing is emitted now — the matching
+            // close tag drains the children built in between and
+            // instantiates with them as slot content.
+            let component_sym = self
+              .interner
+              .symbol(&tag_name)
+              .filter(|s| self.component_fragments.contains_key(s));
+
+            match component_sym {
+              Some(sym) if !self_closing => {
+                self.slot_frames.push(ComponentUseFrame {
+                  name: sym,
+                  attrs,
+                  tag_span,
+                  commands_mark: commands.len(),
+                });
+              }
+              _ => {
+                self.emit_opening_tag(
+                  &tag_name,
+                  &attrs,
+                  self_closing,
+                  &mut commands,
+                  tag_span,
+                );
+              }
+            }
           } else {
             idx += 1;
           }
@@ -24747,6 +24965,41 @@ impl<'a> Executor<'a> {
             &mut commands,
             brace_span,
           ) {
+            continue;
+          }
+
+          // A statement opening the interp (`{for t := xs {…}}`)
+          // produces no template content — its inner tags would
+          // leak an unconsumed fragment and die later as a
+          // misattributed type error at the enclosing function.
+          // Report at the statement keyword and skip the interp
+          // whole; the help names the supported map form.
+          if matches!(
+            self.tree.nodes[idx].token,
+            Token::For | Token::While | Token::Loop
+          ) {
+            self.report(ErrorKind::StatementInTemplate, self.tree.spans[idx]);
+
+            let mut depth: u32 = 1;
+
+            while idx < end_idx {
+              match self.tree.nodes[idx].token {
+                Token::LBrace => depth += 1,
+                Token::RBrace => {
+                  depth -= 1;
+
+                  if depth == 0 {
+                    break;
+                  }
+                }
+                _ => {}
+              }
+
+              idx += 1;
+            }
+
+            idx += 1; // past the closing `}`
+
             continue;
           }
 
@@ -24818,7 +25071,7 @@ impl<'a> Executor<'a> {
           }
 
           // List-rendering fast path:
-          // `{arr.map(fn(t) =:> <body>)}`. Recognized
+          // `{arr.map(fn(t) => <body>)}`. Recognized
           // syntactically via token-shape match — lets us
           // keep the per-item template at compile time
           // (a `Vec<ListItemCmd>`) and the runtime simply
@@ -25234,6 +25487,53 @@ impl<'a> Executor<'a> {
 
     self.sir_values.push(sir_value);
 
+    // An anonymous fragment that is the body value of a
+    // `-> </>` function defines a component: register it so tag
+    // position (`<header />`) can splice it. Last write wins —
+    // branch-folded bodies leave exactly one live fragment. The
+    // `instantiating` guard keeps a component that *uses* another
+    // component from re-registering itself with the instance's
+    // template.
+    if self.instantiating == 0
+      && self.pending_var_name.is_none()
+      && let Some(ctx) = &self.current_function
+      && ctx.return_ty == self.ty_checker.template_ty()
+    {
+      let name = ctx.name;
+      let slot = if std::mem::take(&mut self.saw_slot_tag) {
+        Slot::Yes
+      } else {
+        Slot::No
+      };
+
+      self.component_templates.insert(name, template_id);
+      self.component_fragments.insert(
+        name,
+        ComponentFragment {
+          range: (start_idx, end_idx),
+          slot,
+        },
+      );
+
+      // Export the fragment for cross-module use: a `pub`
+      // component's importer re-executes this subtree from its own
+      // spliced copy. Non-pub components stay module-local.
+      let is_pub = self
+        .find_fun(name)
+        .is_some_and(|f| f.pubness == Pubness::Yes);
+
+      if is_pub
+        && let Some(slice) =
+          self.export_tree_slice(start_idx as u32, end_idx as u32)
+      {
+        self.recorded_component_bodies.push(ExportedComponentBody {
+          name,
+          slice,
+          slot,
+        });
+      }
+    }
+
     if let Some(var_name) = self.pending_var_name.take() {
       self.sir.emit(Insn::VarDef {
         name: var_name,
@@ -25280,12 +25580,70 @@ impl<'a> Executor<'a> {
     attrs: &[Attr],
     self_closing: bool,
     commands: &mut Vec<UiCommand>,
+    tag_span: Span,
   ) {
+    // An `@event` on a component tag attaches to nothing —
+    // components receive events as function props (`on_click:
+    // fn()`). Report instead of dropping silently.
+    if self
+      .interner
+      .symbol(tag)
+      .is_some_and(|s| self.component_fragments.contains_key(&s))
+      && attrs.iter().any(|a| matches!(a, Attr::Event { .. }))
+    {
+      self.report(ErrorKind::EventOnComponent, tag_span);
+    }
+
+    // `<slot />` — splice the children the current instantiation
+    // carried, exactly where the component body says. At
+    // definition time (no instantiation in flight) it only marks
+    // the component as slotted; the registration-time bake is
+    // never used for slotted components.
+    if tag == "slot" {
+      if let Some(slot) = self.pending_slot.last_mut() {
+        slot.consumed = true;
+
+        let base = commands.len();
+        let slot_cmds = slot.commands.clone();
+        let slot_bindings = slot.bindings.clone();
+
+        commands.extend(slot_cmds);
+        self.merge_child_bindings(slot_bindings, base);
+      } else if self.instantiating == 0 {
+        self.saw_slot_tag = true;
+      }
+      // Instantiating with no slot content (a self-closing use,
+      // `<card />`) renders an empty slot — emit nothing.
+
+      return;
+    }
+
+    // Parametrized component: re-execute the component's body
+    // with this tag's attributes bound to its parameters.
+    // Checked before the baked-template path so a component
+    // *with* parameters never silently splices its (empty-
+    // interp) registration-time bake.
+    if let Some((child_cmds, child_bindings)) =
+      self.try_instantiate_component(tag, attrs, tag_span)
+    {
+      let base = commands.len();
+
+      commands.extend(child_cmds);
+      self.merge_child_bindings(child_bindings, base);
+      return;
+    }
+
     // Component resolution: if the tag name is a local template
-    // variable, inline its commands directly (no wrapping
-    // element). Short-circuit before any classification.
-    if let Some(resolved) = self.try_resolve_template_component(tag) {
-      commands.extend(resolved);
+    // variable (or a parameter-less component function), inline
+    // its commands directly (no wrapping element). Short-circuit
+    // before any classification.
+    if let Some((child_cmds, child_bindings)) =
+      self.try_resolve_template_component(tag)
+    {
+      let base = commands.len();
+
+      commands.extend(child_cmds);
+      self.merge_child_bindings(child_bindings, base);
       return;
     }
 
@@ -25377,36 +25735,335 @@ impl<'a> Executor<'a> {
   /// return that template's commands for inlining. Otherwise
   /// returns None. Preserves the component-resolution behavior
   /// from the legacy `TagKind::Unknown` path.
-  fn try_resolve_template_component(
-    &self,
-    tag: &str,
-  ) -> Option<Vec<UiCommand>> {
-    let sym = self.interner.symbol(tag)?;
-    let local = self.lookup_local(sym)?;
-    let vi = local.value_id.0 as usize;
+  /// Finish a component used with children: drain the children
+  /// stream (and its bindings) built since the opening tag,
+  /// instantiate the component with that slot content, and splice
+  /// the instance where the component opened. Children are never
+  /// silently dropped — unconsumed slot content (a slotless
+  /// component, or an instantiation refused by the cycle guard)
+  /// appends after whatever the component produced.
+  fn close_component_frame(
+    &mut self,
+    frame: ComponentUseFrame,
+    commands: &mut Vec<UiCommand>,
+  ) {
+    if frame.attrs.iter().any(|a| matches!(a, Attr::Event { .. })) {
+      self.report(ErrorKind::EventOnComponent, frame.tag_span);
+    }
 
-    if vi >= self.values.kinds.len()
-      || !matches!(self.values.kinds[vi], Value::Template)
+    let children = commands.split_off(frame.commands_mark);
+    let children_bindings = self.drain_children_bindings(frame.commands_mark);
+    let tag = self.interner.get(frame.name).to_string();
+
+    self.pending_slot.push(SlotContent {
+      commands: children,
+      bindings: children_bindings,
+      consumed: false,
+    });
+
+    let instance =
+      self.try_instantiate_component(&tag, &frame.attrs, frame.tag_span);
+
+    let slot = self
+      .pending_slot
+      .pop()
+      .expect("slot stack balanced around instantiation");
+
+    if let Some((child_cmds, child_bindings)) = instance {
+      let base = commands.len();
+
+      commands.extend(child_cmds);
+      self.merge_child_bindings(child_bindings, base);
+    }
+
+    if !slot.consumed && !slot.commands.is_empty() {
+      let base = commands.len();
+
+      commands.extend(slot.commands);
+      self.merge_child_bindings(slot.bindings, base);
+    }
+  }
+
+  /// Split the bindings recorded past `commands_mark` out of the
+  /// in-progress collection and rebase them to the drained
+  /// children stream (index 0 = `commands_mark`).
+  fn drain_children_bindings(
+    &mut self,
+    commands_mark: usize,
+  ) -> TemplateBindings {
+    let mut children = TemplateBindings::default();
+
+    let text = std::mem::take(&mut self.template_bindings.text);
+
+    for (idx, sym) in text {
+      if idx >= commands_mark {
+        children.text.push((idx - commands_mark, sym));
+      } else {
+        self.template_bindings.text.push((idx, sym));
+      }
+    }
+
+    let attrs = std::mem::take(&mut self.template_bindings.attrs);
+
+    for (idx, attr) in attrs {
+      if idx >= commands_mark {
+        children.attrs.push((idx - commands_mark, attr));
+      } else {
+        self.template_bindings.attrs.push((idx, attr));
+      }
+    }
+
+    let computed = std::mem::take(&mut self.template_bindings.computed);
+
+    for (idx, cb) in computed {
+      if idx >= commands_mark {
+        children.computed.push((idx - commands_mark, cb));
+      } else {
+        self.template_bindings.computed.push((idx, cb));
+      }
+    }
+
+    let list = std::mem::take(&mut self.template_bindings.list);
+
+    for (idx, lb) in list {
+      if idx >= commands_mark {
+        children.list.push((idx - commands_mark, lb));
+      } else {
+        self.template_bindings.list.push((idx, lb));
+      }
+    }
+
+    children
+  }
+
+  /// Instantiate a parametrized component for one use site: bind
+  /// the tag's attributes to the function's parameters as
+  /// compile-time constants, re-execute the body fragment (each
+  /// instance draws fresh widget ids), extract the instance's
+  /// commands, and roll back everything the instantiation emitted
+  /// — the instance lives inline in the parent's stream, never in
+  /// SIR. `None` when the tag is not a parametrized component.
+  fn try_instantiate_component(
+    &mut self,
+    tag: &str,
+    attrs: &[Attr],
+    tag_span: Span,
+  ) -> Option<(Vec<UiCommand>, TemplateBindings)> {
+    let sym = self.interner.symbol(tag)?;
+    let fragment = *self.component_fragments.get(&sym)?;
+    let (frag_start, frag_end) = fragment.range;
+
+    // Instantiating a component already on the stack (or past the
+    // depth cap) can only expand forever — report the cycle with
+    // its path and emit nothing for this tag. The error blocks the
+    // build, so the dropped instance is never observable.
+    if self.instantiation_stack.contains(&sym)
+      || self.instantiation_stack.len() >= MAX_COMPONENT_DEPTH
     {
+      let chain: Vec<&str> = self
+        .instantiation_stack
+        .iter()
+        .chain(std::iter::once(&sym))
+        .map(|s| self.interner.get(*s))
+        .collect();
+
+      zo_reporter::report_error_with_detail(
+        Error::with_file(
+          ErrorKind::CircularComponent,
+          tag_span,
+          self.current_file_id,
+        ),
+        zo_reporter::Detail::Cycle(chain.join(" → ").into()),
+      );
+
       return None;
     }
 
-    let ti = self.values.indices[vi] as usize;
-    let tpl_ref = self.values.templates[ti];
+    let params = self.find_fun(sym)?.params.clone();
+
+    if params.is_empty()
+      && fragment.slot == Slot::No
+      && self.pending_slot.is_empty()
+      && self.component_templates.contains_key(&sym)
+    {
+      // A local zero-prop, slot-free component has a baked
+      // registration-time template identical for every use — the
+      // clone path is cheaper. A slotted component (or one used
+      // with children) must instantiate, and an imported component
+      // has no local bake; both fall through.
+      return None;
+    }
+
+    self.push_scope();
+
+    for (param_sym, param_ty) in &params {
+      let param_name = self.interner.get(*param_sym).to_string();
+      let attr = attrs.iter().find(|a| a.name() == param_name);
+
+      let value_id = match attr {
+        Some(a) => {
+          if let Some(s) = a.as_str() {
+            let s = s.to_string();
+            let s_sym = self.interner.intern(&s);
+
+            self.values.store_string(s_sym)
+          } else if let Some(n) = a.as_num() {
+            self.values.store_int(n as u64)
+          } else {
+            self.report(ErrorKind::InvalidAttributeValue, tag_span);
+
+            let empty = self.interner.intern("");
+
+            self.values.store_string(empty)
+          }
+        }
+        None => {
+          // A parameter without a matching attribute — report,
+          // then bind the empty string so the instantiation
+          // still completes and later errors stay meaningful.
+          self.report(ErrorKind::ArgumentCountMismatch, tag_span);
+
+          let empty = self.interner.intern("");
+
+          self.values.store_string(empty)
+        }
+      };
+
+      self.push_local(Local {
+        name: *param_sym,
+        ty_id: *param_ty,
+        value_id,
+        pubness: Pubness::No,
+        mutability: Mutability::No,
+        sir_value: None,
+        local_kind: LocalKind::Constant,
+        auto_drop: AutoDrop::No,
+        owning_pack: None,
+        span: tag_span,
+      });
+    }
+
+    // The instance's fragment completion must not swallow the
+    // parent's in-flight template state: `pending_var_name` would
+    // bind the *instance* to the parent's `imu page ::=` (leaving
+    // the parent's own template unbound), and `pending_styles`
+    // would be consumed by the wrong fragment. Save both; nothing
+    // the instantiation emits may stay — SIR is truncated back and
+    // the template value popped, the instance exists only as
+    // inlined commands.
+    let saved_pending_var = self.pending_var_name.take();
+    let saved_styles = std::mem::take(&mut self.pending_styles);
+    // The instance collects its own bindings from an empty slate;
+    // the parent's collected-so-far bindings must survive the
+    // nested completion's `mem::take`.
+    let saved_bindings = std::mem::take(&mut self.template_bindings);
+    let sir_len = self.sir.instructions.len();
+
+    self.instantiating += 1;
+    self.instantiation_stack.push(sym);
+    self.execute_template_fragment(frag_start, frag_end);
+    self.instantiation_stack.pop();
+    self.instantiating -= 1;
+
+    self.pending_styles = saved_styles;
+    self.pending_var_name = saved_pending_var;
+    self.template_bindings = saved_bindings;
+    self.pop_scope_no_drops();
+
+    let instance = self.sir.instructions[sir_len..].iter().rev().find_map(
+      |insn| match insn {
+        Insn::Template {
+          commands, bindings, ..
+        } => Some((commands.clone(), bindings.clone())),
+        _ => None,
+      },
+    );
+
+    self.sir.truncate(sir_len);
+
+    if instance.is_some() {
+      self.value_stack.pop();
+      self.ty_stack.pop();
+      self.sir_values.pop();
+    }
+
+    instance
+  }
+
+  fn try_resolve_template_component(
+    &self,
+    tag: &str,
+  ) -> Option<(Vec<UiCommand>, TemplateBindings)> {
+    let sym = self.interner.symbol(tag)?;
+
+    if let Some(local) = self.lookup_local(sym) {
+      let vi = local.value_id.0 as usize;
+
+      if vi < self.values.kinds.len()
+        && matches!(self.values.kinds[vi], Value::Template)
+      {
+        // The `Insn::Template.id` IS the `store_template` ValueId
+        // the local binds — match it directly. The old detour
+        // compared `id.0` against the per-template *counter*
+        // (`values.templates[ti]`), two identity spaces that only
+        // align when the template is the program's first value;
+        // a `mut count := 0` before the component shifted them
+        // apart and the splice silently missed.
+        for insn in &self.sir.instructions {
+          if let Insn::Template {
+            id,
+            commands: child_cmds,
+            bindings,
+            ..
+          } = insn
+            && *id == local.value_id
+          {
+            return Some((child_cmds.clone(), bindings.clone()));
+          }
+        }
+      }
+    }
+
+    // Component function: the tag names a `-> </>` function whose
+    // body fragment registered in `component_templates`.
+    let tpl_id = *self.component_templates.get(&sym)?;
 
     for insn in &self.sir.instructions {
       if let Insn::Template {
         id,
         commands: child_cmds,
+        bindings,
         ..
       } = insn
-        && id.0 == tpl_ref
+        && *id == tpl_id
       {
-        return Some(child_cmds.clone());
+        return Some((child_cmds.clone(), bindings.clone()));
       }
     }
 
     None
+  }
+
+  /// Merge a spliced child template's reactive bindings into the
+  /// parent's in-progress collection, every command index offset
+  /// to the child's splice position — a nested reactive component
+  /// stays reactive instead of silently losing its bindings.
+  fn merge_child_bindings(&mut self, child: TemplateBindings, base: usize) {
+    for (idx, sym) in child.text {
+      self.template_bindings.text.push((base + idx, sym));
+    }
+
+    for (idx, attr) in child.attrs {
+      self.template_bindings.attrs.push((base + idx, attr));
+    }
+
+    for (idx, computed) in child.computed {
+      self.template_bindings.computed.push((base + idx, computed));
+    }
+
+    for (idx, list) in child.list {
+      self.template_bindings.list.push((base + idx, list));
+    }
   }
 
   /// Handle closing tag: emit `UiCommand::EndElement`. The
@@ -25441,7 +26098,7 @@ impl<'a> Executor<'a> {
   /// `idx` unchanged so the caller can try the normal path.
   ///
   /// Shape (MVP): `#` `Ident("html")` `Ident(src)` where `src`
-  /// Detect `arr.map(fn(t) =:> <body>)` in template interp
+  /// Detect `arr.map(fn(t) => <body>)` in template interp
   /// position and extract the per-item template recipe.
   /// Returns `(items_var, item_template)` when the brace
   /// content matches; `None` otherwise (caller falls
@@ -25492,7 +26149,8 @@ impl<'a> Executor<'a> {
     }
 
     // Walk the Fn closure: find the param Ident and the
-    // body opener (`=:>`). The param must be a single
+    // body opener (`=>` followed by a template fragment).
+    // The param must be a single
     // Ident inside `(...)`; the body must use the
     // template-fat-arrow opener so we know it produces a
     // fragment.
@@ -25528,7 +26186,14 @@ impl<'a> Executor<'a> {
 
     walk += 1;
 
-    if nodes[walk].token != Token::TemplateFatArrow {
+    // The arrow's body must be a template (the parser wraps a
+    // leading tag in a synthetic fragment) — an expression body
+    // (`.map(fn(x) => x + 1)`) is not a list recipe.
+    if nodes[walk].token != Token::FatArrow
+      || nodes
+        .get(walk + 1)
+        .is_none_or(|n| n.token != Token::TemplateFragmentStart)
+    {
       return None;
     }
 
@@ -25752,6 +26417,51 @@ impl<'a> Executor<'a> {
   /// Immutable locals produce `Attr::Prop` (eager only);
   /// mutable locals produce `Attr::Dynamic` carrying the
   /// reactive binding metadata alongside the initial value.
+  /// Execute an inline closure in attribute position and return
+  /// the synthesized handler's name, advancing `idx` past the
+  /// closure's subtree. Shared by `@event={fn …}` handlers and
+  /// callback props (`on_close={fn …}`) — both lower the closure
+  /// to a named handler the runtime dispatches by name.
+  fn closure_attr_handler_name(&mut self, idx: &mut usize) -> String {
+    let header = self.tree.nodes[*idx];
+    let children_end =
+      (header.child_start + header.child_count as u32) as usize;
+
+    // Event-handler capture semantics: reactive template mutables
+    // are read via the state cells, not the dispatcher's absent
+    // captures. Saved/restored for nesting.
+    let saved_event_flag = self.in_event_handler_closure;
+
+    self.in_event_handler_closure = true;
+    self.execute_closure(*idx, children_end);
+    self.in_event_handler_closure = saved_event_flag;
+
+    let handler = self
+      .value_stack
+      .pop()
+      .and_then(|vid| {
+        let vi = vid.0 as usize;
+
+        if vi < self.values.kinds.len()
+          && matches!(self.values.kinds[vi], Value::Closure)
+        {
+          let ci = self.values.indices[vi] as usize;
+          let name = self.values.closures[ci].fun_name;
+
+          Some(self.interner.get(name).to_string())
+        } else {
+          None
+        }
+      })
+      .unwrap_or_default();
+
+    self.ty_stack.pop();
+    self.sir_values.pop();
+
+    *idx = children_end;
+    handler
+  }
+
   fn make_attr_from_local(&self, name: &str, sym: Symbol) -> Attr {
     let raw = self.resolve_local_for_template(sym);
     let value_str = self.normalise_attr_value(name, raw);
