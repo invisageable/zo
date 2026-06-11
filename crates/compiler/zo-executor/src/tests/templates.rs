@@ -1337,11 +1337,11 @@ fun main() {
 
 #[test]
 fn nested_reactive_component_keeps_its_bindings() {
-  // SPEC_ZSX_COMPONENTS spike 2: a component with its own `mut`
-  // used to lose its reactive bindings at the splice (only
-  // `commands` were cloned). The page template must now carry the
-  // child's text binding, rebased to the splice offset — the
-  // bound `UiCommand::Text` at that index is the child's.
+  // A component with its own `mut` used to lose its reactive
+  // bindings at the splice (only `commands` were cloned). The
+  // page template must carry the child's text binding, rebased to
+  // the splice offset — the bound `UiCommand::Text` at that index
+  // is the child's.
   assert_sir_structure(
     r#"
 fun main() {
@@ -1618,6 +1618,106 @@ fun main() {
           "slot-carried binding mistargeted: {commands:#?}"
         );
       }
+    },
+  );
+}
+
+#[test]
+fn event_on_component_tag_reports_instead_of_dropping() {
+  use super::common::assert_execution_error;
+
+  use zo_error::ErrorKind;
+
+  assert_execution_error(
+    r#"
+fun card(title: str) -> </> {
+  return <div><h2>{title}</h2></div>;
+}
+
+fun main() {
+  mut count := 0;
+
+  imu page ::= <div>
+    <card title="hi" @click={fn() => count += 1} />
+  </div>;
+
+  #render page;
+}"#,
+    ErrorKind::EventOnComponent,
+  );
+}
+
+#[test]
+fn callback_prop_routes_event_to_parent_closure() {
+  // `on_close={fn() => open = false}` lowers the closure to a
+  // named handler; the component binds it to its fn-typed param
+  // and wires `@click={on_close}` — the page's Event command must
+  // dispatch to the parent's synthesized closure, not to the
+  // literal name `on_close`.
+  assert_sir_structure(
+    r#"
+fun card(title: str, on_close: Fn() -> unit) -> </> {
+  return <div>
+    <h2>{title}</h2>
+    <button @click={on_close}>x</button>
+  </div>;
+}
+
+fun main() {
+  mut open := 1;
+
+  imu page ::= <div>
+    <card title="hi" on_close={fn() => open = 0} />
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      use zo_ui_protocol::UiCommand;
+      use zo_value::FunctionKind;
+
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let handler = page
+        .iter()
+        .find_map(|c| match c {
+          UiCommand::Event { handler, .. } => Some(handler.as_str()),
+          _ => None,
+        })
+        .expect("event command missing from page");
+
+      assert_ne!(
+        handler, "on_close",
+        "event must dispatch to the parent's closure, not the \
+         parameter's own name"
+      );
+
+      // The handler must be a synthesized closure name (symbol ids
+      // aren't resolvable here, but the `__closure_` prefix plus a
+      // Closure-kind FunDef in SIR pin the chain).
+      assert!(
+        handler.starts_with("__closure_"),
+        "handler must be a synthesized closure name, got `{handler}`"
+      );
+
+      let has_closure_def = sir.iter().any(|i| {
+        matches!(
+          i,
+          Insn::FunDef {
+            kind: FunctionKind::Closure { .. },
+            ..
+          }
+        )
+      });
+
+      assert!(has_closure_def, "parent closure FunDef missing from SIR");
     },
   );
 }

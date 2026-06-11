@@ -157,11 +157,6 @@ pub struct ExportedConst {
 /// own tree and register a fresh `generic_tree_ranges` entry
 /// pointing at the spliced offset.
 ///
-/// @note — `nodes[0]` is the `Fun` introducer; the rest of
-/// the slice walks postorder through the body up to the
-/// closing `}`. Child indices inside the nodes are *absolute*
-/// in the defining module's tree — the splice path adds the
-/// importer's pre-splice `nodes.len()` to rebase them.
 #[derive(Clone)]
 pub struct ExportedGenericBody {
   /// Mangled apply-level symbol, e.g. `arr_$::first`.
@@ -181,6 +176,12 @@ pub struct ExportedGenericBody {
 
 /// One tree subrange in portable, cross-module form — the carrier
 /// both generic bodies and component bodies ship across the wire.
+///
+/// @note — `nodes[0]` is the introducer; the rest walks postorder
+/// through the body up to the closing `}`. Child indices inside
+/// the nodes are *absolute* in the defining module's tree — the
+/// splice adds the importer's pre-splice `nodes.len()` to rebase
+/// them.
 #[derive(Clone)]
 pub struct ExportedTreeSlice {
   /// Subtree nodes (postorder), cloned from the defining
@@ -295,11 +296,9 @@ pub struct ImportedSymbols {
   /// [`Self::generic_bodies`].
   pub exported_generic_bodies: Vec<ExportedGenericBody>,
   /// Component-function body fragments (`pub fun … -> </>`)
-  /// from loaded modules, riding the same carrier and splice
-  /// as generic bodies — a component instantiates by
+  /// from loaded modules — a component instantiates by
   /// re-executing its fragment, so the importer needs the
-  /// subtree in its own tree. `type_params`/`apply_context`
-  /// are unused for components.
+  /// subtree spliced into its own tree.
   pub exported_component_bodies: Vec<ExportedComponentBody>,
   /// Post-splice metadata for generic apply-block bodies
   /// the compiler pre-pass already wove into the shared

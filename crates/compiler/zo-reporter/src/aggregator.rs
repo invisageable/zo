@@ -215,6 +215,7 @@ impl ErrorAggregator {
         | ErrorKind::NonScreamingCaseName
         | ErrorKind::NonSnakeCaseName
         | ErrorKind::CircularComponent
+        | ErrorKind::EventOnComponent
         | ErrorKind::UninitializedVariable
         | ErrorKind::InvalidSelfReference
         | ErrorKind::InvalidTypeAnnotation => {

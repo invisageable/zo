@@ -409,6 +409,7 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
     }
     ErrorKind::NonSnakeCaseName => "Name is not snake_case",
     ErrorKind::CircularComponent => "Circular component instantiation",
+    ErrorKind::EventOnComponent => "Event on a component tag",
     ErrorKind::UninitializedVariable => "Uninitialized variable",
     ErrorKind::InvalidSelfReference => "Invalid `self` reference",
     ErrorKind::InvalidTypeAnnotation => "Invalid type annotation",
@@ -602,6 +603,9 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::NonScreamingCaseName => "expected a SCREAMING_SNAKE_CASE name",
     ErrorKind::NonSnakeCaseName => "expected a snake_case name",
     ErrorKind::CircularComponent => "this instantiation includes itself",
+    ErrorKind::EventOnComponent => {
+      "components receive events as function props"
+    }
     ErrorKind::UninitializedVariable => "used before initialization",
     ErrorKind::InvalidSelfReference => "`self` used outside of `apply` block",
     ErrorKind::InvalidTypeAnnotation => "invalid type here",
@@ -704,6 +708,12 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
     ErrorKind::ExpectedIdentifier => {
       Some("Provide a valid identifier (e.g., variable or function name)")
     }
+    ErrorKind::EventOnComponent => Some(
+      "Declare a function parameter on the component (e.g. `on_click: \
+       Fn() -> unit`), wire it inside the body with \
+       `@click={on_click}`, and pass the handler as `on_click={...}` \
+       at the use site",
+    ),
     ErrorKind::ImmutableVariable => {
       Some("Use 'mut' to declare a mutable variable")
     }

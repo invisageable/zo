@@ -337,7 +337,7 @@ pub struct Executor<'a> {
   /// Set when a fragment walk meets `<slot />` with no slot
   /// content in flight — i.e. at component *definition* time.
   /// Consumed at registration into
-  /// `ComponentFragment::has_slot`.
+  /// `ComponentFragment::slot`.
   saw_slot_tag: bool,
   /// Component tags opened with children, awaiting their close
   /// tag. Stack discipline matches the tag nesting; marks index
@@ -703,9 +703,7 @@ pub struct Executor<'a> {
   recorded_generic_bodies: Vec<ExportedGenericBody>,
   /// Component body fragments (`pub fun … -> </>`) recorded for
   /// export — the importer splices each into its own tree so
-  /// `<header />` can instantiate a component defined here. Same
-  /// carrier as generic bodies; `type_params`/`apply_context`
-  /// ride along unused.
+  /// `<header />` can instantiate a component defined here.
   recorded_component_bodies: Vec<ExportedComponentBody>,
   /// Name override applied to the next `execute_fun` call.
   /// Used by the instantiation pass: re-executing a generic
@@ -24617,6 +24615,22 @@ impl<'a> Executor<'a> {
                     if let Some(sym) = single_ident_sym {
                       attrs.push(self.make_attr_from_local(&attr_name, sym));
                       idx += 1; // past ident
+                    } else if idx < end_idx
+                      && self.tree.nodes[idx].token == Token::Fn
+                    {
+                      // Callback prop: attr={fn() => …}. The
+                      // closure lowers to a named handler and the
+                      // attribute carries that name as a string —
+                      // instantiation binds it to the component's
+                      // fn-typed parameter, and the body's
+                      // `@event={param}` resolves it back to the
+                      // real handler.
+                      let handler = self.closure_attr_handler_name(&mut idx);
+
+                      attrs.push(Attr::Prop {
+                        name: attr_name.clone(),
+                        value: PropValue::Str(handler),
+                      });
                     } else {
                       // General expression — eager-only, no
                       // reactive tracking.
@@ -24688,14 +24702,41 @@ impl<'a> Executor<'a> {
                     let handler = if idx < end_idx
                       && self.tree.nodes[idx].token == Token::Ident
                     {
-                      let h = self
-                        .node_value(idx)
-                        .and_then(|v| match v {
+                      let handler_sym =
+                        self.node_value(idx).and_then(|v| match v {
                           NodeValue::Symbol(s) => Some(s),
                           _ => None,
+                        });
+
+                      // Callback-prop indirection: a fn-typed
+                      // local constant (a parameter bound from
+                      // `on_x={fn …}`) holds the real handler's
+                      // name — dispatch to that, not to the
+                      // parameter's own name.
+                      let h = handler_sym
+                        .and_then(|sym| {
+                          let local = self.lookup_local(sym)?;
+                          let is_fn = matches!(
+                            self.ty_checker.resolve_ty(local.ty_id),
+                            Ty::Fun(_)
+                          );
+                          let vi = local.value_id.0 as usize;
+
+                          if is_fn
+                            && vi < self.values.kinds.len()
+                            && matches!(self.values.kinds[vi], Value::String)
+                          {
+                            Some(self.value_to_string(local.value_id))
+                          } else {
+                            None
+                          }
                         })
-                        .map(|s| self.interner.get(s).to_string())
+                        .or_else(|| {
+                          handler_sym
+                            .map(|s| self.interner.get(s).to_string())
+                        })
                         .unwrap_or_default();
+
                       idx += 1;
                       h
                     } else if idx < end_idx
@@ -24703,10 +24744,6 @@ impl<'a> Executor<'a> {
                     {
                       // Inline closure as event handler:
                       // @click={fn() => expr}
-                      let header = self.tree.nodes[idx];
-                      let children_end = (header.child_start
-                        + header.child_count as u32)
-                        as usize;
 
                       // For payload-bearing events (`@input`,
                       // `@change`), synthesize a `Fn(Event) -> ?`
@@ -24749,53 +24786,12 @@ impl<'a> Executor<'a> {
                           None
                         };
 
-                      // Mark this as an event-handler closure so
-                      // `identify_captures` drops reactive
-                      // template mutables — they're read via
-                      // `_zo_state_get*`, not the dispatcher's
-                      // absent captures. Saved/restored for
-                      // correctness under nesting; the flag is
-                      // cleared inside `execute_closure` once
-                      // this closure's captures are analysed.
-                      let saved_event_flag = self.in_event_handler_closure;
-
-                      self.in_event_handler_closure = true;
-
-                      self.execute_closure(idx, children_end);
-
-                      self.in_event_handler_closure = saved_event_flag;
+                      let h = self.closure_attr_handler_name(&mut idx);
 
                       if let Some(saved) = saved_pending_decl {
                         self.pending_decl = saved;
                       }
 
-                      // Pop the closure value and extract its
-                      // generated function name.
-                      let h = self
-                        .value_stack
-                        .pop()
-                        .and_then(|vid| {
-                          let vi = vid.0 as usize;
-
-                          if vi < self.values.kinds.len()
-                            && matches!(self.values.kinds[vi], Value::Closure)
-                          {
-                            let ci = self.values.indices[vi] as usize;
-                            let name = self.values.closures[ci].fun_name;
-
-                            Some(self.interner.get(name).to_string())
-                          } else {
-                            None
-                          }
-                        })
-                        .unwrap_or_default();
-
-                      // Pop the type and SIR value that
-                      // execute_closure pushed.
-                      self.ty_stack.pop();
-                      self.sir_values.pop();
-
-                      idx = children_end;
                       h
                     } else {
                       String::new()
@@ -25508,6 +25504,18 @@ impl<'a> Executor<'a> {
     commands: &mut Vec<UiCommand>,
     tag_span: Span,
   ) {
+    // An `@event` on a component tag attaches to nothing —
+    // components receive events as function props (`on_click:
+    // fn()`). Report instead of dropping silently.
+    if self
+      .interner
+      .symbol(tag)
+      .is_some_and(|s| self.component_fragments.contains_key(&s))
+      && attrs.iter().any(|a| matches!(a, Attr::Event { .. }))
+    {
+      self.report(ErrorKind::EventOnComponent, tag_span);
+    }
+
     // `<slot />` — splice the children the current instantiation
     // carried, exactly where the component body says. At
     // definition time (no instantiation in flight) it only marks
@@ -25661,6 +25669,10 @@ impl<'a> Executor<'a> {
     frame: ComponentUseFrame,
     commands: &mut Vec<UiCommand>,
   ) {
+    if frame.attrs.iter().any(|a| matches!(a, Attr::Event { .. })) {
+      self.report(ErrorKind::EventOnComponent, frame.tag_span);
+    }
+
     let children = commands.split_off(frame.commands_mark);
     let children_bindings = self.drain_children_bindings(frame.commands_mark);
     let tag = self.interner.get(frame.name).to_string();
@@ -26319,6 +26331,51 @@ impl<'a> Executor<'a> {
   /// Immutable locals produce `Attr::Prop` (eager only);
   /// mutable locals produce `Attr::Dynamic` carrying the
   /// reactive binding metadata alongside the initial value.
+  /// Execute an inline closure in attribute position and return
+  /// the synthesized handler's name, advancing `idx` past the
+  /// closure's subtree. Shared by `@event={fn …}` handlers and
+  /// callback props (`on_close={fn …}`) — both lower the closure
+  /// to a named handler the runtime dispatches by name.
+  fn closure_attr_handler_name(&mut self, idx: &mut usize) -> String {
+    let header = self.tree.nodes[*idx];
+    let children_end =
+      (header.child_start + header.child_count as u32) as usize;
+
+    // Event-handler capture semantics: reactive template mutables
+    // are read via the state cells, not the dispatcher's absent
+    // captures. Saved/restored for nesting.
+    let saved_event_flag = self.in_event_handler_closure;
+
+    self.in_event_handler_closure = true;
+    self.execute_closure(*idx, children_end);
+    self.in_event_handler_closure = saved_event_flag;
+
+    let handler = self
+      .value_stack
+      .pop()
+      .and_then(|vid| {
+        let vi = vid.0 as usize;
+
+        if vi < self.values.kinds.len()
+          && matches!(self.values.kinds[vi], Value::Closure)
+        {
+          let ci = self.values.indices[vi] as usize;
+          let name = self.values.closures[ci].fun_name;
+
+          Some(self.interner.get(name).to_string())
+        } else {
+          None
+        }
+      })
+      .unwrap_or_default();
+
+    self.ty_stack.pop();
+    self.sir_values.pop();
+
+    *idx = children_end;
+    handler
+  }
+
   fn make_attr_from_local(&self, name: &str, sym: Symbol) -> Attr {
     let raw = self.resolve_local_for_template(sym);
     let value_str = self.normalise_attr_value(name, raw);

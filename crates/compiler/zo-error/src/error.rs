@@ -580,4 +580,8 @@ pub enum ErrorKind {
   /// (spliced) components, since local registration order forbids
   /// self-reference.
   CircularComponent,
+  /// An `@event` attribute on a component tag. Components receive
+  /// events as function props (`on_click: fn()`); an event attr
+  /// there attaches to nothing and must not drop silently.
+  EventOnComponent,
 }
