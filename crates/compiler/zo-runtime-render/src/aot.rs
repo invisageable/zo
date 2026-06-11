@@ -11,7 +11,8 @@
 //! and builds the registry through here, then drives its own UI.
 
 use crate::reactive::{
-  BindingGraph, BindingRef, DirtyCommands, DirtySet, refresh_dirty,
+  BindingGraph, BindingRef, DirtyCommands, DirtySet, ListEdit, reconcile_list,
+  refresh_dirty,
 };
 use crate::render::{EventHandler, EventRegistry};
 
@@ -753,9 +754,15 @@ fn state_slot_text(slot: u32, is_str: bool) -> Option<String> {
 pub struct UpdateReport {
   /// Command indices the refresh rewrote in place.
   pub touched: DirtyCommands,
-  /// The refresh replaced the stream wholesale (a list slot was
-  /// written), so indices shifted — the view must rebuild.
+  /// The refresh replaced the stream wholesale (a list write
+  /// changed the item count), so indices shifted — the view must
+  /// rebuild until it consumes `list_edits`.
   pub structural: bool,
+  /// Keyed edit script per written list (list index in the
+  /// decoded order, edits from [`reconcile_list`]). A
+  /// same-length write reports no structural flag — its regions
+  /// land in `touched` instead.
+  pub list_edits: Vec<(usize, Vec<ListEdit>)>,
 }
 
 pub struct RegistryInputs {
@@ -802,6 +809,16 @@ pub fn build_registry(
     report,
   } = inputs;
   let mut registry = EventRegistry::new();
+
+  // Last-rendered item keys per list, diffed against the next
+  // write. Seeded from the current state so the first event diffs
+  // against the initial render, not an empty list.
+  let list_keys: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(
+    lists
+      .iter()
+      .map(|list| arr_slot_items(list.items_slot))
+      .collect(),
+  ));
   let mut seen: HashSet<String> = HashSet::new();
   let mut handler_idx: u32 = 0;
 
@@ -843,6 +860,7 @@ pub fn build_registry(
     let lists = Arc::clone(&lists);
     let attrs = Arc::clone(&attrs);
     let report = Arc::clone(&report);
+    let list_keys = Arc::clone(&list_keys);
     let cb: EventHandler = Box::new(move |payload| {
       // RFC 2229 disjoint captures would otherwise pull
       // `dispatch_send.0` / `bindings_send.0` directly into the
@@ -882,7 +900,39 @@ pub fn build_registry(
       let mut cmds = cmds_arc.lock().unwrap();
 
       if hits_list {
-        *cmds = unsafe {
+        // Keyed diff per written list: same item count means the
+        // stream keeps its shape (fixed stride per item), so the
+        // write patches in place — only the changed commands mark
+        // touched and the view skips the rebuild. A length change
+        // shifts every index after the splice; report it
+        // structural and carry the edit script for view layers
+        // that can apply it.
+        let mut keys = list_keys.lock().unwrap();
+        let mut edits = Vec::new();
+        let mut shape_kept = true;
+
+        for (list_idx, list) in lists.iter().enumerate() {
+          if !written.contains(&list.items_slot) {
+            continue;
+          }
+
+          let new_items = arr_slot_items(list.items_slot);
+          let old_items = keys.get(list_idx).cloned().unwrap_or_default();
+
+          if old_items.len() != new_items.len() {
+            shape_kept = false;
+          }
+
+          edits.push((list_idx, reconcile_list(&old_items, &new_items)));
+
+          if list_idx >= keys.len() {
+            keys.resize(list_idx + 1, Vec::new());
+          }
+
+          keys[list_idx] = new_items;
+        }
+
+        let rebuilt = unsafe {
           rebuild_with_lists(
             base.as_slice(),
             bindings_send.0,
@@ -894,8 +944,24 @@ pub fn build_registry(
 
         let mut report = report.lock().unwrap();
 
-        report.structural = true;
-        report.touched.clear();
+        report.list_edits = edits;
+
+        if shape_kept && rebuilt.len() == cmds.len() {
+          report.structural = false;
+          report.touched.clear();
+          report.touched.ensure(rebuilt.len());
+
+          for (idx, (old, new)) in cmds.iter().zip(&rebuilt).enumerate() {
+            if old != new {
+              report.touched.mark(idx as u32);
+            }
+          }
+        } else {
+          report.structural = true;
+          report.touched.clear();
+        }
+
+        *cmds = rebuilt;
       } else {
         let mut touched = DirtyCommands::with_capacity(cmds.len());
 
@@ -1279,6 +1345,101 @@ mod tests {
     assert_eq!(offset_of!(ListBindingAbi, items_slot), 4);
     assert_eq!(offset_of!(ListBindingAbi, recipe_ptr), 8);
     assert_eq!(offset_of!(ListBindingAbi, recipe_len), 16);
+  }
+
+  #[test]
+  fn list_write_reports_keyed_edit_script() {
+    let _serial = state_lock();
+
+    zo_state_init(470);
+
+    // Seed slot 460 = ["a", "b"] before the registry builds, so
+    // the key cache starts from the initial render.
+    let a = encode_length_prefixed(b"a");
+    let b = encode_length_prefixed(b"b");
+
+    unsafe {
+      zo_state_arr_push(460, a.as_ptr());
+      zo_state_arr_push(460, b.as_ptr());
+    }
+
+    let base = vec![
+      UiCommand::Event {
+        widget_id: "1".into(),
+        event_kind: EventKind::Click,
+        handler: "__push".into(),
+      },
+      li(),
+    ];
+
+    let report = Arc::new(Mutex::new(UpdateReport::default()));
+    let shared = Arc::new(Mutex::new(base.clone()));
+    let registry = build_registry(
+      SendPtr(noop_dispatch as _),
+      Arc::clone(&shared),
+      RegistryInputs {
+        base,
+        lists: vec![ListBindingDecoded {
+          cmd_idx: 1,
+          items_slot: 460,
+          recipe: li_recipe(),
+        }],
+        attrs: Vec::new(),
+        bindings_ptr: SendPtr(std::ptr::null()),
+        bindings_count: 0,
+        report: Arc::clone(&report),
+      },
+    );
+
+    // Clear the seeding pushes' dirty marks — a real program's
+    // initial render drains before any event.
+    let mut scratch = Vec::new();
+
+    drain_dirty(&mut scratch);
+
+    // The "tap": the handler pushes "c" (the noop dispatcher runs
+    // no zo code, so the test performs the handler's write).
+    let c = encode_length_prefixed(b"c");
+
+    unsafe { zo_state_arr_push(460, c.as_ptr()) };
+    registry.dispatch("__push", &crate::render::EventPayload::default());
+
+    {
+      let report = report.lock().unwrap();
+
+      assert!(report.structural, "a push changes the item count");
+      assert_eq!(
+        report.list_edits,
+        vec![(0, vec![ListEdit::Insert { to: 2 }])],
+        "push diffs to one insert at the tail"
+      );
+    }
+
+    // Second event: the cache moved with the last write, so the
+    // next push diffs against [a, b, c], not the seed.
+    let d = encode_length_prefixed(b"d");
+
+    unsafe { zo_state_arr_push(460, d.as_ptr()) };
+    registry.dispatch("__push", &crate::render::EventPayload::default());
+
+    let report = report.lock().unwrap();
+
+    assert_eq!(
+      report.list_edits,
+      vec![(0, vec![ListEdit::Insert { to: 3 }])],
+      "the key cache advances with each write"
+    );
+
+    // The stream itself grew by one recipe stride per push.
+    let cmds = shared.lock().unwrap();
+    let li_count = cmds
+      .iter()
+      .filter(
+        |c| matches!(c, UiCommand::Element { tag, .. } if *tag == ElementTag::Li),
+      )
+      .count();
+
+    assert_eq!(li_count, 4, "four items rendered after two pushes");
   }
 
   fn li() -> UiCommand {
