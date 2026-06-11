@@ -1721,3 +1721,33 @@ fun main() {
 }"#,
   );
 }
+
+#[test]
+fn for_in_template_interp_reports_statement_in_template() {
+  assert_execution_error(
+    r#"
+fun main() {
+  mut todos := ["a", "b"];
+
+  imu page ::= <ul>{for t := todos { <li>{t}</li> }}</ul>;
+
+  #render page;
+}"#,
+    ErrorKind::StatementInTemplate,
+  );
+}
+
+#[test]
+fn while_in_template_interp_reports_statement_in_template() {
+  assert_execution_error(
+    r#"
+fun main() {
+  mut n := 0;
+
+  imu page ::= <div>{while n < 3 { n += 1 }}</div>;
+
+  #render page;
+}"#,
+    ErrorKind::StatementInTemplate,
+  );
+}

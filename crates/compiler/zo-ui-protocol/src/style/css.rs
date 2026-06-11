@@ -14,8 +14,8 @@
 //! styling applies on every runtime (native + web), not the web alone.
 
 use super::computed::{
-  Align, Display, Edges, FlexDirection, GlassStyle, Justify, Material, Rgba,
-  Size, StylePatch,
+  Align, Display, Edges, FlexDirection, FlexWrap, GlassStyle, Justify,
+  Material, Rgba, Shadow, Size, StylePatch,
 };
 
 /// A parsed stylesheet: per-selector rules plus the image catalog
@@ -252,8 +252,75 @@ fn apply_declaration(patch: &mut StylePatch, name: &str, value: &str) {
     "padding" => patch.padding = parse_edges(value),
     "margin" => patch.margin = parse_edges(value),
     "material" => patch.material = parse_material(value),
+    "max-width" => patch.max_width = parse_size(value),
+    "max-height" => patch.max_height = parse_size(value),
+    "aspect-ratio" => patch.aspect_ratio = parse_aspect_ratio(value),
+    "flex-wrap" => patch.flex_wrap = parse_flex_wrap(value),
+    "flex-grow" => patch.flex_grow = value.trim().parse().ok(),
+    "flex-shrink" => patch.flex_shrink = value.trim().parse().ok(),
+    "border-width" => patch.border_width = parse_length(value),
+    "border-color" => patch.border_color = parse_color(value),
+    "border-radius" => patch.border_radius = parse_length(value),
+    "box-shadow" => patch.box_shadow = parse_shadow(value),
     _ => {}
   }
+}
+
+/// `16 / 9` or a bare ratio (`1.5`) → width/height. Unknown forms
+/// yield `None` so the element stays unconstrained.
+fn parse_aspect_ratio(value: &str) -> Option<f32> {
+  match value.split_once('/') {
+    Some((w, h)) => {
+      let w: f32 = w.trim().parse().ok()?;
+      let h: f32 = h.trim().parse().ok()?;
+
+      (h != 0.0).then_some(w / h)
+    }
+    None => value.trim().parse().ok(),
+  }
+}
+
+/// `wrap | nowrap` → `FlexWrap`. `wrap-reverse` is not modelled.
+fn parse_flex_wrap(value: &str) -> Option<FlexWrap> {
+  match value.trim() {
+    "wrap" => Some(FlexWrap::Wrap),
+    "nowrap" => Some(FlexWrap::NoWrap),
+    _ => None,
+  }
+}
+
+/// `Xpx Ypx [BLURpx] color` → `Shadow`. The blur defaults to 0 when
+/// the third length is missing; inset/spread are not modelled.
+fn parse_shadow(value: &str) -> Option<Shadow> {
+  if value.trim() == "none" {
+    return None;
+  }
+
+  let parts: Vec<&str> = value.split_whitespace().collect();
+
+  if parts.len() < 3 {
+    return None;
+  }
+
+  let offset_x = parse_length(parts[0])?;
+  let offset_y = parse_length(parts[1])?;
+
+  // The third part is the blur when a fourth (the colour) follows;
+  // otherwise it IS the colour and the blur stays 0.
+  let (blur, color_at) = if parts.len() >= 4 {
+    (parse_length(parts[2])?, 3)
+  } else {
+    (0.0, 2)
+  };
+
+  let color = parse_color(&parts[color_at..].join(" "))?;
+
+  Some(Shadow {
+    offset_x,
+    offset_y,
+    blur,
+    color,
+  })
 }
 
 /// `material: glass | glass clear | solid` → `Material`. The first
@@ -468,6 +535,43 @@ mod tests {
   /// stay terse; the catalog-aware tests call `super::parse` directly.
   fn parse(css: &str) -> Vec<CssRule> {
     super::parse(css).rules
+  }
+
+  #[test]
+  fn border_and_shadow_declarations_parse() {
+    let rules = parse(
+      ".card { border-width: 2px; border-color: #ff0000; \
+       border-radius: 8px; box-shadow: 2px 4px 8px #000000; }",
+    );
+    let patch = author_patch(&rules, ".card").unwrap();
+
+    assert_eq!(patch.border_width, Some(2.0));
+    assert_eq!(patch.border_color, Some(Rgba::rgb(255, 0, 0)));
+    assert_eq!(patch.border_radius, Some(8.0));
+
+    let shadow = patch.box_shadow.expect("shadow parses");
+
+    assert_eq!(shadow.offset_x, 2.0);
+    assert_eq!(shadow.offset_y, 4.0);
+    assert_eq!(shadow.blur, 8.0);
+  }
+
+  #[test]
+  fn flex_and_size_extensions_parse() {
+    let rules = parse(
+      ".row { flex-wrap: wrap; flex-grow: 1; flex-shrink: 0; \
+       max-width: 480px; aspect-ratio: 16/9; }",
+    );
+    let patch = author_patch(&rules, ".row").unwrap();
+
+    assert_eq!(patch.flex_wrap, Some(FlexWrap::Wrap));
+    assert_eq!(patch.flex_grow, Some(1.0));
+    assert_eq!(patch.flex_shrink, Some(0.0));
+    assert_eq!(patch.max_width, Some(Size::Px(480.0)));
+
+    let ratio = patch.aspect_ratio.expect("ratio parses");
+
+    assert!((ratio - 16.0 / 9.0).abs() < 1e-6);
   }
 
   #[test]

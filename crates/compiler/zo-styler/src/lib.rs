@@ -54,6 +54,8 @@ const PROPERTIES: &[(&str, &str)] = &[
   ("c", "color"),
   ("op", "opacity"),
   ("br", "border-radius"),
+  ("bw", "border-width"),
+  ("bc", "border-color"),
   ("bd", "border"),
   ("bs", "box-shadow"),
   ("cur", "cursor"),

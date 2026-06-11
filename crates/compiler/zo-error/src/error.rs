@@ -584,4 +584,10 @@ pub enum ErrorKind {
   /// events as function props (`on_click: fn()`); an event attr
   /// there attaches to nothing and must not drop silently.
   EventOnComponent,
+  /// A statement (`for` / `while` / `loop`) opening a template
+  /// interpolation. Statements produce no template content —
+  /// without this check the inner tags leak an unconsumed
+  /// fragment and die later as a misattributed type error at the
+  /// enclosing function.
+  StatementInTemplate,
 }

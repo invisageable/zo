@@ -1,0 +1,35 @@
+-- test-run-pass: the styling subset extensions — border family,
+-- box-shadow, max-width, flex-wrap — combined with interaction
+-- states on a card layout.
+
+$: {
+  .card {
+    bg: #161b22;
+    c: white;
+    p: 16px;
+    br: 12px;
+    bw: 1px;
+    bc: #30363d;
+    bs: 0px 4px 12px #00000080;
+    mw: 480px;
+  }
+  .card:hover {
+    bc: #58a6ff;
+  }
+  .row {
+    d: flex;
+    fwr: wrap;
+    g: 8px;
+  }
+}
+
+fun main() {
+  imu page ::= <div class="row">
+    <div class="card">
+      <h2>styled card</h2>
+      <p>border, radius, shadow, capped width.</p>
+    </div>
+  </div>;
+
+  #render page;
+}

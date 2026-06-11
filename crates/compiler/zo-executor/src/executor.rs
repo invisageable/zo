@@ -24968,6 +24968,41 @@ impl<'a> Executor<'a> {
             continue;
           }
 
+          // A statement opening the interp (`{for t := xs {…}}`)
+          // produces no template content — its inner tags would
+          // leak an unconsumed fragment and die later as a
+          // misattributed type error at the enclosing function.
+          // Report at the statement keyword and skip the interp
+          // whole; the help names the supported map form.
+          if matches!(
+            self.tree.nodes[idx].token,
+            Token::For | Token::While | Token::Loop
+          ) {
+            self.report(ErrorKind::StatementInTemplate, self.tree.spans[idx]);
+
+            let mut depth: u32 = 1;
+
+            while idx < end_idx {
+              match self.tree.nodes[idx].token {
+                Token::LBrace => depth += 1,
+                Token::RBrace => {
+                  depth -= 1;
+
+                  if depth == 0 {
+                    break;
+                  }
+                }
+                _ => {}
+              }
+
+              idx += 1;
+            }
+
+            idx += 1; // past the closing `}`
+
+            continue;
+          }
+
           // Find matching `}` with depth tracking — nested
           // braces (struct literals, closure bodies inside
           // a call arg) must not terminate the interp

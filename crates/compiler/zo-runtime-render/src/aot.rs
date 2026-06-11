@@ -795,11 +795,27 @@ pub struct UpdateReport {
   /// changed the item count), so indices shifted — the view must
   /// rebuild until it consumes `list_edits`.
   pub structural: bool,
+  /// Set when the structural change is a pure tail append on the
+  /// template's single list (the push case): the command block
+  /// `[at, at + count)` in the rebuilt stream is new, everything
+  /// before it is unchanged. A view layer can build just those
+  /// items instead of rebuilding.
+  pub appended: Option<AppendedItems>,
   /// Keyed edit script per written list (list index in the
   /// decoded order, edits from [`reconcile_list`]). A
   /// same-length write reports no structural flag — its regions
   /// land in `touched` instead.
   pub list_edits: Vec<(usize, Vec<ListEdit>)>,
+}
+
+/// A pure tail append's command block — see
+/// [`UpdateReport::appended`].
+#[derive(Clone, Copy, Debug)]
+pub struct AppendedItems {
+  /// First command index of the appended block.
+  pub at: usize,
+  /// How many commands the block spans.
+  pub count: usize,
 }
 
 pub struct RegistryInputs {
@@ -981,6 +997,29 @@ pub fn build_registry(
 
         let mut report = report.lock().unwrap();
 
+        // The push fast path: one list, all edits tail inserts,
+        // existing items to anchor on — the appended command
+        // block is everything past the old region end.
+        report.appended =
+          if lists.len() == 1 && edits.len() == 1 && !keys.is_empty() {
+            let stride = lists[0].recipe.len();
+            let new_count = keys[0].len();
+            let inserts = edits[0].1.len();
+            let old_count = new_count - inserts.min(new_count);
+            let tail_only = old_count > 0
+              && edits[0].1.iter().enumerate().all(|(offset, edit)| {
+                matches!(edit, ListEdit::Insert { to }
+                if *to as usize == old_count + offset)
+              });
+
+            tail_only.then(|| AppendedItems {
+              at: lists[0].cmd_idx + old_count * stride,
+              count: inserts * stride,
+            })
+          } else {
+            None
+          };
+
         report.list_edits = edits;
 
         if shape_kept && rebuilt.len() == cmds.len() {
@@ -1026,6 +1065,7 @@ pub fn build_registry(
         let mut report = report.lock().unwrap();
 
         report.structural = false;
+        report.appended = None;
         report.touched = touched;
       }
     });

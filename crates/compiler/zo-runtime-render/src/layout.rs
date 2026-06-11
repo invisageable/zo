@@ -15,8 +15,8 @@
 use crate::reactive::DirtyCommands;
 
 use zo_ui_protocol::style::{
-  Align, ComputedStyle, Display, FlexDirection, Justify, Material, Size,
-  StylePatch, cascade, css,
+  Align, ComputedStyle, Display, FlexDirection, FlexWrap, Justify, Material,
+  Size, StylePatch, cascade, css,
 };
 use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
@@ -24,9 +24,9 @@ use rustc_hash::FxHashMap as HashMap;
 use taffy::style_helpers::{length, percent};
 use taffy::{
   AlignItems, AvailableSpace, Dimension, Display as TaffyDisplay,
-  FlexDirection as TaffyFlexDirection, JustifyContent, LengthPercentage,
-  LengthPercentageAuto, NodeId, Rect as TaffyRect, Size as TaffySize,
-  Style as TaffyStyle, TaffyTree,
+  FlexDirection as TaffyFlexDirection, FlexWrap as TaffyFlexWrap,
+  JustifyContent, LengthPercentage, LengthPercentageAuto, NodeId,
+  Rect as TaffyRect, Size as TaffySize, Style as TaffyStyle, TaffyTree,
 };
 
 /// Default image side when an `<img>` declares no dimensions, matching
@@ -268,6 +268,121 @@ impl LayoutTree {
     });
 
     changed
+  }
+
+  /// Append a list's tail items without rebuilding the tree — the
+  /// push fast path. Each new item clones the ANCHOR item's shape
+  /// (the last existing item): its container node's Taffy style
+  /// and its text leaf's resolved style rows — recipe items are
+  /// homogeneous, so the clone is exact. Placements after the
+  /// splice shift their command indices; `source` splices the new
+  /// commands in. Returns the new placement indices, or `None`
+  /// when the shape disqualifies the fast path (no existing item
+  /// to anchor on, or an item too deep to mirror) — the caller
+  /// falls back to a full rebuild.
+  pub fn append_list_items(
+    &mut self,
+    at: usize,
+    added: usize,
+    commands: &[UiCommand],
+  ) -> Option<std::ops::Range<usize>> {
+    // The anchor: the placement of the last existing item's text
+    // leaf — the one whose command sits immediately before the
+    // splice. Its parent node is the item container (`<li>`),
+    // whose parent is the list container (`<ul>`).
+    let anchor = (0..self.cmd_index.len())
+      .rev()
+      .find(|&i| self.cmd_index[i] < at)?;
+
+    let anchor_item = self.tree.parent(self.nodes[anchor])?;
+    let list_node = self.tree.parent(anchor_item)?;
+    let item_style = self.tree.style(anchor_item).ok()?.clone();
+
+    // Shift downstream placements past the splice point.
+    for idx in self.cmd_index.iter_mut() {
+      if *idx >= at {
+        *idx += added;
+      }
+    }
+
+    let first_new = self.cmd_index.len();
+    let mut cursor = at;
+
+    while cursor < at + added {
+      // Each item group: a container Element, its text content,
+      // its EndElement. Anything deeper than the anchor's
+      // two-node shape bails to the rebuild.
+      let UiCommand::Element { tag, .. } = &commands[cursor] else {
+        return None;
+      };
+
+      if is_leaf_tag(tag) {
+        return None;
+      }
+
+      // The text content up to the matching EndElement.
+      let text = collapse_text(commands, cursor + 1);
+      let text_idx = cursor + 1;
+
+      let mut depth = 1usize;
+
+      cursor += 1;
+
+      while cursor < at + added && depth > 0 {
+        match &commands[cursor] {
+          UiCommand::Element {
+            self_closing: false,
+            ..
+          } => return None,
+          UiCommand::EndElement => depth -= 1,
+          _ => {}
+        }
+
+        cursor += 1;
+      }
+
+      let style = self.styles[anchor];
+      let leaf = Leaf {
+        text: text.clone(),
+        style,
+      };
+
+      let taffy_leaf_style = TaffyStyle {
+        margin: edges_to_margin(&style),
+        size: TaffySize {
+          width: Dimension::auto(),
+          height: Dimension::auto(),
+        },
+        ..Default::default()
+      };
+
+      let leaf_node = self
+        .tree
+        .new_leaf_with_context(taffy_leaf_style, leaf)
+        .expect("taffy leaf");
+      let item_node = self
+        .tree
+        .new_with_children(item_style.clone(), &[leaf_node])
+        .expect("taffy item");
+
+      self
+        .tree
+        .add_child(list_node, item_node)
+        .expect("taffy child");
+      self.cmd_index.push(text_idx);
+      self.nodes.push(leaf_node);
+      self.styles.push(style);
+      self.authors.push(self.authors[anchor]);
+      self.interactions.push(self.interactions[anchor].clone());
+      self.parents.push(self.parents[anchor]);
+      self.texts.push(text);
+    }
+
+    self
+      .source
+      .splice(at..at, commands[at..at + added].iter().cloned());
+
+    Some(first_new..self.cmd_index.len())
   }
 
   /// The resolved style for each placed leaf, parallel to `solve`'s
@@ -793,10 +908,18 @@ fn to_taffy(
       _ => TaffyDisplay::Flex,
     },
     flex_direction: direction,
+    flex_wrap: match style.flex_wrap {
+      FlexWrap::Wrap => TaffyFlexWrap::Wrap,
+      FlexWrap::NoWrap => TaffyFlexWrap::NoWrap,
+    },
+    flex_grow: style.flex_grow,
+    flex_shrink: style.flex_shrink,
     justify_content: Some(to_justify(style.justify_content)),
     align_items: Some(to_align(style.align_items)),
     gap: length(style.gap),
     size: to_size(style.width, style.height),
+    max_size: to_size(style.max_width, style.max_height),
+    aspect_ratio: (style.aspect_ratio > 0.0).then_some(style.aspect_ratio),
     padding: edges_to_padding(style),
     margin: edges_to_margin(style),
     ..Default::default()
@@ -1508,5 +1631,109 @@ mod apply_dirty_tests {
     let changed = tree.apply_dirty(&dirty, &patched);
 
     assert_eq!(changed.len(), 1, "attr patch repaints its widget");
+  }
+}
+
+#[cfg(test)]
+mod append_list_items_tests {
+  use super::*;
+
+  use zo_ui_protocol::ElementTag;
+
+  fn li(text: &str) -> Vec<UiCommand> {
+    vec![
+      UiCommand::Element {
+        tag: ElementTag::Li,
+        attrs: vec![],
+        self_closing: false,
+      },
+      UiCommand::Text(text.into()),
+      UiCommand::EndElement,
+    ]
+  }
+
+  /// `<ul><li>a</li><li>b</li></ul><button>go</button>`.
+  fn list_stream() -> Vec<UiCommand> {
+    let mut cmds = vec![UiCommand::Element {
+      tag: ElementTag::Ul,
+      attrs: vec![],
+      self_closing: false,
+    }];
+
+    cmds.extend(li("a"));
+    cmds.extend(li("b"));
+    cmds.push(UiCommand::EndElement);
+    cmds.push(UiCommand::Element {
+      tag: ElementTag::Button,
+      attrs: vec![],
+      self_closing: false,
+    });
+    cmds.push(UiCommand::Text("go".into()));
+    cmds.push(UiCommand::EndElement);
+
+    cmds
+  }
+
+  #[test]
+  fn tail_append_adds_one_placement_and_shifts_downstream() {
+    let commands = list_stream();
+    let mut tree = LayoutTree::build(&commands);
+
+    tree.solve((320.0, 480.0));
+
+    let placements_before = tree.cmd_index.len();
+    let button_before = *tree.cmd_index.last().unwrap();
+
+    // Push "c": splice one recipe stride before the `</ul>` at
+    // index 7.
+    let mut patched = commands.clone();
+
+    patched.splice(7..7, li("c"));
+
+    let range = tree
+      .append_list_items(7, 3, &patched)
+      .expect("tail append rides the fast path");
+
+    assert_eq!(range.len(), 1, "one new leaf placement");
+    assert_eq!(tree.cmd_index.len(), placements_before + 1);
+    assert_eq!(
+      *tree.cmd_index.last().unwrap(),
+      8,
+      "the placement records the item's text leaf (element + 1), \
+       matching the build convention"
+    );
+
+    // The button placement shifted by the spliced length.
+    let button_after = tree.cmd_index[placements_before - 1];
+
+    assert_eq!(button_after, button_before + 3);
+
+    // The new leaf measures into geometry on the next solve.
+    let rects = tree.solve((320.0, 480.0));
+
+    assert_eq!(rects.len(), placements_before + 1);
+    assert!(tree.texts.iter().any(|t| t == "c"));
+  }
+
+  #[test]
+  fn append_without_existing_items_falls_back() {
+    // `<ul></ul>` — nothing to anchor on; the caller rebuilds.
+    let commands = vec![
+      UiCommand::Element {
+        tag: ElementTag::Ul,
+        attrs: vec![],
+        self_closing: false,
+      },
+      UiCommand::EndElement,
+    ];
+    let mut tree = LayoutTree::build(&commands);
+
+    tree.solve((320.0, 480.0));
+
+    let mut patched = commands.clone();
+
+    patched.splice(1..1, li("a"));
+
+    assert!(tree.append_list_items(1, 3, &patched).is_none());
   }
 }

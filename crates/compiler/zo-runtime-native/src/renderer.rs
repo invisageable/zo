@@ -140,6 +140,19 @@ impl Renderer {
             button = button.fill(rgba_to_color32(style.background));
           }
 
+          if author.border_width.is_some() || author.border_color.is_some() {
+            button = button.stroke(egui::Stroke::new(
+              style.border_width.max(1.0),
+              rgba_to_color32(style.border_color),
+            ));
+          }
+
+          if author.border_radius.is_some() {
+            button = button.corner_radius(egui::CornerRadius::same(
+              style.border_radius as u8,
+            ));
+          }
+
           if ui.put(rect, button).clicked() {
             self.state.pending_events.push((
               id,
@@ -166,8 +179,11 @@ impl Renderer {
           ui.put(rect, egui::Label::new(text));
         }
 
-        // Containers are geometry only — nothing to paint at v1.
-        _ => {}
+        // Containers paint their surface (shadow, fill, border)
+        // behind the children the layout placed after them.
+        _ => {
+          paint_surface(ui, rect, style, author);
+        }
       },
 
       UiCommand::Text(content) => {
@@ -403,6 +419,47 @@ fn resolve_interaction_state(
 /// True when a boolean attribute (`<button disabled>`) is present.
 fn attr_flag(attrs: &[Attr], name: &str) -> bool {
   attrs.iter().any(|attr| attr.name() == name)
+}
+
+/// Paint a container's surface at its solved rect: shadow first
+/// (behind), then the background fill, then the border stroke.
+/// Each layer paints only when the stylesheet declared it, so
+/// undeclared containers stay invisible exactly as before.
+fn paint_surface(
+  ui: &egui::Ui,
+  rect: egui::Rect,
+  style: &ComputedStyle,
+  author: &StylePatch,
+) {
+  let radius = egui::CornerRadius::same(style.border_radius as u8);
+  let painter = ui.painter();
+
+  if let Some(shadow) = style.box_shadow {
+    let egui_shadow = egui::epaint::Shadow {
+      offset: [shadow.offset_x as i8, shadow.offset_y as i8],
+      blur: shadow.blur as u8,
+      spread: 0,
+      color: rgba_to_color32(shadow.color),
+    };
+
+    painter.add(egui_shadow.as_shape(rect, radius));
+  }
+
+  if author.background.is_some() {
+    painter.rect_filled(rect, radius, rgba_to_color32(style.background));
+  }
+
+  if style.border_width > 0.0 {
+    painter.rect_stroke(
+      rect,
+      radius,
+      egui::Stroke::new(
+        style.border_width,
+        rgba_to_color32(style.border_color),
+      ),
+      egui::StrokeKind::Inside,
+    );
+  }
 }
 
 fn attr_num(attrs: &[Attr], name: &str) -> Option<u32> {

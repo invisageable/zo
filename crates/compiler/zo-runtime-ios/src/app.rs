@@ -513,12 +513,59 @@ impl SceneDelegate {
       // (list slot written — indices shifted) falls back to the
       // full diff; otherwise `apply_dirty` patches O(dirty)
       // placements with no structural scan and no stream clone.
-      let structural = runtime.report.lock().unwrap().structural;
+      let (structural, appended) = {
+        let report = runtime.report.lock().unwrap();
+
+        (report.structural, report.appended)
+      };
       let Some(host) = runtime.host.as_mut() else {
         return;
       };
 
-      let patched = if structural {
+      // The push fast path: append only the new items' views —
+      // existing placements keep their views and just re-frame.
+      let appended_range = appended.and_then(|block| {
+        let cmds = runtime.shared.lock().unwrap();
+
+        host.tree.append_list_items(block.at, block.count, &cmds)
+      });
+
+      let patched = if let Some(new_placements) = appended_range {
+        let cmds = runtime.shared.lock().unwrap().clone();
+        let bounds = host.container.bounds();
+        let rects = host
+          .tree
+          .solve((bounds.size.width as f32, bounds.size.height as f32));
+        let styles = host.tree.styles().to_vec();
+        let authors = host.tree.authors().to_vec();
+        let parents = host.tree.parents().to_vec();
+        let images = host.tree.images().to_vec();
+        let mtm = MainThreadMarker::from(self);
+        let builder = ViewBuilder::new(&cmds, self, mtm, &images);
+
+        for i in new_placements {
+          let (superview, frame) = attach_target(
+            &host.container,
+            &host.views,
+            parents[i],
+            &rects,
+            rects[i].1,
+          );
+
+          let placement = Placement {
+            superview: &superview,
+            frame,
+            style: &styles[i],
+            author: &authors[i],
+          };
+
+          host.views.push(builder.place(rects[i].0, &placement));
+        }
+
+        // Existing widgets re-frame below via the fast path; no
+        // text changed, so the patch list is empty.
+        Some(Vec::new())
+      } else if structural {
         None
       } else {
         let cmds = runtime.shared.lock().unwrap();

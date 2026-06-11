@@ -13,8 +13,8 @@ pub mod ua;
 
 pub use cascade::resolve;
 pub use computed::{
-  Align, ComputedStyle, Display, Edges, FlexDirection, FontFamily, FontStyle,
-  GlassStyle, Justify, Material, Rgba, Size, StylePatch, TextAlign,
-  TextDecoration,
+  Align, ComputedStyle, Display, Edges, FlexDirection, FlexWrap, FontFamily,
+  FontStyle, GlassStyle, Justify, Material, Rgba, Shadow, Size, StylePatch,
+  TextAlign, TextDecoration,
 };
 pub use ua::{UA_SHEET, lookup as ua_lookup};
