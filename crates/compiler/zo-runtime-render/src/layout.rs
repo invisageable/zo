@@ -12,6 +12,8 @@
 //! on every platform (swap for a `cosmic-text` shaper when tight
 //! glyph metrics are needed — a separate plan).
 
+use crate::reactive::DirtyCommands;
+
 use zo_ui_protocol::style::{
   Align, ComputedStyle, Display, FlexDirection, Justify, Material, Size,
   StylePatch, cascade, css,
@@ -201,6 +203,71 @@ impl LayoutTree {
     self.source = commands.to_vec();
 
     Some(changed)
+  }
+
+  /// Patch only the placements whose source commands are dirty —
+  /// the fine-grained half of [`Self::reconcile`]. The caller
+  /// guarantees the dirty refresh rewrote text/attrs in place (no
+  /// structural edits), so neither the structural scan nor the
+  /// full-stream clone happens here: cost is O(dirty), not O(N).
+  /// Returns the touched placements as `(placement, new_text)`.
+  pub fn apply_dirty(
+    &mut self,
+    dirty: &DirtyCommands,
+    commands: &[UiCommand],
+  ) -> Vec<(usize, String)> {
+    let mut changed = Vec::new();
+
+    dirty.for_each_set(|cmd| {
+      let cmd = cmd as usize;
+
+      // Map the dirty command to its placement: an exact
+      // `cmd_index` hit is a free-text leaf; otherwise the dirty
+      // index is a text/attr command inside the preceding
+      // placement's region. `cmd_index` is ascending (built in
+      // walk order), so partition_point finds it.
+      let at = self.cmd_index.partition_point(|&idx| idx <= cmd);
+
+      if at == 0 {
+        return;
+      }
+
+      let placement = at - 1;
+      let source_idx = self.cmd_index[placement];
+      let text = leaf_text(commands, source_idx);
+
+      if text != self.texts[placement] {
+        self.texts[placement] = text.clone();
+
+        let leaf = Leaf {
+          text: text.clone(),
+          style: self.styles[placement],
+        };
+
+        self
+          .tree
+          .set_node_context(self.nodes[placement], Some(leaf))
+          .expect("taffy set context");
+
+        changed.push((placement, text));
+      } else if matches!(commands.get(cmd), Some(UiCommand::Element { .. }))
+        && changed.last().map(|(p, _)| *p) != Some(placement)
+      {
+        // An attr-only patch (`value`, `class`) moves no text but
+        // the view must still repaint the widget. Geometry is
+        // text-driven, so no Taffy re-measure.
+        changed.push((placement, text));
+      }
+
+      // Keep `source` in sync entry-wise — the next structural
+      // comparison must see the patched stream without paying a
+      // full-stream clone per event.
+      if cmd < self.source.len() {
+        self.source[cmd] = commands[cmd].clone();
+      }
+    });
+
+    changed
   }
 
   /// The resolved style for each placed leaf, parallel to `solve`'s
@@ -1337,5 +1404,109 @@ mod tests {
     let changed = tree.reconcile(&counter()).expect("same structure");
 
     assert!(changed.is_empty(), "identical stream changes nothing");
+  }
+}
+
+#[cfg(test)]
+mod apply_dirty_tests {
+  use super::*;
+
+  use crate::reactive::DirtyCommands;
+
+  use zo_ui_protocol::{Attr, ElementTag, PropValue};
+
+  /// `<div> <button>a</button> <span>b</span> </div>` — two
+  /// placements, text at command indices 2 and 5.
+  fn two_leaf_stream() -> Vec<UiCommand> {
+    vec![
+      UiCommand::Element {
+        tag: ElementTag::Div,
+        attrs: vec![],
+        self_closing: false,
+      },
+      UiCommand::Element {
+        tag: ElementTag::Button,
+        attrs: vec![],
+        self_closing: false,
+      },
+      UiCommand::Text("a".into()),
+      UiCommand::EndElement,
+      UiCommand::Element {
+        tag: ElementTag::Span,
+        attrs: vec![],
+        self_closing: false,
+      },
+      UiCommand::Text("b".into()),
+      UiCommand::EndElement,
+      UiCommand::EndElement,
+    ]
+  }
+
+  #[test]
+  fn dirty_text_touches_exactly_its_placement() {
+    let commands = two_leaf_stream();
+    let mut tree = LayoutTree::build(&commands);
+
+    tree.solve((320.0, 240.0));
+
+    let mut patched = commands.clone();
+
+    patched[5] = UiCommand::Text("B!".into());
+
+    let mut dirty = DirtyCommands::with_capacity(patched.len());
+
+    dirty.mark(5);
+
+    let changed = tree.apply_dirty(&dirty, &patched);
+
+    assert_eq!(changed.len(), 1, "exactly one placement repaints");
+    assert_eq!(changed[0].1, "B!");
+
+    // The other placement's cached text is untouched.
+    assert!(tree.texts.iter().any(|t| t == "a"));
+  }
+
+  #[test]
+  fn unchanged_dirty_command_repaints_nothing() {
+    let commands = two_leaf_stream();
+    let mut tree = LayoutTree::build(&commands);
+
+    tree.solve((320.0, 240.0));
+
+    let mut dirty = DirtyCommands::with_capacity(commands.len());
+
+    dirty.mark(5);
+
+    // Marked dirty but the text is identical — no repaint.
+    let changed = tree.apply_dirty(&dirty, &commands);
+
+    assert!(changed.is_empty(), "no-op write must not repaint");
+  }
+
+  #[test]
+  fn attr_only_patch_surfaces_its_placement() {
+    let commands = two_leaf_stream();
+    let mut tree = LayoutTree::build(&commands);
+
+    tree.solve((320.0, 240.0));
+
+    let mut patched = commands.clone();
+
+    patched[4] = UiCommand::Element {
+      tag: ElementTag::Span,
+      attrs: vec![Attr::Prop {
+        name: "class".into(),
+        value: PropValue::Str("lit".into()),
+      }],
+      self_closing: false,
+    };
+
+    let mut dirty = DirtyCommands::with_capacity(patched.len());
+
+    dirty.mark(4);
+
+    let changed = tree.apply_dirty(&dirty, &patched);
+
+    assert_eq!(changed.len(), 1, "attr patch repaints its widget");
   }
 }

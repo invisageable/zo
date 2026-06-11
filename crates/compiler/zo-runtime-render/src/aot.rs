@@ -746,6 +746,18 @@ fn state_slot_text(slot: u32, is_str: bool) -> Option<String> {
 /// Per-program inputs threaded into [`build_registry`] beyond the
 /// dispatcher and shared buffer — grouped so the call stays
 /// within the argument budget.
+/// What the last event's refresh did to the shared stream. A
+/// retained-mode view layer (iOS) patches exactly this instead of
+/// re-diffing the whole stream; immediate-mode targets ignore it.
+#[derive(Default)]
+pub struct UpdateReport {
+  /// Command indices the refresh rewrote in place.
+  pub touched: DirtyCommands,
+  /// The refresh replaced the stream wholesale (a list slot was
+  /// written), so indices shifted — the view must rebuild.
+  pub structural: bool,
+}
+
 pub struct RegistryInputs {
   /// The static template (placeholders unbaked). The dedup walk
   /// reads it for `Event` commands, and the handler rebuilds the
@@ -758,6 +770,8 @@ pub struct RegistryInputs {
   /// The `TextBinding` array pointer + count.
   pub bindings_ptr: SendPtr<*const TextBinding>,
   pub bindings_count: usize,
+  /// Per-event update report the view layer reads after dispatch.
+  pub report: Arc<Mutex<UpdateReport>>,
 }
 
 /// Build an `EventRegistry` whose callbacks dispatch through
@@ -785,6 +799,7 @@ pub fn build_registry(
     attrs,
     bindings_ptr,
     bindings_count,
+    report,
   } = inputs;
   let mut registry = EventRegistry::new();
   let mut seen: HashSet<String> = HashSet::new();
@@ -827,6 +842,7 @@ pub fn build_registry(
     let base = Arc::clone(&base);
     let lists = Arc::clone(&lists);
     let attrs = Arc::clone(&attrs);
+    let report = Arc::clone(&report);
     let cb: EventHandler = Box::new(move |payload| {
       // RFC 2229 disjoint captures would otherwise pull
       // `dispatch_send.0` / `bindings_send.0` directly into the
@@ -875,6 +891,11 @@ pub fn build_registry(
             lists.as_slice(),
           )
         };
+
+        let mut report = report.lock().unwrap();
+
+        report.structural = true;
+        report.touched.clear();
       } else {
         let mut touched = DirtyCommands::with_capacity(cmds.len());
 
@@ -890,6 +911,19 @@ pub fn build_registry(
         apply_attr_bindings(&mut cmds, attrs.as_slice(), |slot| {
           written.contains(&slot)
         });
+
+        // Attr-bound commands count as touched: the view re-reads
+        // their attrs even though no text moved.
+        for binding in attrs.iter() {
+          if written.contains(&binding.slot) {
+            touched.mark(binding.cmd_idx as u32);
+          }
+        }
+
+        let mut report = report.lock().unwrap();
+
+        report.structural = false;
+        report.touched = touched;
       }
     });
 
@@ -1452,6 +1486,7 @@ mod tests {
         attrs: Vec::new(),
         bindings_ptr: SendPtr(std::ptr::null()),
         bindings_count: 0,
+        report: Arc::new(Mutex::new(UpdateReport::default())),
       },
     );
     let mut out: Vec<String> = cmds

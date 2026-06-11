@@ -76,6 +76,7 @@ ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS — SAME SOURC
 DEV MACHiNE:
 
 ```
+System Version    — macOS 26.5.1
 Operating System  — Darwin 26.5.1 (ARM64)
 Kernel Version    — 25.5.0
 CPU               — Apple M3 Pro (12 cores)

@@ -87,6 +87,11 @@ struct Runtime {
   /// The command buffer handlers mutate; reread after each tap to
   /// reconcile the view tree.
   shared: Arc<Mutex<Vec<UiCommand>>>,
+  /// What the registry's refresh did on the last event — which
+  /// commands it rewrote, or that it replaced the stream. Read
+  /// after dispatch so the view patches O(dirty) instead of
+  /// re-diffing the whole stream.
+  report: Arc<Mutex<zo_runtime_render::aot::UpdateReport>>,
   /// The live view hierarchy + its layout tree, retained across taps
   /// so a tap reconciles in place instead of rebuilding every widget.
   /// `None` until the scene connects and the first render runs.
@@ -192,11 +197,13 @@ impl PlacedView {
 pub(crate) fn install(
   registry: EventRegistry,
   shared: Arc<Mutex<Vec<UiCommand>>>,
+  report: Arc<Mutex<zo_runtime_render::aot::UpdateReport>>,
 ) {
   RUNTIME.with(|r| {
     *r.borrow_mut() = Some(Runtime {
       registry,
       shared,
+      report,
       host: None,
     });
   });
@@ -500,14 +507,35 @@ impl SceneDelegate {
         runtime.registry.dispatch(&handler, &payload);
       }
 
-      // The handler mutated `shared` in place; reconcile the view
-      // tree against it.
-      let cmds = runtime.shared.lock().unwrap().clone();
+      // The handler mutated `shared` in place. The registry's
+      // report says exactly what happened: a structural rebuild
+      // (list slot written — indices shifted) falls back to the
+      // full diff; otherwise `apply_dirty` patches O(dirty)
+      // placements with no structural scan and no stream clone.
+      let structural = runtime.report.lock().unwrap().structural;
       let Some(host) = runtime.host.as_mut() else {
         return;
       };
 
-      match host.tree.reconcile(&cmds) {
+      let patched = if structural {
+        None
+      } else {
+        let cmds = runtime.shared.lock().unwrap();
+        let report = runtime.report.lock().unwrap();
+
+        Some(host.tree.apply_dirty(&report.touched, &cmds))
+      };
+
+      let reconciled = match patched {
+        Some(changed) => Some(changed),
+        None => {
+          let cmds = runtime.shared.lock().unwrap().clone();
+
+          host.tree.reconcile(&cmds)
+        }
+      };
+
+      match reconciled {
         // Fast path: structure unchanged. Re-solve (Taffy only
         // re-measures the dirtied leaves), re-frame every view,
         // and rewrite text on just the changed ones.
@@ -536,6 +564,7 @@ impl SceneDelegate {
         None => {
           clear_subviews(&host.container);
 
+          let cmds = runtime.shared.lock().unwrap().clone();
           let mtm = MainThreadMarker::from(self);
           let (tree, views) = render_into(&cmds, &host.container, self, mtm);
 

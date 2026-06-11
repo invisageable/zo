@@ -1,7 +1,7 @@
 //! The `_zo_run_native` C-ABI entry point for iOS.
 
 use zo_runtime_render::aot::{
-  RegistryInputs, SendPtr, ZoRuntimeContext, build_registry,
+  RegistryInputs, SendPtr, UpdateReport, ZoRuntimeContext, build_registry,
   decode_attr_bindings, decode_list_bindings, decode_template,
   rebuild_with_lists,
 };
@@ -61,6 +61,7 @@ pub unsafe extern "C" fn zo_run_native(ctx: *const ZoRuntimeContext) {
   };
 
   let shared = Arc::new(Mutex::new(initial));
+  let report = Arc::new(Mutex::new(UpdateReport::default()));
 
   // Build the registry only when the program registered a dispatcher;
   // a static template leaves it empty and taps no-op.
@@ -74,11 +75,12 @@ pub unsafe extern "C" fn zo_run_native(ctx: *const ZoRuntimeContext) {
         attrs,
         bindings_ptr: SendPtr(ctx_ref.text_bindings_ptr),
         bindings_count: ctx_ref.text_bindings_count,
+        report: Arc::clone(&report),
       },
     ),
     None => EventRegistry::new(),
   };
 
-  crate::app::install(registry, shared);
+  crate::app::install(registry, shared, report);
   crate::app::run();
 }
