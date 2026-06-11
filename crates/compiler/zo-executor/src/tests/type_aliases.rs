@@ -133,7 +133,7 @@ fn run_collect_errors(source: &str) -> Vec<zo_error::Error> {
     &mut ty_checker,
   );
 
-  let _ = executor.execute();
+  executor.execute();
 
   collect_errors()
 }

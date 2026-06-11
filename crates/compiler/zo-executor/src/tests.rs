@@ -11,6 +11,7 @@ pub(crate) mod concat;
 pub(crate) mod concurrency;
 pub(crate) mod constants;
 pub(crate) mod control_flow;
+pub(crate) mod cross_module_components;
 pub(crate) mod enums;
 pub(crate) mod errors;
 pub(crate) mod folding;

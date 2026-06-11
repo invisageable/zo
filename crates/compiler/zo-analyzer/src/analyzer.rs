@@ -2,7 +2,8 @@ use zo_error::{Error, ErrorKind};
 use zo_executor::Executor;
 use zo_interner::{Interner, Symbol};
 use zo_module_resolver::{
-  AbstractDef, AbstractImpl, ExportedGenericBody, ImportedSymbols,
+  AbstractDef, AbstractImpl, ExportedComponentBody, ExportedGenericBody,
+  ImportedSymbols,
 };
 use zo_reporter::{error_count, report_error};
 use zo_sir::Sir;
@@ -40,6 +41,10 @@ pub struct SemanticResult {
   /// `arr_$::method` instantiations re-executable across
   /// module boundaries (PLAN_CROSS_MODULE_GENERICS).
   pub generic_bodies: Vec<ExportedGenericBody>,
+  /// Component body fragments recorded during this run — the
+  /// importer splices each into its own tree so `<header />`
+  /// can instantiate a component defined in another module.
+  pub component_bodies: Vec<ExportedComponentBody>,
   /// Maps each identifier use-span to its definition-span.
   pub use_def_map: HashMap<Span, Span>,
   /// Pack symbol → absolute source path for every compiled
@@ -180,6 +185,7 @@ impl<'a> Analyzer<'a> {
         abstract_defs: HashMap::default(),
         abstract_impls: HashMap::default(),
         generic_bodies: Vec::new(),
+        component_bodies: Vec::new(),
         use_def_map: HashMap::default(),
         pack_paths: HashMap::default(),
       };
@@ -221,24 +227,17 @@ impl<'a> Analyzer<'a> {
 
     executor = executor.with_file_id(file_id);
 
-    let (
-      sir,
-      annotations,
-      funs,
-      abstract_defs,
-      abstract_impls,
-      generic_bodies,
-      use_def_map,
-    ) = executor.execute();
+    let execute_result = executor.execute();
 
     SemanticResult {
-      sir,
-      annotations,
-      abstract_defs,
-      abstract_impls,
-      funs,
-      generic_bodies,
-      use_def_map,
+      sir: execute_result.sir,
+      annotations: execute_result.annotations,
+      abstract_defs: execute_result.abstract_defs,
+      abstract_impls: execute_result.abstract_impls,
+      funs: execute_result.funs,
+      generic_bodies: execute_result.generic_bodies,
+      component_bodies: execute_result.component_bodies,
+      use_def_map: execute_result.use_def_map,
       pack_paths: HashMap::default(),
     }
   }

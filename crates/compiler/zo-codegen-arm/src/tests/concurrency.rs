@@ -45,7 +45,7 @@ fn compile_and_inspect<F: FnOnce(&[String])>(source: &str, check: F) {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _, _, _) = executor.execute();
+  let sir = executor.execute().sir;
 
   let mut codegen = ARM64Gen::new(&interner);
   let _artifact = codegen.generate(&sir);
@@ -75,7 +75,7 @@ fn compile_macho_and_inspect<F: FnOnce(&[u8])>(source: &str, check: F) {
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _, _, _) = executor.execute();
+  let sir = executor.execute().sir;
 
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);
@@ -115,7 +115,7 @@ fn compile_link_output_and_inspect<F: FnOnce(&zo_linker::LinkOutput)>(
     &mut ty_checker,
   );
 
-  let (sir, _, _, _, _, _, _) = executor.execute();
+  let sir = executor.execute().sir;
 
   let mut codegen = ARM64Gen::new(&interner);
   let artifact = codegen.generate(&sir);

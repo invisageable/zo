@@ -272,6 +272,14 @@ fn main() {
     if fail_dir.exists() {
       run_projects_fail(&fail_dir, &zo, &tmp, filter, target, &mut results);
     }
+
+    // build/ — windowed multi-file projects (#render): build
+    // always, launch only with --all.
+    let build_dir = usecases_dir.join("build");
+
+    if build_dir.exists() {
+      run_projects_build(&ctx, &build_dir, &mut results);
+    }
   }
 
   // Cleanup.
@@ -563,6 +571,65 @@ fn run_projects(
       }
 
       let result = run_project(project, name, zo, tmp, target);
+
+      print_result(&result);
+
+      Some(result)
+    })
+    .collect::<Vec<_>>();
+
+  results.extend(group_results);
+}
+
+/// Windowed multi-file projects live under `build/` — their
+/// `main` opens a window (`#render`), so they get the same posture
+/// as `templating/` files: build on every invocation, launch (and
+/// require staying alive) only with `--all`.
+fn run_projects_build(
+  ctx: &RunnerCtx,
+  dir: &Path,
+  results: &mut Vec<TestResult>,
+) {
+  if !dir.exists() {
+    return;
+  }
+
+  let mut projects = fs::read_dir(dir)
+    .expect("failed to read dir")
+    .filter_map(|e| e.ok())
+    .map(|e| e.path())
+    .filter(|p| p.is_dir() && p.join("src/main.zo").exists())
+    .collect::<Vec<_>>();
+
+  projects.sort();
+
+  if projects.is_empty() {
+    return;
+  }
+
+  let dir_name = dir
+    .strip_prefix(dir.ancestors().nth(3).unwrap_or(dir))
+    .unwrap_or(dir)
+    .display();
+
+  println!();
+  println!("[{dir_name}] {} projects", projects.len());
+
+  let group_results = projects
+    .par_iter()
+    .filter_map(|project| {
+      let name = project.file_name().and_then(|s| s.to_str()).unwrap_or("?");
+
+      if let Some(f) = ctx.filter
+        && !name.contains(f)
+      {
+        return None;
+      }
+
+      let main_zo = project.join("src/main.zo");
+      let out = ctx.tmp.join(name);
+      let result =
+        run_window_test(&main_zo, name, &out, ctx.zo, ctx.target, ctx.run_all);
 
       print_result(&result);
 

@@ -5,8 +5,8 @@ use zo_interner::{
   DenseMap, Interner, ScopeMark, ScopedDenseMap, Sentinel, Symbol,
 };
 use zo_module_resolver::{
-  AbstractDef, AbstractImpl, AbstractMethod, ExportedGenericBody,
-  ExportedLiteral,
+  AbstractDef, AbstractImpl, AbstractMethod, ExportedComponentBody,
+  ExportedGenericBody, ExportedLiteral, ExportedTreeSlice,
 };
 use zo_reporter::{
   Detail, TyNames, report_error, report_error_with_detail,
@@ -50,15 +50,26 @@ const TEMPLATE_INTERP_PREFIX: &str = "__interp_";
 /// signature stays under the rustfmt line cap and the
 /// analyzer / compiler crates destructure against a
 /// single nominal type.
-pub type ExecuteOutput = (
-  Sir,
-  Vec<Annotation>,
-  Vec<FunDef>,
-  HashMap<Symbol, AbstractDef>,
-  HashMap<(Symbol, Symbol), AbstractImpl>,
-  Vec<ExportedGenericBody>,
-  HashMap<Span, Span>,
-);
+pub struct ExecuteOutput {
+  /// The typed semantic IR the execution produced.
+  pub sir: Sir,
+  /// Per-node type annotations, parallel to executed nodes.
+  pub annotations: Vec<Annotation>,
+  /// The function table (carries `return_type_args` for ext
+  /// functions).
+  pub funs: Vec<FunDef>,
+  /// `abstract` interface definitions.
+  pub abstract_defs: HashMap<Symbol, AbstractDef>,
+  /// `(Abstract, Type) -> AbstractImpl` registrations.
+  pub abstract_impls: HashMap<(Symbol, Symbol), AbstractImpl>,
+  /// Generic bodies recorded for cross-module splicing.
+  pub generic_bodies: Vec<ExportedGenericBody>,
+  /// Component body fragments recorded for cross-module
+  /// instantiation.
+  pub component_bodies: Vec<ExportedComponentBody>,
+  /// Identifier use-span → definition-span map (LSP).
+  pub use_def_map: HashMap<Span, Span>,
+}
 
 /// Index newtype: position in `Executor::funs`.
 /// Reserves `u32::MAX` as the absent sentinel so a
@@ -625,6 +636,12 @@ pub struct Executor<'a> {
   /// `with_imports` time. Empty until the first
   /// `execute_apply_block`/`execute_fun` records a generic.
   recorded_generic_bodies: Vec<ExportedGenericBody>,
+  /// Component body fragments (`pub fun … -> </>`) recorded for
+  /// export — the importer splices each into its own tree so
+  /// `<header />` can instantiate a component defined here. Same
+  /// carrier as generic bodies; `type_params`/`apply_context`
+  /// ride along unused.
+  recorded_component_bodies: Vec<ExportedComponentBody>,
   /// Name override applied to the next `execute_fun` call.
   /// Used by the instantiation pass: re-executing a generic
   /// parses the same `Fun` node, which would emit the
@@ -967,6 +984,7 @@ impl<'a> Executor<'a> {
       generic_tree_ranges: HashMap::default(),
       splice_boundary: None,
       recorded_generic_bodies: Vec::new(),
+      recorded_component_bodies: Vec::new(),
       mono_name_override: None,
       pending_instantiations: Vec::new(),
       reexecuted_instantiations: HashSet::default(),
@@ -1972,6 +1990,79 @@ impl<'a> Executor<'a> {
   /// @note — captured at the same site that inserts into
   /// `generic_tree_ranges`; see PLAN_CROSS_MODULE_GENERICS
   /// for the splice protocol.
+  /// Clone a tree subrange into the portable export shape —
+  /// nodes, spans, sparse node values, and literal payloads the
+  /// importer replays into its own `LiteralStore`. `None` (with a
+  /// diagnostic at the range start) when the range carries a
+  /// store-backed literal the wire format can't ship yet
+  /// (interp/regex range tables).
+  fn export_tree_slice(
+    &mut self,
+    range_start: u32,
+    range_end: u32,
+  ) -> Option<ExportedTreeSlice> {
+    let nodes =
+      self.tree.nodes[range_start as usize..range_end as usize].to_vec();
+    let spans =
+      self.tree.spans[range_start as usize..range_end as usize].to_vec();
+
+    let mut node_values = Vec::new();
+    let mut literal_payloads = Vec::new();
+
+    for idx in range_start..range_end {
+      let Some(value) = self.tree.value(idx) else {
+        continue;
+      };
+
+      node_values.push((idx, value));
+
+      // Snapshot the literal payload so the importer can re-push
+      // it into its own `LiteralStore`. The defining module's
+      // store is gone by the time `with_imports` runs — without
+      // capture, the cloned `NodeValue::Literal(i)` dereferences
+      // off the END of the importer's store and decodes garbage.
+      // v1 covers primitive literals; interp / regex carry range
+      // tables and reject loudly until a follow-up handles them.
+      if let NodeValue::Literal(literal_idx) = value {
+        let token = self.tree.nodes[idx as usize].token;
+        let payload = match token {
+          Token::Int => ExportedLiteral::Int(
+            self.literals.int_literals[literal_idx as usize],
+          ),
+          Token::Float => ExportedLiteral::Float(
+            self.literals.float_literals[literal_idx as usize],
+          ),
+          Token::Char => ExportedLiteral::Char(
+            self.literals.char_literals[literal_idx as usize],
+          ),
+          Token::String => ExportedLiteral::StringSym(
+            self.literals.string_literals[literal_idx as usize],
+          ),
+          Token::Bytes => ExportedLiteral::Bytes(
+            self.literals.bytes_literals[literal_idx as usize],
+          ),
+          _ => {
+            let span = self.tree.spans[range_start as usize];
+
+            self.report(ErrorKind::UnsupportedGenericLiteral, span);
+
+            return None;
+          }
+        };
+
+        literal_payloads.push((idx, payload));
+      }
+    }
+
+    Some(ExportedTreeSlice {
+      nodes,
+      spans,
+      node_values,
+      literal_payloads,
+      origin_start: range_start,
+    })
+  }
+
   pub fn take_generic_bodies(&mut self) -> Vec<ExportedGenericBody> {
     std::mem::take(&mut self.recorded_generic_bodies)
   }
@@ -1998,7 +2089,9 @@ impl<'a> Executor<'a> {
       abstract_defs,
       abstract_impls,
       exported_generic_bodies: _,
+      exported_component_bodies: _,
       generic_bodies: spliced_bodies,
+      component_bodies: spliced_components,
     } = imports;
 
     self.fun_by_name.clear();
@@ -2097,10 +2190,22 @@ impl<'a> Executor<'a> {
     // boundary the main pass / prescan caps at, so the
     // spliced bodies are visited only by the re-execute
     // pass, never by the outer walk.
-    if let Some(min_start) =
-      spliced_bodies.iter().map(|b| b.range.0 as usize).min()
-    {
+    let generic_starts = spliced_bodies.iter().map(|b| b.range.0 as usize);
+    let component_starts =
+      spliced_components.iter().map(|b| b.range.0 as usize);
+
+    if let Some(min_start) = generic_starts.chain(component_starts).min() {
       self.splice_boundary = Some(min_start);
+    }
+
+    // Imported component fragments register straight into the
+    // component registry — `<header />` instantiates them by
+    // re-executing the spliced range, exactly like a component
+    // defined in this module.
+    for entry in &spliced_components {
+      self
+        .component_fragments
+        .insert(entry.name, (entry.range.0 as usize, entry.range.1 as usize));
     }
 
     for entry in spliced_bodies {
@@ -2603,15 +2708,16 @@ impl<'a> Executor<'a> {
     // merged stream carries final spans.
     self.sir.resolve_spans(&self.tree.spans);
 
-    (
-      self.sir,
-      self.annotations,
-      self.funs,
-      self.abstract_defs,
-      self.abstract_impls,
-      self.recorded_generic_bodies,
-      self.use_def_map,
-    )
+    ExecuteOutput {
+      sir: self.sir,
+      annotations: self.annotations,
+      funs: self.funs,
+      abstract_defs: self.abstract_defs,
+      abstract_impls: self.abstract_impls,
+      generic_bodies: self.recorded_generic_bodies,
+      component_bodies: self.recorded_component_bodies,
+      use_def_map: self.use_def_map,
+    }
   }
 
   /// Post-execution walk over SIR. Emits a
@@ -9408,68 +9514,7 @@ impl<'a> Executor<'a> {
         let range_start = start_idx as u32;
         let range_end = end_of_block as u32;
 
-        let nodes =
-          self.tree.nodes[range_start as usize..range_end as usize].to_vec();
-        let spans =
-          self.tree.spans[range_start as usize..range_end as usize].to_vec();
-
-        let mut node_values = Vec::new();
-        let mut literal_payloads = Vec::new();
-        let mut unsupported_literal = false;
-
-        for idx in range_start..range_end {
-          let Some(value) = self.tree.value(idx) else {
-            continue;
-          };
-
-          node_values.push((idx, value));
-
-          // Snapshot the literal payload here so the
-          // importer can re-push it into its own
-          // `LiteralStore`. The defining module's store is
-          // gone by the time `with_imports` runs — without
-          // capture, the cloned `NodeValue::Literal(i)`
-          // dereferences off the END of the importer's
-          // store and decodes garbage. v1 covers
-          // primitive literals; interp / regex carry
-          // range tables and reject loudly until a
-          // follow-up handles them.
-          if let NodeValue::Literal(literal_idx) = value {
-            let token = self.tree.nodes[idx as usize].token;
-            let payload = match token {
-              Token::Int => ExportedLiteral::Int(
-                self.literals.int_literals[literal_idx as usize],
-              ),
-              Token::Float => ExportedLiteral::Float(
-                self.literals.float_literals[literal_idx as usize],
-              ),
-              Token::Char => ExportedLiteral::Char(
-                self.literals.char_literals[literal_idx as usize],
-              ),
-              Token::String => ExportedLiteral::StringSym(
-                self.literals.string_literals[literal_idx as usize],
-              ),
-              Token::Bytes => ExportedLiteral::Bytes(
-                self.literals.bytes_literals[literal_idx as usize],
-              ),
-              _ => {
-                unsupported_literal = true;
-                continue;
-              }
-            };
-
-            literal_payloads.push((idx, payload));
-          }
-        }
-
-        if unsupported_literal {
-          // Interp / regex / other store-backed literal in
-          // a generic body — surface the limitation at the
-          // defining site rather than silently shipping a
-          // body the importer can't decode.
-          let span = self.tree.spans[range_start as usize];
-          self.report(ErrorKind::UnsupportedGenericLiteral, span);
-        } else {
+        if let Some(slice) = self.export_tree_slice(range_start, range_end) {
           let type_params: Vec<Symbol> =
             self.type_params.iter().map(|(sym, _)| *sym).collect();
 
@@ -9482,11 +9527,7 @@ impl<'a> Executor<'a> {
 
           self.recorded_generic_bodies.push(ExportedGenericBody {
             name,
-            nodes,
-            spans,
-            node_values,
-            literal_payloads,
-            origin_start: range_start,
+            slice,
             type_params,
             apply_context: apply_context_sym,
           });
@@ -25270,10 +25311,26 @@ impl<'a> Executor<'a> {
       && let Some(ctx) = &self.current_function
       && ctx.return_ty == self.ty_checker.template_ty()
     {
-      self.component_templates.insert(ctx.name, template_id);
-      self
-        .component_fragments
-        .insert(ctx.name, (start_idx, end_idx));
+      let name = ctx.name;
+
+      self.component_templates.insert(name, template_id);
+      self.component_fragments.insert(name, (start_idx, end_idx));
+
+      // Export the fragment for cross-module use: a `pub`
+      // component's importer re-executes this subtree from its own
+      // spliced copy. Non-pub components stay module-local.
+      let is_pub = self
+        .find_fun(name)
+        .is_some_and(|f| f.pubness == Pubness::Yes);
+
+      if is_pub
+        && let Some(slice) =
+          self.export_tree_slice(start_idx as u32, end_idx as u32)
+      {
+        self
+          .recorded_component_bodies
+          .push(ExportedComponentBody { name, slice });
+      }
     }
 
     if let Some(var_name) = self.pending_var_name.take() {
@@ -25458,9 +25515,11 @@ impl<'a> Executor<'a> {
     let (frag_start, frag_end) = *self.component_fragments.get(&sym)?;
     let params = self.find_fun(sym)?.params.clone();
 
-    if params.is_empty() {
-      // The baked registration-time template is identical for
-      // every use — the clone path is cheaper.
+    if params.is_empty() && self.component_templates.contains_key(&sym) {
+      // A local zero-prop component has a baked registration-time
+      // template identical for every use — the clone path is
+      // cheaper. An imported component has no local bake, so it
+      // falls through to instantiation of its spliced fragment.
       return None;
     }
 

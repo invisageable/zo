@@ -32,7 +32,7 @@
 
 THE AiM OF THE PROJECT iS TO ENHANCE THE DEVELOPER EXPERiENCE, MAKiNG iT SEAMLESS TO BUiLD SOFTWARE THAT REFLECTS YOUR CREATiViTY. WE FOCUS ON DETAiLS THAT MATTER, WHERE TRANSFORMiNG YOUR THOUGHTS iNTO PROGRAMS iS NOT JUST EASY, BUT ENJOYABLE.
 
-zo (pronounced `/zuː/` just like "zoo") iS A SiMPLE, LiGHTWEiGHT, CROSS-PLATFORM, GENERAL-PURPOSE PROGRAMMiNG LANGUAGE. TO SHiP, RUN AND BUiLD DESKTOP, MOBiLE AND WEB APPLiCATiONS WiTH ONE CODE SOURCE. THE CORE LiBRARY iNCLUDES SEVERAL PACKAGES. PROViDERS ARE AVAiLABLE TO EXPAND THE LANGUAGE's CAPABiLiTiES.
+zo (pronounced `/zuː/` just like "zoo") iS A SiMPLE, LiGHTWEiGHT, CROSS-PLATFORM, GENERAL-PURPOSE PROGRAMMiNG LANGUAGE. TO SHiP, RUN AND BUiLD TYPED-SAFE DESKTOP, MOBiLE AND WEB APPLiCATiONS WiTH ONE CODE SOURCE. THE CORE LiBRARY iNCLUDES SEVERAL PACKAGES. PROViDERS ARE AVAiLABLE TO EXPAND THE LANGUAGE's CAPABiLiTiES.
 
 **JOiN THE DEVOLUTiON.**
 
@@ -40,9 +40,7 @@ zo (pronounced `/zuː/` just like "zoo") iS A SiMPLE, LiGHTWEiGHT, CROSS-PLATFOR
 
 ## usage.
 
-**-zsx-counter**
-
-THiS PROGRAM DECLARES A COMPONENT (`counter`) COMPOSED BY TWO BUTTONS (`<button>`) AND A TEXT-BiNDiNG (`{count}`) ASSiGN TO `0`. EACH BUTTONS CONTAiNS AN EVENT (`@click`), ON CLiCK, iT TRiGGERS AND EXECUTE AN ACTiON TO DECREASE OR iNCREASE THE `count` VALUE. iT THEN RENDERS THE COMPONENT ViA A DiRECTiVE (`#render`).
+THiS PROGRAM DECLARES A COMPONENT (`counter`) COMPOSED BY TWO BUTTONS (`<button>`) AND A TEXT-BiNDiNG (`{count}`) ASSiGNED TO `0` BY DEFAULT. EACH BUTTONS CONTAiNS AN EVENT (`@click`), ON CLiCK, iT TRiGGERS AND EXECUTE AN ACTiON TO DECREASE OR iNCREASE THE `count` VALUE. iT THEN RENDERS THE COMPONENT ViA A DiRECTiVE (`#render`).
 
   ```zo
   fun main() {
@@ -75,7 +73,7 @@ ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS — SAME SOURC
 
 ---
 
-TESTiNG MACHiNE:
+DEV MACHiNE:
 
 ```
 Operating System  — Darwin 26.5.1 (ARM64)
@@ -85,83 +83,9 @@ Total Memory      — 18.0 GB
 Available Memory  — 9.4 GB
 ```
 
-> *Work in progress. zo supports desktop (ARM64), MacOS (iOS, visionOS, tvOS, watchOS), web (bundled or webview). We plan to supports more — desktop (Linux, Windows) and mobile (Android). Styling is not already unified between all platforms for now.*
-
-## why zo?
-
-zo iS A STATiCALLY COMPiLED SYSTEMS LANGUAGE, WiTHOUT A ViRTUAL MACHiNE OR GARBAGE COLLECTOR. THE LANGUAGE PAiRS CONCURRENT, GREEN-THREADED EXECUTiON WiTH A SiNGLE, DECLARATiVE CODEBASE THAT DEPLOYS DiRECTLY TO NATiVE PLATFORM WiDGETS ACROSS DESKTOP, MOBiLE AND WEB.
-
-CROSS-PLATFORM DEVELOPMENT REQUiRES COMPROMiSE: MANAGiNG UNSTABLE, GENERATED gradle AND xcode CONFiGURATiONS, OR CHOOSiNG BETWEEN javascript BRiDGE LATENCY AND CUSTOM CANVAS RENDERERS NON-NATiVE SCROLLiNG, BROKEN TEXT RENDERiNG, AND iNACCESSiBLE SCREENS.
-
-zo RESOLVES THESE COMPROMiSES BY COMPiLiNG A SiNGLE, DECLARATiVE CODEBASE TO THE PLATFORM OF YOUR CHOiCE. iTS A SiMPLE AND EXPRESSiVE PROGRAMMiNG LANGUAGE FOR LOW-LEVEL AND HiGH-LEVEL.
-
-> *« Rust makes you wait. C makes you think. zo just lets you build. » —i10e*
-
-<!-- ## features. -->
-
-**UNiFiED**
-
-WRiTE Ui ONCE WiTH zsx — TARGET DESKTOP <sup>GPU</sup> MOBiLE <sup>native</sup> OR THE WEB <sup>DOM</sup>
-
-**FAST**
-
-iNSTANT FEEDBACK LOOP — QUiCK BUiLD TiME, RAPiD DEBUGGiNG <sup>HELPFUL ERROR MESSAGES</sup>
-
-**SAFE**
-
-STATiCALLY & STRONGLY TYPED — SAFE RUNTiME <sup>NO LEAKED THREADS, NO DATA RACES, NO USE AFTER FREE</sup>
-
-**iNTEGRATED**
-
-COMPLETE WORKSTATiON WiTH BUiLT-iN TOOLS — PACKAGE MANAGER <sup><a href="./crates/packager/fret">fret</a></sup> AND TEXT EDiTOR <sup>codelord</sup>
-
-> *zo is in early development and not ready for production yet.*
+> *zo is in early development and not ready for production yet. Currently it supports desktop (ARM64), MacOS (iOS, tvOS, visionOS, watchOS), web (bundled or webview). We plan to supports more — desktop (Linux, Windows) and mobile (Android). Styling is not already unified between all platforms for now.*
 >
 > *WARNiNG — regarding Ai usage, we are using Ai to build based on our architecture and specification (made by humans). The compiler currently covers over 1500 unit and integration tests.*
-
-## ecosystem.
-
-THiS MONO-REPO POWERS AN ECOSYSTEM OF CRATES:
-
-> *More crates are coming. The architecture is modular and composable. Be gentle.*
-
-**-sources**
-
-| NAME                                               | DESCRiPTiON                                           |
-| :------------------------------------------------- | :---------------------------------------------------- |
-| [eazy](./sources/tweener/eazy)                     | THE HiGH-PERFORMANCE TWEENiNG & EASiNG FUNCTiONS KiT. |
-| [swisskit](./sources/crafter/swisskit)             | THE SWiSS-ARMY-KNiFE KiT.                             |
-| [tree-sitter-zo](./sources/crafter/tree-sitter-zo) | THE zo tree-sitter GRAMMAR.                           |
-
-**-crates**
-
-| NAME                                         | DESCRiPTiON                 |
-| :------------------------------------------- | :-------------------------- |
-| [fret](./crates/packager/fret)               | THE zo PACKAGE MANAGER.     |
-| [fret-vscode](./crates/packager/fret-vscode) | THE fret VS CODE EXTENSiON. |
-| [zo](./crates/compiler/zo)                   | THE zo COMPiLER.            |
-| [zo-vscode](./crates/compiler/zo-vscode)     | THE zo VS CODE EXTENSiON.   |
-
-**-gallery**
-
-...
-
-## benchmark.
-
-| Compiler | Run 1    | Run 2    | Run 3    | Run 4    | Run 5    | Average      |
-| :------- | :------- | :------- | :------- | :------- | :------- | :----------- |
-| **zo**   | 25.01ms  | 12.09ms  | 11.53ms  | 10.46ms  | 9.08ms   | **13.63ms**  |
-| clang    | 270.34ms | 76.76ms  | 81.65ms  | 66.49ms  | 61.47ms  | **111.34ms** |
-| go       | 376.35ms | 131.52ms | 125.96ms | 143.16ms | 129.17ms | **181.23ms** |
-| rustc    | 272.33ms | 164.42ms | 147.28ms | 170.54ms | 167.56ms | **184.42ms** |
-| gleam    | 205.87ms | 206.04ms | 205.66ms | 205.48ms | 202.47ms | **205.11ms** |
-| odin     | 422.94ms | 216.09ms | 219.56ms | 228.20ms | 230.74ms | **263.50ms** |
-
-*Workload: 503 tasks in a ring (`threadring`). A token hops node-to-node `N` times compiled to native ARM64 binary (including Hindley-Milner type inference, monomorphization, type checking, constant folding, propagation, dead code elimination and link passes).*
-
-  - @SEE — [@methodology-and-full-numbers](./crates/compiler/zo-benches)
-
-> *« Insanely faster, Usain Bolt would be jealous. » —i2N*
 
 ## get started.
 

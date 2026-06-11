@@ -1,0 +1,3 @@
+pub fun greeting(name: str) -> </> {
+  return <h1>hello, {name}!</h1>;
+}
