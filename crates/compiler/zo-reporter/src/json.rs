@@ -226,6 +226,9 @@ fn encode(
         }));
       }
     }
+    Some(Detail::Cycle(chain)) => {
+      obj.insert("cycle".into(), json!(&**chain));
+    }
     Some(Detail::ArgCount {
       callee,
       expected,

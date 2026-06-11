@@ -187,6 +187,7 @@ const fn entry(kind: ErrorKind) -> (&'static str, u16) {
     ErrorKind::NonPascalCaseName => ("non-pascal-case-name", 353),
     ErrorKind::NonScreamingCaseName => ("non-screaming-case-name", 354),
     ErrorKind::NonSnakeCaseName => ("non-snake-case-name", 355),
+    ErrorKind::CircularComponent => ("circular-component", 356),
 
     // --- Constants & arithmetic (E0500 .. E0599) ---
     ErrorKind::DivisionByZero => ("division-by-zero", 500),

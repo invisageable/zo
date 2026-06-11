@@ -130,3 +130,93 @@ fun main() {
     "imported parametrized component missing: {texts:?}"
   );
 }
+
+#[test]
+fn imported_mutual_recursion_reports_circular_component() {
+  // In B's own compilation, `<pong />` inside `ping` falls through
+  // (registration order), but the EXPORTED fragments re-execute in
+  // the importer where both are registered — without the
+  // instantiation stack this expands forever at compile time.
+  use zo_error::ErrorKind;
+  use zo_reporter::{clear_errors, collect_errors};
+
+  clear_errors();
+
+  let mut interner = Interner::new();
+  let mut ty_checker = TyChecker::new();
+
+  let widgets_src = r#"
+pub fun ping() -> </> {
+  return <div><pong /></div>;
+}
+
+pub fun pong() -> </> {
+  return <div><ping /></div>;
+}
+
+fun main() {}
+"#;
+
+  let tokenizer = Tokenizer::new(widgets_src, &mut interner);
+  let widgets_tok = tokenizer.tokenize();
+  let parser = Parser::new(&widgets_tok, widgets_src);
+  let widgets_par = parser.parse();
+
+  let executor = Executor::new(
+    &widgets_par.tree,
+    &mut interner,
+    &widgets_tok.literals,
+    &mut ty_checker,
+  );
+
+  let widgets_out = executor.execute();
+
+  let main_src = r#"
+fun main() {
+  imu page ::= <div><ping /></div>;
+
+  #render page;
+}
+"#;
+
+  let tokenizer = Tokenizer::new(main_src, &mut interner);
+  let main_tok = tokenizer.tokenize();
+  let parser = Parser::new(&main_tok, main_src);
+  let mut main_par = parser.parse();
+  let mut main_literals = main_tok.literals;
+
+  let spliced = splice_component_bodies(
+    &mut main_par.tree,
+    &mut main_literals,
+    widgets_out.component_bodies,
+  );
+
+  let imports = ImportedSymbols {
+    funs: widgets_out.funs,
+    component_bodies: spliced,
+    ..ImportedSymbols::default()
+  };
+
+  let mut ty_checker = TyChecker::new();
+  let executor = Executor::new(
+    &main_par.tree,
+    &mut interner,
+    &main_literals,
+    &mut ty_checker,
+  )
+  .with_imports(imports);
+
+  // The execution must COMPLETE (no hang) and carry the cycle
+  // diagnostic.
+  executor.execute();
+
+  let errors = collect_errors();
+
+  assert!(
+    errors
+      .iter()
+      .any(|e| e.kind() == ErrorKind::CircularComponent),
+    "expected CircularComponent, got: {:?}",
+    errors.iter().map(|e| e.kind()).collect::<Vec<_>>()
+  );
+}

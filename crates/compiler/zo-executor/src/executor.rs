@@ -71,6 +71,12 @@ pub struct ExecuteOutput {
   pub use_def_map: HashMap<Span, Span>,
 }
 
+/// Instantiation depth backstop for component splices the
+/// name-cycle check cannot see (pathological non-cyclic nesting).
+/// Far past any real component tree; exceeding it reports
+/// `CircularComponent` with the chain.
+const MAX_COMPONENT_DEPTH: usize = 64;
+
 /// Index newtype: position in `Executor::funs`.
 /// Reserves `u32::MAX` as the absent sentinel so a
 /// `DenseMap<Symbol, FunIdx>` can store it directly with
@@ -289,6 +295,13 @@ pub struct Executor<'a> {
   /// site. Suppresses component registration (the enclosing
   /// function must not re-register with an instance's template).
   instantiating: u32,
+  /// Components currently being instantiated, outermost first.
+  /// Local components can't recurse (registration order), but an
+  /// *imported* fragment re-executes where every spliced component
+  /// is already registered — without this stack, two mutually
+  /// referencing imported components would expand forever at
+  /// compile time.
+  instantiation_stack: Vec<Symbol>,
   /// Save-stack for nested `fun` inside a function body.
   /// Mirrors the `execute_closure` pattern: when the LBrace
   /// of a nested fun takes over `current_function`, we push
@@ -942,6 +955,7 @@ impl<'a> Executor<'a> {
       component_templates: HashMap::default(),
       component_fragments: HashMap::default(),
       instantiating: 0,
+      instantiation_stack: Vec::new(),
       saved_outer_funs: Vec::new(),
       pending_function: None,
       pending_fn_has_return_annotation: false,
@@ -25513,6 +25527,33 @@ impl<'a> Executor<'a> {
   ) -> Option<(Vec<UiCommand>, TemplateBindings)> {
     let sym = self.interner.symbol(tag)?;
     let (frag_start, frag_end) = *self.component_fragments.get(&sym)?;
+
+    // Instantiating a component already on the stack (or past the
+    // depth cap) can only expand forever — report the cycle with
+    // its path and emit nothing for this tag. The error blocks the
+    // build, so the dropped instance is never observable.
+    if self.instantiation_stack.contains(&sym)
+      || self.instantiation_stack.len() >= MAX_COMPONENT_DEPTH
+    {
+      let chain: Vec<&str> = self
+        .instantiation_stack
+        .iter()
+        .chain(std::iter::once(&sym))
+        .map(|s| self.interner.get(*s))
+        .collect();
+
+      zo_reporter::report_error_with_detail(
+        Error::with_file(
+          ErrorKind::CircularComponent,
+          tag_span,
+          self.current_file_id,
+        ),
+        zo_reporter::Detail::Cycle(chain.join(" → ").into()),
+      );
+
+      return None;
+    }
+
     let params = self.find_fun(sym)?.params.clone();
 
     if params.is_empty() && self.component_templates.contains_key(&sym) {
@@ -25589,7 +25630,9 @@ impl<'a> Executor<'a> {
     let sir_len = self.sir.instructions.len();
 
     self.instantiating += 1;
+    self.instantiation_stack.push(sym);
     self.execute_template_fragment(frag_start, frag_end);
+    self.instantiation_stack.pop();
     self.instantiating -= 1;
 
     self.pending_styles = saved_styles;

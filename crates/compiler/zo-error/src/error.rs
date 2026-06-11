@@ -573,4 +573,11 @@ pub enum ErrorKind {
   /// arguments, struct fields, `abstract` functions) that is
   /// not snake_case.
   NonSnakeCaseName,
+
+  /// A component instantiation that includes itself, directly or
+  /// through other components. Caught by the executor's
+  /// instantiation stack — reachable only through imported
+  /// (spliced) components, since local registration order forbids
+  /// self-reference.
+  CircularComponent,
 }

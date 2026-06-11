@@ -359,6 +359,9 @@ fn encode_detail(buf: &mut Buffer, detail: Option<&Detail>) {
     Some(Detail::Suggestion(name)) | Some(Detail::Rename(name)) => {
       text_element(buf, 2, "suggestion", name);
     }
+    Some(Detail::Cycle(chain)) => {
+      text_element(buf, 2, "cycle", chain);
+    }
     Some(Detail::ArgCount {
       callee,
       expected,

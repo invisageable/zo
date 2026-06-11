@@ -408,6 +408,7 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
       "Constant name is not SCREAMING_SNAKE_CASE"
     }
     ErrorKind::NonSnakeCaseName => "Name is not snake_case",
+    ErrorKind::CircularComponent => "Circular component instantiation",
     ErrorKind::UninitializedVariable => "Uninitialized variable",
     ErrorKind::InvalidSelfReference => "Invalid `self` reference",
     ErrorKind::InvalidTypeAnnotation => "Invalid type annotation",
@@ -600,6 +601,7 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::NonPascalCaseName => "expected a PascalCase name",
     ErrorKind::NonScreamingCaseName => "expected a SCREAMING_SNAKE_CASE name",
     ErrorKind::NonSnakeCaseName => "expected a snake_case name",
+    ErrorKind::CircularComponent => "this instantiation includes itself",
     ErrorKind::UninitializedVariable => "used before initialization",
     ErrorKind::InvalidSelfReference => "`self` used outside of `apply` block",
     ErrorKind::InvalidTypeAnnotation => "invalid type here",

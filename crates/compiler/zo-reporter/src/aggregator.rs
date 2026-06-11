@@ -214,6 +214,7 @@ impl ErrorAggregator {
         | ErrorKind::NonPascalCaseName
         | ErrorKind::NonScreamingCaseName
         | ErrorKind::NonSnakeCaseName
+        | ErrorKind::CircularComponent
         | ErrorKind::UninitializedVariable
         | ErrorKind::InvalidSelfReference
         | ErrorKind::InvalidTypeAnnotation => {
