@@ -295,3 +295,60 @@ fn test_style_grouped_selector() {
     },
   );
 }
+
+#[test]
+fn pseudo_class_selector_survives_with_hash_before_it() {
+  // `.btn:hover` must reach the stylesheet with the scope hash
+  // inserted BEFORE the pseudo suffix (`.btn._zo_x:hover`) — hash
+  // after the pseudo would still match in a browser, but the
+  // native key/state split reads `base:pseudo` left to right.
+  assert_sir_structure(
+    r#"
+      $: {
+        .btn {
+          bg: blue;
+        }
+        .btn:hover {
+          bg: red;
+        }
+        .btn:active {
+          bg: green;
+        }
+      }
+
+      fun main() {
+        imu view: </> ::= <button class="btn">go</button>;
+        #render view;
+      }
+    "#,
+    |sir| {
+      let css = sir
+        .iter()
+        .find_map(|i| match i {
+          Insn::StyleSheet { css, .. } => Some(css.as_str()),
+          _ => None,
+        })
+        .expect("style block should emit Insn::StyleSheet");
+
+      let hover_at = css.find(":hover").expect("hover rule lost");
+      let hash_at = css.find("._zo_").expect("scope hash missing");
+
+      assert!(
+        hash_at < hover_at,
+        "hash must precede the pseudo suffix: {css}"
+      );
+      assert!(css.contains(":active"), "active rule lost: {css}");
+
+      // The compiled form is parseable by the native rule model and
+      // keys by state.
+      let parsed = zo_ui_protocol::style::css::parse(css);
+      let hover = zo_ui_protocol::style::css::author_state_patch(
+        &parsed.rules,
+        ".btn",
+        zo_ui_protocol::style::css::Interaction::Hover,
+      );
+
+      assert!(hover.is_some(), "native model lost the hover rule: {css}");
+    },
+  );
+}

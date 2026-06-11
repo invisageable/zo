@@ -133,13 +133,34 @@ pub fn compile(sheet: &StyleSheet) -> String {
 }
 
 fn emit_rule(css: &mut String, rule: &StyleRule, scope_hash: Option<&str>) {
-  css.push_str(&rule.selector);
+  match scope_hash {
+    Some(hash) => {
+      // Scope each comma part independently, and inside a part
+      // insert the hash BEFORE any pseudo-class suffix so the
+      // compound stays canonical: `.btn:hover` → `.btn._zo_x:hover`,
+      // `p, .btn` → `p._zo_x, .btn._zo_x`.
+      let mut first = true;
 
-  if let Some(hash) = scope_hash {
-    // Append scope class to each simple selector.
-    // e.g. `p` -> `p._zo_a3f2`
-    css.push('.');
-    css.push_str(hash);
+      for part in rule.selector.split(',') {
+        if !first {
+          css.push_str(", ");
+        }
+
+        first = false;
+
+        let part = part.trim();
+        let (base, pseudo) = match part.find(':') {
+          Some(at) => part.split_at(at),
+          None => (part, ""),
+        };
+
+        css.push_str(base);
+        css.push('.');
+        css.push_str(hash);
+        css.push_str(pseudo);
+      }
+    }
+    None => css.push_str(&rule.selector),
   }
 
   css.push_str(" {\n");
@@ -160,6 +181,42 @@ fn emit_rule(css: &mut String, rule: &StyleRule, scope_hash: Option<&str>) {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn scope_hash_lands_before_pseudo_class() {
+    let sheet = StyleSheet {
+      rules: vec![StyleRule {
+        selector: ".btn:hover".into(),
+        props: vec![StyleProp {
+          name: "bg".into(),
+          value: "red".into(),
+        }],
+      }],
+      scope_hash: Some("_zo_x".into()),
+    };
+
+    let css = compile(&sheet);
+
+    assert!(css.starts_with(".btn._zo_x:hover {"), "got: {css}");
+  }
+
+  #[test]
+  fn scope_hash_applies_to_every_comma_part() {
+    let sheet = StyleSheet {
+      rules: vec![StyleRule {
+        selector: "p, .btn".into(),
+        props: vec![StyleProp {
+          name: "c".into(),
+          value: "cyan".into(),
+        }],
+      }],
+      scope_hash: Some("_zo_y".into()),
+    };
+
+    let css = compile(&sheet);
+
+    assert!(css.starts_with("p._zo_y, .btn._zo_y {"), "got: {css}");
+  }
 
   #[test]
   fn resolve_known_shorthands() {

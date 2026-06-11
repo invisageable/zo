@@ -23233,11 +23233,13 @@ impl<'a> Executor<'a> {
           Token::Dot => selector.push('.'),
           Token::Hash => selector.push('#'),
           Token::Comma => selector.push_str(", "),
+          Token::Colon => selector.push(':'),
           Token::Ident => {
             if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
               if !selector.is_empty()
                 && !selector.ends_with('.')
                 && !selector.ends_with('#')
+                && !selector.ends_with(':')
                 && !selector.ends_with(' ')
               {
                 selector.push(' ');
@@ -24732,8 +24734,7 @@ impl<'a> Executor<'a> {
                           }
                         })
                         .or_else(|| {
-                          handler_sym
-                            .map(|s| self.interner.get(s).to_string())
+                          handler_sym.map(|s| self.interner.get(s).to_string())
                         })
                         .unwrap_or_default();
 

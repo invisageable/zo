@@ -905,6 +905,16 @@ mod tests {
   use super::*;
   use zo_ui_protocol::{ElementTag, EventKind, UiCommand};
 
+  /// Serializes tests that touch the process-global state cells.
+  /// `drain_dirty` empties the WHOLE dirty set, so two tests
+  /// draining in parallel steal each other's marks — unique slot
+  /// ids alone can't prevent that.
+  fn state_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+  }
+
   fn empty_ctx_with_template(bytes: *const u8, len: usize) -> ZoRuntimeContext {
     ZoRuntimeContext {
       template_ptr: bytes,
@@ -984,6 +994,7 @@ mod tests {
 
   #[test]
   fn refresh_bindings_replaces_text_from_state() {
+    let _serial = state_lock();
     let state = [42i64];
     let str_state: Vec<Vec<u8>> = vec![vec![]];
     let mut cmds = vec![
@@ -1014,6 +1025,7 @@ mod tests {
 
   #[test]
   fn refresh_bindings_replaces_text_from_str_state() {
+    let _serial = state_lock();
     let state: [i64; 1] = [0];
     let str_state: Vec<Vec<u8>> = vec![encode_length_prefixed(b"hello")];
     let mut cmds = vec![UiCommand::Text("".into())];
@@ -1088,6 +1100,7 @@ mod tests {
 
   #[test]
   fn state_set_get_str_round_trip() {
+    let _serial = state_lock();
     zo_state_init(202);
 
     let payload = encode_length_prefixed(b"world");
@@ -1109,6 +1122,7 @@ mod tests {
 
   #[test]
   fn state_get_set_round_trip() {
+    let _serial = state_lock();
     // Slot 100 to avoid contention with other tests
     // using low slots (cargo runs tests in parallel and
     // STATE is a process-global `OnceLock<Mutex<Vec>>`).
@@ -1122,6 +1136,7 @@ mod tests {
 
   #[test]
   fn state_set_marks_dirty_and_drain_clears() {
+    let _serial = state_lock();
     // Slot 305 is unique to this test, so no parallel test
     // marks it: the global DIRTY set is process-wide, but
     // only this test touches 305 — assertions stay robust.
@@ -1151,6 +1166,7 @@ mod tests {
 
   #[test]
   fn arr_state_push_len_items_and_dirty() {
+    let _serial = state_lock();
     // Slot 410 is unique to this test — the global ARR_STATE is
     // process-wide, but nothing else touches 410.
     zo_state_init(420);
@@ -1287,6 +1303,7 @@ mod tests {
 
   #[test]
   fn rebuild_with_lists_splices_array_items() {
+    let _serial = state_lock();
     // Array slot 420 is unique to this test.
     zo_state_init(430);
 
@@ -1343,6 +1360,7 @@ mod tests {
 
   #[test]
   fn apply_attr_bindings_sets_value_from_state() {
+    let _serial = state_lock();
     use zo_ui_protocol::{Attr, PropValue};
 
     // Slot 430 = the input's `value` (a string), set to "typed".
@@ -1384,6 +1402,7 @@ mod tests {
 
   #[test]
   fn out_of_range_write_does_not_mark_dirty() {
+    let _serial = state_lock();
     zo_state_init(8);
 
     let mut drained = Vec::new();

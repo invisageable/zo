@@ -24,10 +24,52 @@ use super::computed::{
 /// pattern), so a renderer resolves `id → images[id] → asset`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ParsedSheet {
-  /// `(selector_key, patch)` rules, in source order.
-  pub rules: Vec<(String, StylePatch)>,
+  /// Parsed rules, in source order.
+  pub rules: Vec<CssRule>,
   /// `images[id]` is the URL for a `background_image` handle.
   pub images: Vec<String>,
+}
+
+/// One parsed author rule, keyed for native matching.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CssRule {
+  /// Selector key: leading tag (`p`) or first class (`.card`),
+  /// scope hash stripped.
+  pub key: String,
+  /// The interaction state a `:pseudo` suffix targets; `None` is
+  /// the base rule.
+  pub state: Option<Interaction>,
+  /// The declarations folded into patch form.
+  pub patch: StylePatch,
+}
+
+/// The interaction states the style mask models. Each runtime
+/// toggles them from events it already intercepts (pointer for
+/// hover, press for active, focus for inputs, the `disabled`
+/// attribute); the renderer overlays the matching patches onto the
+/// base style at paint time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Interaction {
+  Hover,
+  Active,
+  Focus,
+  Disabled,
+}
+
+impl Interaction {
+  /// Parse a pseudo-class name (without the `:`). Unmodeled
+  /// pseudo-classes return `None` and their rule is dropped —
+  /// misapplying `:first-child` as a base rule would be worse
+  /// than ignoring it.
+  fn from_pseudo(name: &str) -> Option<Self> {
+    match name {
+      "hover" => Some(Self::Hover),
+      "active" => Some(Self::Active),
+      "focus" => Some(Self::Focus),
+      "disabled" => Some(Self::Disabled),
+      _ => None,
+    }
+  }
 }
 
 /// Parse a compiled stylesheet into rules + an image catalog. Order is
@@ -119,7 +161,11 @@ pub fn parse(css: &str) -> ParsedSheet {
       }
     }
 
-    rules.push((selector_key(&selector), patch));
+    let (key, state, known) = selector_key(&selector);
+
+    if known {
+      rules.push(CssRule { key, state, patch });
+    }
   }
 
   ParsedSheet { rules, images }
@@ -128,15 +174,31 @@ pub fn parse(css: &str) -> ParsedSheet {
 /// Fold every rule matching `tag` into one author patch (later
 /// rules overwrite earlier set fields). Returns `None` when no
 /// rule targets the tag, so the cascade falls through to UA + root.
-pub fn author_patch(
-  rules: &[(String, StylePatch)],
+pub fn author_patch(rules: &[CssRule], tag: &str) -> Option<StylePatch> {
+  let mut merged: Option<StylePatch> = None;
+
+  for rule in rules {
+    if rule.state.is_none() && rule.key == tag {
+      merged.get_or_insert(StylePatch::EMPTY).overlay(&rule.patch);
+    }
+  }
+
+  merged
+}
+
+/// Fold every rule matching `tag` for one interaction state.
+/// The renderer overlays the result on the base author patch when
+/// the element is in that state.
+pub fn author_state_patch(
+  rules: &[CssRule],
   tag: &str,
+  state: Interaction,
 ) -> Option<StylePatch> {
   let mut merged: Option<StylePatch> = None;
 
-  for (selector, patch) in rules {
-    if selector == tag {
-      merged.get_or_insert(StylePatch::EMPTY).overlay(patch);
+  for rule in rules {
+    if rule.state == Some(state) && rule.key == tag {
+      merged.get_or_insert(StylePatch::EMPTY).overlay(&rule.patch);
     }
   }
 
@@ -216,16 +278,33 @@ fn parse_material(value: &str) -> Option<Material> {
 /// selector keys by its first class (`.card._zo_a3f2` → `.card`).
 /// Native renders one component, so the scope isolation the hash gives
 /// the web collapses to the bare name here.
-fn selector_key(selector: &str) -> String {
+/// Returns `(key, state, known)` — `known` is false when the
+/// selector carries a pseudo-class the mask does not model, so the
+/// caller drops the rule instead of misapplying it.
+fn selector_key(selector: &str) -> (String, Option<Interaction>, bool) {
   let selector = selector.trim();
 
-  if let Some(classes) = selector.strip_prefix('.') {
+  let (base, state, known) = match selector.find(':') {
+    Some(at) => {
+      let pseudo = &selector[at + 1..];
+
+      match Interaction::from_pseudo(pseudo) {
+        Some(state) => (&selector[..at], Some(state), true),
+        None => (&selector[..at], None, false),
+      }
+    }
+    None => (selector, None, true),
+  };
+
+  let key = if let Some(classes) = base.strip_prefix('.') {
     let class = classes.split('.').next().unwrap_or(classes);
 
     format!(".{class}")
   } else {
-    selector.split('.').next().unwrap_or(selector).to_string()
-  }
+    base.split('.').next().unwrap_or(base).to_string()
+  };
+
+  (key, state, known)
 }
 
 /// Parse a CSS length (`16px`, `8`) into pixels. The unit suffix is
@@ -387,8 +466,41 @@ mod tests {
 
   /// Rules-only view of `super::parse`, so the rule-focused tests
   /// stay terse; the catalog-aware tests call `super::parse` directly.
-  fn parse(css: &str) -> Vec<(String, StylePatch)> {
+  fn parse(css: &str) -> Vec<CssRule> {
     super::parse(css).rules
+  }
+
+  #[test]
+  fn pseudo_class_rules_key_by_state() {
+    let rules =
+      parse(".btn._zo_x { color: cyan; } .btn._zo_x:hover { color: red; }");
+
+    let base = author_patch(&rules, ".btn").unwrap();
+    let hover = author_state_patch(&rules, ".btn", Interaction::Hover).unwrap();
+
+    assert_eq!(base.color, Some(Rgba::rgb(0, 255, 255)));
+    assert_eq!(hover.color, Some(Rgba::rgb(255, 0, 0)));
+    assert!(author_state_patch(&rules, ".btn", Interaction::Active).is_none());
+  }
+
+  #[test]
+  fn unmodeled_pseudo_class_drops_the_rule() {
+    let rules = parse("li:first-child { color: red; } li { color: cyan; }");
+
+    let base = author_patch(&rules, "li").unwrap();
+
+    assert_eq!(base.color, Some(Rgba::rgb(0, 255, 255)));
+    assert_eq!(rules.len(), 1, "unmodeled pseudo rule must be dropped");
+  }
+
+  #[test]
+  fn disabled_state_keys_like_the_others() {
+    let rules = parse("button:disabled { color: cyan; }");
+
+    assert!(
+      author_state_patch(&rules, "button", Interaction::Disabled).is_some()
+    );
+    assert!(author_patch(&rules, "button").is_none());
   }
 
   #[test]

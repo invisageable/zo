@@ -13,8 +13,8 @@
 //! glyph metrics are needed — a separate plan).
 
 use zo_ui_protocol::style::{
-  Align, ComputedStyle, Display, FlexDirection, Justify, Material,
-  Size as ZoSize, StylePatch, cascade, css,
+  Align, ComputedStyle, Display, FlexDirection, Justify, Material, Size,
+  StylePatch, cascade, css,
 };
 use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 
@@ -74,6 +74,10 @@ pub struct LayoutTree {
   /// it). Its `Some` fields tell a runtime which declared properties
   /// to paint over a native widget's defaults.
   authors: Vec<StylePatch>,
+  /// Interaction-state patches per placement, parallel to `authors`.
+  /// The renderer overlays the patch matching the element's current
+  /// state (hover/active/focus/disabled) at paint time.
+  interactions: Vec<InteractionAuthors>,
   /// The enclosing paintable container per placed leaf, as a placement
   /// index into this same parallel order (`None` for a leaf that sits
   /// directly on the root). A retained-mode runtime that nests glass
@@ -143,6 +147,7 @@ impl LayoutTree {
       nodes: builder.nodes,
       styles: builder.styles,
       authors: builder.authors,
+      interactions: builder.interactions,
       parents: builder.parents,
       texts: builder.texts,
       source: commands.to_vec(),
@@ -210,6 +215,13 @@ impl LayoutTree {
   /// the patch's field is `Some`, leaving native defaults otherwise.
   pub fn authors(&self) -> &[StylePatch] {
     &self.authors
+  }
+
+  /// The interaction-state patches for each placement, parallel to
+  /// `authors`. Empty entries mean no state rule targets the element
+  /// — the renderer skips state tracking for those.
+  pub fn interactions(&self) -> &[InteractionAuthors] {
+    &self.interactions
   }
 
   /// The enclosing paintable container for each placed leaf, as a
@@ -298,12 +310,15 @@ struct Builder {
   tree: TaffyTree<Leaf>,
   /// Author rules parsed from the stream's stylesheets, scanned per
   /// element to resolve its style and record what it declared.
-  author: Vec<(String, StylePatch)>,
+  author: Vec<css::CssRule>,
   cursor: usize,
   cmd_index: Vec<usize>,
   nodes: Vec<NodeId>,
   styles: Vec<ComputedStyle>,
   authors: Vec<StylePatch>,
+  /// Interaction-state patches per placement — see
+  /// `LayoutTree::interactions`.
+  interactions: Vec<InteractionAuthors>,
   /// The enclosing paintable container per placement, parallel to
   /// `cmd_index` — see `LayoutTree::parents`.
   parents: Vec<Option<usize>>,
@@ -311,7 +326,7 @@ struct Builder {
 }
 
 impl Builder {
-  fn new(author: Vec<(String, StylePatch)>) -> Self {
+  fn new(author: Vec<css::CssRule>) -> Self {
     Self {
       tree: TaffyTree::new(),
       author,
@@ -320,6 +335,7 @@ impl Builder {
       nodes: Vec::new(),
       styles: Vec::new(),
       authors: Vec::new(),
+      interactions: Vec::new(),
       parents: Vec::new(),
       texts: Vec::new(),
     }
@@ -355,14 +371,15 @@ impl Builder {
         UiCommand::Text(text) => {
           let idx = self.cursor;
           let text = text.clone();
-          let node = self.leaf(
+          let node = self.leaf(LeafPlacement {
             idx,
             text,
-            ComputedStyle::ROOT,
-            StylePatch::EMPTY,
-            None,
+            style: ComputedStyle::ROOT,
+            author: StylePatch::EMPTY,
+            interactions: InteractionAuthors::default(),
+            size: None,
             parent,
-          );
+          });
 
           children.push(node);
           self.cursor += 1;
@@ -376,6 +393,8 @@ impl Builder {
           let idx = self.cursor;
           let self_closing = *self_closing;
           let author = resolve_author(&self.author, tag.as_str(), attrs);
+          let interactions =
+            resolve_interactions(&self.author, tag.as_str(), attrs);
           let style = cascade::resolve(tag.as_str(), author.as_ref(), None);
           let leaf = is_leaf_tag(tag);
           let size = leaf_size_override(tag, attrs);
@@ -389,7 +408,15 @@ impl Builder {
               collapse_text(cmds, self.cursor)
             };
             let author = author.unwrap_or(StylePatch::EMPTY);
-            let node = self.leaf(idx, text, style, author, size, parent);
+            let node = self.leaf(LeafPlacement {
+              idx,
+              text,
+              style,
+              author,
+              interactions,
+              size,
+              parent,
+            });
 
             children.push(node);
 
@@ -420,6 +447,7 @@ impl Builder {
               self.nodes.push(node);
               self.styles.push(style);
               self.authors.push(author.unwrap_or(StylePatch::EMPTY));
+              self.interactions.push(interactions);
               self.parents.push(parent);
               self.texts.push(leaf_text(cmds, idx));
 
@@ -470,15 +498,16 @@ impl Builder {
   /// `size` pins an explicit box (images, inputs); otherwise the box
   /// is `auto` and the measure closure sizes it from the text.
   /// `parent` is the enclosing paintable container's placement index.
-  fn leaf(
-    &mut self,
-    idx: usize,
-    text: String,
-    style: ComputedStyle,
-    author: StylePatch,
-    size: Option<TaffySize<Dimension>>,
-    parent: Option<usize>,
-  ) -> NodeId {
+  fn leaf(&mut self, placement: LeafPlacement) -> NodeId {
+    let LeafPlacement {
+      idx,
+      text,
+      style,
+      author,
+      interactions,
+      size,
+      parent,
+    } = placement;
     let taffy_style = TaffyStyle {
       // Padding is folded into the text measure, so the leaf's own box
       // padding stays zero — setting both would double-count it.
@@ -505,6 +534,7 @@ impl Builder {
     self.nodes.push(node);
     self.styles.push(style);
     self.authors.push(author);
+    self.interactions.push(interactions);
     self.parents.push(parent);
     self.texts.push(text);
 
@@ -512,13 +542,29 @@ impl Builder {
   }
 }
 
+/// Everything one measured leaf records in the side tables.
+struct LeafPlacement {
+  /// Index of the element's command in the source stream.
+  idx: usize,
+  /// The collapsed text the measure closure sizes.
+  text: String,
+  /// The cascaded style (UA + author).
+  style: ComputedStyle,
+  /// The author patch (declared properties to paint).
+  author: StylePatch,
+  /// Interaction-state patches for the paint-time overlay.
+  interactions: InteractionAuthors,
+  /// Explicit box override (images, inputs); `None` sizes from text.
+  size: Option<TaffySize<Dimension>>,
+  /// Enclosing paintable container's placement index.
+  parent: Option<usize>,
+}
+
 /// Parse every `StyleSheet` command into one ordered list of author
 /// rules plus the combined image catalog the cascade folds in. Each
 /// sheet's `background_image` handles are offset into the combined
 /// catalog so indices stay valid when several sheets are concatenated.
-fn collect_author(
-  commands: &[UiCommand],
-) -> (Vec<(String, StylePatch)>, Vec<String>) {
+fn collect_author(commands: &[UiCommand]) -> (Vec<css::CssRule>, Vec<String>) {
   let mut rules = Vec::new();
   let mut images = Vec::new();
 
@@ -528,8 +574,8 @@ fn collect_author(
       let base = images.len() as u32;
 
       if base > 0 {
-        for (_, patch) in &mut sheet.rules {
-          if let Some(id) = patch.background_image.as_mut() {
+        for rule in &mut sheet.rules {
+          if let Some(id) = rule.patch.background_image.as_mut() {
             *id += base;
           }
         }
@@ -548,7 +594,7 @@ fn collect_author(
 /// — higher specificity). Keeps native styling in step with the web,
 /// where `.card { … }` already applies. `None` when nothing targets it.
 fn resolve_author(
-  rules: &[(String, StylePatch)],
+  rules: &[css::CssRule],
   tag: &str,
   attrs: &[Attr],
 ) -> Option<StylePatch> {
@@ -563,6 +609,60 @@ fn resolve_author(
   }
 
   author
+}
+
+/// Per-element patches for each interaction state, resolved once at
+/// build (the rules are static); the renderer overlays the one
+/// matching the element's current state at paint time.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InteractionAuthors {
+  pub hover: Option<StylePatch>,
+  pub active: Option<StylePatch>,
+  pub focus: Option<StylePatch>,
+  pub disabled: Option<StylePatch>,
+}
+
+impl InteractionAuthors {
+  /// True when no state rule targets the element — the renderer's
+  /// fast path skips state tracking entirely.
+  pub fn is_empty(&self) -> bool {
+    self.hover.is_none()
+      && self.active.is_none()
+      && self.focus.is_none()
+      && self.disabled.is_none()
+  }
+}
+
+/// Resolve an element's interaction-state patches: tag rules, then
+/// `.class` rules folded on top — the same specificity order as
+/// `resolve_author`.
+fn resolve_interactions(
+  rules: &[css::CssRule],
+  tag: &str,
+  attrs: &[Attr],
+) -> InteractionAuthors {
+  let fold = |state: css::Interaction| {
+    let mut merged = css::author_state_patch(rules, tag, state);
+
+    if let Some(classes) = class_attr(attrs) {
+      for class in classes.split_whitespace() {
+        if let Some(patch) =
+          css::author_state_patch(rules, &format!(".{class}"), state)
+        {
+          merged.get_or_insert(StylePatch::EMPTY).overlay(&patch);
+        }
+      }
+    }
+
+    merged
+  };
+
+  InteractionAuthors {
+    hover: fold(css::Interaction::Hover),
+    active: fold(css::Interaction::Active),
+    focus: fold(css::Interaction::Focus),
+    disabled: fold(css::Interaction::Disabled),
+  }
 }
 
 /// The element's `class` attribute value, if any.
@@ -832,19 +932,19 @@ fn attr_num(attrs: &[Attr], name: &str) -> Option<u32> {
 }
 
 /// `zo::Size` width/height → `taffy::Size<Dimension>`.
-fn to_size(width: ZoSize, height: ZoSize) -> TaffySize<Dimension> {
+fn to_size(width: Size, height: Size) -> TaffySize<Dimension> {
   TaffySize {
     width: to_dimension(width),
     height: to_dimension(height),
   }
 }
 
-fn to_dimension(size: ZoSize) -> Dimension {
+fn to_dimension(size: Size) -> Dimension {
   match size {
-    ZoSize::Auto => Dimension::auto(),
-    ZoSize::Px(value) => Dimension::length(value),
+    Size::Auto => Dimension::auto(),
+    Size::Px(value) => Dimension::length(value),
     // zo stores percent as 0–100; taffy wants a 0–1 fraction.
-    ZoSize::Percent(value) => Dimension::percent(value / 100.0),
+    Size::Percent(value) => Dimension::percent(value / 100.0),
   }
 }
 

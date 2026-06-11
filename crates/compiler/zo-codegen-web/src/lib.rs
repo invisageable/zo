@@ -28,7 +28,12 @@ pub struct WebGen {
   container_stack: Vec<String>,
   /// Pre-computed class attribute string from scoped stylesheets.
   /// Empty when no scoped styles are active.
-  scope_class_attr: String,
+  /// Space-joined scope hashes (`_zo_a3f2 _zo_b1d4`) merged into
+  /// every element's `class` attribute. Kept bare (not a rendered
+  /// ` class="…"` fragment) so an authored class merges into ONE
+  /// attribute — a duplicate `class` attr is dropped by browsers,
+  /// which silently killed scoped class selectors.
+  scope_classes: String,
 }
 
 impl WebGen {
@@ -37,7 +42,7 @@ impl WebGen {
     Self {
       html_buffer: String::with_capacity(4096),
       container_stack: Vec::with_capacity(16),
-      scope_class_attr: String::new(),
+      scope_classes: String::new(),
     }
   }
 
@@ -204,11 +209,7 @@ impl WebGen {
       }
     }
 
-    self.scope_class_attr = if scope_hashes.is_empty() {
-      String::new()
-    } else {
-      format!(" class=\"{}\"", scope_hashes.join(" "))
-    };
+    self.scope_classes = scope_hashes.join(" ");
 
     for (idx, cmd) in commands.iter().enumerate() {
       self.render_command(cmd, idx);
@@ -246,14 +247,32 @@ impl WebGen {
         self_closing,
       } => {
         let tag_name = tag.as_str();
-        let sc = &self.scope_class_attr;
         let zo_cmd_attr = format!("data-zo-cmd=\"{idx}\"");
+
+        let authored_class = attrs
+          .iter()
+          .find(|attr| attr.name() == "class")
+          .and_then(|attr| attr.as_str());
+
+        let class_attr = match (authored_class, self.scope_classes.is_empty()) {
+          (Some(classes), false) => {
+            format!(" class=\"{classes} {}\"", self.scope_classes)
+          }
+          (Some(classes), true) => format!(" class=\"{classes}\""),
+          (None, false) => format!(" class=\"{}\"", self.scope_classes),
+          (None, true) => String::new(),
+        };
 
         self
           .html_buffer
-          .push_str(&format!("<{tag_name}{sc} {zo_cmd_attr}"));
+          .push_str(&format!("<{tag_name}{class_attr} {zo_cmd_attr}"));
 
         for attr in attrs {
+          // The merged attribute above already carries the class.
+          if attr.name() == "class" {
+            continue;
+          }
+
           self.emit_attr(tag, attr);
         }
 

@@ -655,6 +655,35 @@ fn test_style_block_simple() {
 }
 
 #[test]
+fn test_style_block_pseudo_class_selector() {
+  // The selector colon (`.btn:hover {`) must NOT trigger the
+  // property-value scan — `hover` stays an Ident and the rule's
+  // braces stay balanced. The lookahead distinguishes it from the
+  // property colon (`bg: red;`) by which structural byte comes
+  // first (`{` = selector, `;`/`}` = property).
+  assert_tokens_stream(
+    "$: { .btn:hover { bg: red; } }",
+    &[
+      (Token::Dollar, "$"),
+      (Token::Colon, ":"),
+      (Token::LBrace, "{"),
+      (Token::Dot, "."),
+      (Token::Ident, "btn"),
+      (Token::Colon, ":"),
+      (Token::Ident, "hover"),
+      (Token::LBrace, "{"),
+      (Token::Ident, "bg"),
+      (Token::Colon, ":"),
+      (Token::StyleValue, "red"),
+      (Token::Semicolon, ";"),
+      (Token::RBrace, "}"),
+      (Token::RBrace, "}"),
+      (Token::Eof, ""),
+    ],
+  );
+}
+
+#[test]
 fn test_style_block_shorthand() {
   assert_tokens_stream(
     "$: { .title { fw: 800; ta: center; } }",

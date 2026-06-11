@@ -2,9 +2,12 @@
 
 use crate::loader::image::{ImageLoader, ImageState};
 
+use zo_runtime_render::layout::InteractionAuthors;
 use zo_runtime_render::layout::{LayoutTree, collapse_text};
 use zo_runtime_render::render::{EventId, EventPayload, Render, WidgetId};
-use zo_ui_protocol::style::{ComputedStyle, FontFamily, Rgba, StylePatch};
+use zo_ui_protocol::style::{
+  ComputedStyle, FontFamily, Rgba, StylePatch, cascade,
+};
 use zo_ui_protocol::{Attr, ElementTag, EventKind, UiCommand};
 
 use eframe::egui;
@@ -71,6 +74,7 @@ impl Renderer {
     let rects = tree.solve((available.x, available.y));
     let styles = tree.styles();
     let authors = tree.authors();
+    let interactions = tree.interactions();
     let origin = ui.min_rect().min;
 
     for (i, (idx, rect)) in rects.iter().enumerate() {
@@ -79,7 +83,28 @@ impl Renderer {
         egui::vec2(rect.width, rect.height),
       );
 
-      self.put_command(ui, &commands, *idx, placement, &styles[i], &authors[i]);
+      // Interaction states resolve at paint time: immediate mode
+      // re-runs this every frame, so overlaying the matching state
+      // patch on the static author patch is the whole mechanism —
+      // no retained state machine. Focus needs the widget id egui
+      // assigns during `put`, which doesn't exist yet here; it
+      // lands with the form-controls phase.
+      let (effective_style, effective_author) = resolve_interaction_state(
+        ui,
+        &commands[*idx],
+        placement,
+        (&styles[i], &authors[i]),
+        &interactions[i],
+      );
+
+      self.put_command(
+        ui,
+        &commands,
+        *idx,
+        placement,
+        &effective_style,
+        &effective_author,
+      );
     }
   }
 
@@ -319,6 +344,67 @@ fn attr_str<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a str> {
 }
 
 /// Look up the numeric value of a named attribute.
+/// Overlay the interaction-state patches matching the element's
+/// current pointer state onto its author patch, re-cascading when
+/// anything applied. Returns the untouched base for elements
+/// without state rules (the common case — one `is_empty` check).
+fn resolve_interaction_state(
+  ui: &egui::Ui,
+  command: &UiCommand,
+  rect: egui::Rect,
+  base: (&ComputedStyle, &StylePatch),
+  interactions: &InteractionAuthors,
+) -> (ComputedStyle, StylePatch) {
+  let (style, author) = base;
+
+  if interactions.is_empty() {
+    return (*style, *author);
+  }
+
+  let UiCommand::Element { tag, attrs, .. } = command else {
+    return (*style, *author);
+  };
+
+  let hovered = ui.rect_contains_pointer(rect);
+  let pressed = hovered && ui.input(|input| input.pointer.primary_down());
+  let disabled = attr_flag(attrs, "disabled");
+
+  let mut effective = *author;
+  let mut applied = false;
+
+  // Overlay order is specificity-by-state: hover under active
+  // (a pressed pointer is also hovering), disabled last — a
+  // disabled control must not light up under the pointer.
+  if hovered && let Some(patch) = &interactions.hover {
+    effective.overlay(patch);
+    applied = true;
+  }
+
+  if pressed && let Some(patch) = &interactions.active {
+    effective.overlay(patch);
+    applied = true;
+  }
+
+  if disabled && let Some(patch) = &interactions.disabled {
+    effective = *author;
+    effective.overlay(patch);
+    applied = true;
+  }
+
+  if !applied {
+    return (*style, *author);
+  }
+
+  let resolved = cascade::resolve(tag.as_str(), Some(&effective), None);
+
+  (resolved, effective)
+}
+
+/// True when a boolean attribute (`<button disabled>`) is present.
+fn attr_flag(attrs: &[Attr], name: &str) -> bool {
+  attrs.iter().any(|attr| attr.name() == name)
+}
+
 fn attr_num(attrs: &[Attr], name: &str) -> Option<u32> {
   for attr in attrs {
     if attr.name() == name {

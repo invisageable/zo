@@ -754,9 +754,30 @@ impl<'a> Tokenizer<'a> {
       }
       b':' => {
         self.tokens.push(Token::Colon, start as u32, 1);
-        // After colon in style context, scan the value.
+
+        // A colon either separates a property from its value
+        // (`bg: red;`) or marks a pseudo-class in a selector
+        // (`.btn:hover {`). Look ahead to the next structural
+        // byte: a `{` first means selector — leave the
+        // pseudo-class ident to the normal scanner; a `;` or `}`
+        // first means property — scan the opaque value.
         self.skip_whitespace();
-        if self.cursor < self.source.len()
+
+        let mut probe = self.cursor;
+        let selector_colon = loop {
+          if probe >= self.source.len() {
+            break false;
+          }
+
+          match self.source[probe] {
+            b'{' => break true,
+            b';' | b'}' => break false,
+            _ => probe += 1,
+          }
+        };
+
+        if !selector_colon
+          && self.cursor < self.source.len()
           && self.current() != b'}'
           && self.current() != b';'
         {
