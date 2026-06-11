@@ -360,6 +360,43 @@ pub unsafe extern "C" fn zo_state_arr_push(slot: u32, ptr: *const u8) {
   dirty().lock().unwrap().mark(slot);
 }
 
+/// Assign one item of a reactive `[]str` slot in place — the
+/// sibling of `zo_state_arr_push` for `todos[i] = v`. The value
+/// pointer is a length-prefixed string; an out-of-range index or
+/// slot is a no-op (never panic across the FFI boundary). Marks
+/// the slot dirty so the bound list re-renders.
+///
+/// # Safety
+///
+/// `ptr` must be null or point at a valid length-prefixed string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn zo_state_arr_set(
+  slot: u32,
+  index: u64,
+  ptr: *const u8,
+) {
+  let bytes: &[u8] = if ptr.is_null() {
+    b""
+  } else {
+    unsafe { read_length_prefixed(ptr) }
+  };
+  let item = String::from_utf8_lossy(bytes).into_owned();
+
+  {
+    let mut arr_state = arr_state().lock().unwrap();
+    let Some(slot_vec) = arr_state.get_mut(slot as usize) else {
+      return;
+    };
+    let Some(entry) = slot_vec.get_mut(index as usize) else {
+      return;
+    };
+
+    *entry = item;
+  }
+
+  dirty().lock().unwrap().mark(slot);
+}
+
 /// Number of elements in array slot `slot` (0 for an unset /
 /// out-of-range slot). The reactive `todos.len` read.
 #[unsafe(no_mangle)]
@@ -1003,6 +1040,9 @@ pub fn build_registry(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  use crate::render::EventPayload;
+
   use zo_ui_protocol::{ElementTag, EventKind, UiCommand};
 
   /// Serializes tests that touch the process-global state cells.
@@ -1348,6 +1388,42 @@ mod tests {
   }
 
   #[test]
+  fn arr_state_set_replaces_item_and_marks_dirty() {
+    let _serial = state_lock();
+
+    zo_state_init(480);
+
+    let a = encode_length_prefixed(b"a");
+    let b = encode_length_prefixed(b"b");
+    let z = encode_length_prefixed(b"z");
+
+    unsafe {
+      zo_state_arr_push(475, a.as_ptr());
+      zo_state_arr_push(475, b.as_ptr());
+    }
+
+    let mut scratch = Vec::new();
+
+    drain_dirty(&mut scratch);
+
+    unsafe { zo_state_arr_set(475, 0, z.as_ptr()) };
+
+    assert_eq!(arr_slot_items(475), vec!["z", "b"]);
+
+    let mut drained = Vec::new();
+
+    drain_dirty(&mut drained);
+
+    assert!(drained.contains(&475), "item write marks the slot dirty");
+
+    // Out-of-range index and slot are no-ops, never panics.
+    unsafe { zo_state_arr_set(475, 99, z.as_ptr()) };
+    unsafe { zo_state_arr_set(999_999, 0, z.as_ptr()) };
+
+    assert_eq!(arr_slot_items(475), vec!["z", "b"]);
+  }
+
+  #[test]
   fn list_write_reports_keyed_edit_script() {
     let _serial = state_lock();
 
@@ -1402,7 +1478,7 @@ mod tests {
     let c = encode_length_prefixed(b"c");
 
     unsafe { zo_state_arr_push(460, c.as_ptr()) };
-    registry.dispatch("__push", &crate::render::EventPayload::default());
+    registry.dispatch("__push", &EventPayload::default());
 
     {
       let report = report.lock().unwrap();
@@ -1420,7 +1496,7 @@ mod tests {
     let d = encode_length_prefixed(b"d");
 
     unsafe { zo_state_arr_push(460, d.as_ptr()) };
-    registry.dispatch("__push", &crate::render::EventPayload::default());
+    registry.dispatch("__push", &EventPayload::default());
 
     let report = report.lock().unwrap();
 

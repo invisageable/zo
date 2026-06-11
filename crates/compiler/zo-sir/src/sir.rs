@@ -1120,6 +1120,11 @@ pub enum Insn {
     index: ValueId,
     value: ValueId,
     ty_id: TyId,
+    /// The array's root binding, when the store names one
+    /// (`todos[i] = v`). Codegen routes stores on reactive
+    /// `[]str` slots through the runtime (`_zo_state_arr_set`)
+    /// the same way `ArrayPush::owner` routes pushes.
+    owner: Option<Symbol>,
   },
   /// Enum type definition.
   EnumDef {

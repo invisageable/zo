@@ -879,3 +879,50 @@ fn event_handler_pushing_to_list_leaves_it_free() {
     },
   );
 }
+
+#[test]
+fn closure_body_indexed_assignment_emits_array_store() {
+  // `fn() => arr[0] = v` must lower the store — the closure body
+  // has no Semicolon, so the array-assign pending finalizes at
+  // body end (the same seam that finalizes `count += 1`).
+  assert_sir_structure(
+    r#"
+fun main() {
+  mut arr := [1, 2];
+  imu f := fn() => arr[0] = 9;
+
+  f();
+  showln("{arr[0]}");
+}"#,
+    |sir| {
+      let stores = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::ArrayStore { .. }))
+        .count();
+
+      assert!(stores >= 1, "closure assignment lost its ArrayStore");
+    },
+  );
+}
+
+#[test]
+fn event_handler_closure_indexed_assignment_emits_array_store() {
+  assert_sir_structure(
+    r#"
+fun main() {
+  mut arr := [1, 2];
+
+  imu page ::= <button @click={fn() => arr[0] = 9}>x</button>;
+
+  #render page;
+}"#,
+    |sir| {
+      let stores = sir
+        .iter()
+        .filter(|i| matches!(i, Insn::ArrayStore { .. }))
+        .count();
+
+      assert!(stores >= 1, "handler assignment lost its ArrayStore");
+    },
+  );
+}

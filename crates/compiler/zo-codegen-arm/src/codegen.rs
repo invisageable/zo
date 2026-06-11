@@ -236,6 +236,7 @@ const SYM_STATE_SET_STR: &str = "_zo_state_set_str";
 // Reactive `[]str` arrays (a list binding's `items_var`) live in
 // the runtime's `ARR_STATE`; `arr.push(x)` lowers to this.
 const SYM_STATE_ARR_PUSH: &str = "_zo_state_arr_push";
+const SYM_STATE_ARR_SET: &str = "_zo_state_arr_set";
 
 /// Synthetic-symbol base for per-list item-recipe blobs embedded
 /// in `template_data`. Sits below the enum-synthetic base
@@ -4581,7 +4582,24 @@ impl<'a> ARM64Gen<'a> {
         index,
         value,
         ty_id,
+        owner,
       } => {
+        // Reactive `[]str` array: the items live in the runtime's
+        // `ARR_STATE`, so the store routes through the FFI (which
+        // copies the str + marks the slot dirty) instead of the
+        // local element write — same routing as `ArrayPush`.
+        if let Some(sym) = owner
+          && self.reactive_arr_slots.contains(sym)
+          && let Some(&slot) = self.reactive_slots.get(sym)
+        {
+          let idx_reg = self.alloc_reg(*index).unwrap_or(X1);
+          let val_reg = self.alloc_reg(*value).unwrap_or(X2);
+
+          self.emit_state_arr_set(slot, idx_reg, val_reg);
+
+          return;
+        }
+
         // Store value at base + 16 + index * 8.
         let arr_reg = self.alloc_reg(*array).unwrap_or(X0);
         let idx_reg = self.alloc_reg(*index).unwrap_or(X1);
@@ -9298,6 +9316,40 @@ impl<'a> ARM64Gen<'a> {
 
     self.emitter.emit_mov_imm(X0, slot as u16);
     self.emit_extern_call(SYM_STATE_ARR_PUSH);
+  }
+
+  /// Emit `mov x2, value; mov x1, index; mov w0, slot;
+  /// bl _zo_state_arr_set` — the reactive `[]str` item write.
+  /// Highest registers first so a later move never clobbers an
+  /// argument already in place (`emit_state_store`'s rule).
+  fn emit_state_arr_set(
+    &mut self,
+    slot: u32,
+    index: Register,
+    value: Register,
+  ) {
+    self.ensure_runtime_dylib_registered();
+
+    // A crossed pair (index already in X2) would be clobbered by
+    // the value move — stage it through X16 first.
+    let index = if index == X2 {
+      self.emitter.emit_mov_reg(X16, index);
+
+      X16
+    } else {
+      index
+    };
+
+    if value != X2 {
+      self.emitter.emit_mov_reg(X2, value);
+    }
+
+    if index != X1 {
+      self.emitter.emit_mov_reg(X1, index);
+    }
+
+    self.emitter.emit_mov_imm(X0, slot as u16);
+    self.emit_extern_call(SYM_STATE_ARR_SET);
   }
 
   /// The reactive slot id for `sym`, minting a fresh one (the

@@ -11,7 +11,7 @@
 use crate::runtime::Runtime;
 
 use zo_runtime_render::aot::{
-  RegistryInputs, SendPtr, ZoRuntimeContext, build_registry,
+  RegistryInputs, SendPtr, UpdateReport, ZoRuntimeContext, build_registry,
   decode_attr_bindings, decode_list_bindings, decode_template,
   rebuild_with_lists,
 };
@@ -85,6 +85,7 @@ pub unsafe extern "C" fn zo_run_web(ctx: *const ZoRuntimeContext) {
         attrs,
         bindings_ptr: SendPtr(ctx_ref.text_bindings_ptr),
         bindings_count: ctx_ref.text_bindings_count,
+        report: Arc::new(Mutex::new(UpdateReport::default())),
       },
     ));
   }

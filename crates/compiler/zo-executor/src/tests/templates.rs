@@ -1,13 +1,16 @@
 use crate::Executor;
-use crate::tests::common::{assert_execution_error, assert_sir_structure};
+use crate::tests::common::{
+  assert_execution_error, assert_no_errors, assert_sir_structure,
+};
 
 use zo_error::ErrorKind;
 use zo_interner::Interner;
 use zo_parser::Parser;
 use zo_reporter::collect_errors;
-use zo_sir::Insn;
+use zo_sir::{Insn, ListItemCmd};
 use zo_tokenizer::Tokenizer;
 use zo_ty_checker::TyChecker;
+use zo_ui_protocol::{Attr, ElementTag, UiCommand};
 use zo_value::FunctionKind;
 
 // === TEMPLATE DECLARATION ===
@@ -269,8 +272,6 @@ fn test_template_attr_interpolation() {
 /// Walk a `Vec<Insn>`, find the first `Insn::Template`, and
 /// return the attributes of its first `UiCommand::Element`.
 fn first_element_attrs(sir: &[Insn]) -> Vec<zo_ui_protocol::Attr> {
-  use zo_ui_protocol::UiCommand;
-
   for insn in sir {
     if let Insn::Template { commands, .. } = insn {
       for cmd in commands {
@@ -287,8 +288,6 @@ fn first_element_attrs(sir: &[Insn]) -> Vec<zo_ui_protocol::Attr> {
 /// Look up a `Prop` attribute by name, returning its display
 /// string value. Ignores `Event`, `Style`, `Dynamic` variants.
 fn prop_value(attrs: &[zo_ui_protocol::Attr], name: &str) -> Option<String> {
-  use zo_ui_protocol::Attr;
-
   for attr in attrs {
     if let Attr::Prop { name: n, value } = attr
       && n == name
@@ -574,8 +573,6 @@ fn test_template_attr_eager_expr_form_regression() {
 
 #[test]
 fn test_event_attribute_with_inline_closure() {
-  use zo_ui_protocol::UiCommand;
-
   assert_sir_structure(
     r#"fun main() {
   imu app: </> ::= <>
@@ -640,8 +637,6 @@ fn test_dom_directive_emits_insn() {
 /// output. Used by the smoke test below with `--nocapture` so
 /// the user can visually verify the splice landed correctly.
 fn format_template_commands(sir: &[Insn]) -> String {
-  use zo_ui_protocol::UiCommand;
-
   let mut out = String::new();
 
   for insn in sir {
@@ -721,8 +716,6 @@ fn test_html_directive_diagnose_sub_parse() {
 /// ```
 #[test]
 fn test_html_directive_smoke() {
-  use zo_ui_protocol::{ElementTag, UiCommand};
-
   let source = r#"fun main() {
   imu strong: str = "here's some <strong>html!!!</strong>";
   imu paragraph: </> ::= <p>{#html strong}</p>;
@@ -1028,8 +1021,6 @@ fn test_simple_ident_interp_uses_text_binding_not_computed() {
 
 #[test]
 fn test_template_list_binding_extracted_from_map_call() {
-  use zo_sir::ListItemCmd;
-
   assert_sir_structure(
     r#"fun main() {
   imu items: []str = ["a", "b"];
@@ -1084,8 +1075,6 @@ fn test_template_list_binding_emits_template_insn() {
   // even when the interp expands to a list binding. Without
   // this, the runtime sees zero UI commands and the window
   // never opens.
-  use zo_sir::Insn;
-
   assert_sir_structure(
     r#"fun main() {
   imu items: []str = ["a", "b"];
@@ -1128,8 +1117,6 @@ fun main() {
   #render page;
 }"#,
     |sir| {
-      use zo_ui_protocol::{ElementTag, UiCommand};
-
       // The LAST template is `page` (the component's own template
       // is emitted first, inside `header`'s body).
       let page = sir
@@ -1190,8 +1177,6 @@ fun main() {
   #render page;
 }"#,
     |sir| {
-      use zo_ui_protocol::{ElementTag, UiCommand};
-
       let page = sir
         .iter()
         .filter_map(|i| match i {
@@ -1229,8 +1214,6 @@ fun main() {
   #render page;
 }"#,
     |sir| {
-      use zo_ui_protocol::UiCommand;
-
       let page = sir
         .iter()
         .filter_map(|i| match i {
@@ -1262,10 +1245,6 @@ fun main() {
 
 #[test]
 fn component_missing_prop_reports_argument_mismatch() {
-  use super::common::assert_execution_error;
-
-  use zo_error::ErrorKind;
-
   assert_execution_error(
     r#"
 fun greeting(name: str) -> </> {
@@ -1304,8 +1283,6 @@ fun main() {
   #render page;
 }"#,
     |sir| {
-      use zo_ui_protocol::UiCommand;
-
       let page = sir
         .iter()
         .filter_map(|i| match i {
@@ -1353,8 +1330,6 @@ fun main() {
   #render page;
 }"#,
     |sir| {
-      use zo_ui_protocol::UiCommand;
-
       let (commands, bindings) = sir
         .iter()
         .filter_map(|i| match i {
@@ -1454,8 +1429,6 @@ fun main() {
   #render page;
 }"#,
     |sir| {
-      use zo_ui_protocol::UiCommand;
-
       let page = sir
         .iter()
         .filter_map(|i| match i {
@@ -1503,8 +1476,6 @@ fun main() {
   #render page;
 }"#,
     |sir| {
-      use zo_ui_protocol::UiCommand;
-
       let page = sir
         .iter()
         .filter_map(|i| match i {
@@ -1548,8 +1519,6 @@ fun main() {
   #render page;
 }"#,
     |sir| {
-      use zo_ui_protocol::UiCommand;
-
       let page = sir
         .iter()
         .filter_map(|i| match i {
@@ -1594,8 +1563,6 @@ fun main() {
   #render page;
 }"#,
     |sir| {
-      use zo_ui_protocol::UiCommand;
-
       let (commands, bindings) = sir
         .iter()
         .filter_map(|i| match i {
@@ -1624,10 +1591,6 @@ fun main() {
 
 #[test]
 fn event_on_component_tag_reports_instead_of_dropping() {
-  use super::common::assert_execution_error;
-
-  use zo_error::ErrorKind;
-
   assert_execution_error(
     r#"
 fun card(title: str) -> </> {
@@ -1673,9 +1636,6 @@ fun main() {
   #render page;
 }"#,
     |sir| {
-      use zo_ui_protocol::UiCommand;
-      use zo_value::FunctionKind;
-
       let page = sir
         .iter()
         .filter_map(|i| match i {
@@ -1719,5 +1679,45 @@ fun main() {
 
       assert!(has_closure_def, "parent closure FunDef missing from SIR");
     },
+  );
+}
+
+#[test]
+fn indexed_assignment_to_reactive_array_in_handler_compiles() {
+  // `todos[0] = "z"` inside a handler closure on a template-bound
+  // array died with a misattributed `Type mismatch: this function
+  // has no return type` pointed at `fun main` — the closure body
+  // had no Semicolon, so the array-assign pending never finalized
+  // and the RHS leaked as the implicit return.
+  assert_no_errors(
+    r#"
+fun main() {
+  mut todos := ["a", "b"];
+
+  imu page ::= <div>
+    <ul>{todos.map(fn(t) =:> <li>{t}</li>)}</ul>
+    <button @click={fn() => todos[0] = "z"}>edit</button>
+  </div>;
+
+  #render page;
+}"#,
+  );
+}
+
+#[test]
+fn indexed_assignment_handler_before_list_compiles() {
+  // Handler order must not matter relative to the list binding.
+  assert_no_errors(
+    r#"
+fun main() {
+  mut todos := ["a", "b"];
+
+  imu page ::= <div>
+    <button @click={fn() => todos[0] = "z"}>edit</button>
+    <ul>{todos.map(fn(t) =:> <li>{t}</li>)}</ul>
+  </div>;
+
+  #render page;
+}"#,
   );
 }

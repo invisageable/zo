@@ -8253,6 +8253,50 @@ impl<'a> Executor<'a> {
             note(sym, &mut written);
           }
         }
+        // Indexed write (`arr[i] = v`, `arr[i] += v`): the target
+        // ident sits before the bracket pair. Walk back over the
+        // matching brackets so `arr` counts as written — without
+        // it the array gets captured and the store lands on the
+        // closure's copy instead of the reactive state.
+        Token::Eq
+        | Token::PlusEq
+        | Token::MinusEq
+        | Token::StarEq
+        | Token::SlashEq
+        | Token::PercentEq
+          if idx > body_start
+            && self.tree.nodes[idx - 1].token == Token::RBracket =>
+        {
+          let mut depth = 0usize;
+          let mut probe = idx - 1;
+
+          let root = loop {
+            match self.tree.nodes[probe].token {
+              Token::RBracket => depth += 1,
+              Token::LBracket => {
+                depth -= 1;
+
+                if depth == 0 {
+                  break (probe > body_start
+                    && self.tree.nodes[probe - 1].token == Token::Ident)
+                    .then(|| self.node_value(probe - 1))
+                    .flatten();
+                }
+              }
+              _ => {}
+            }
+
+            if probe == body_start {
+              break None;
+            }
+
+            probe -= 1;
+          };
+
+          if let Some(NodeValue::Symbol(sym)) = root {
+            note(sym, &mut written);
+          }
+        }
         // `recv.push(…)` / `recv.pop(…)` realloc the array in place.
         Token::Dot
           if idx >= body_start + 2
@@ -8757,13 +8801,20 @@ impl<'a> Executor<'a> {
 
     // Compound/regular assignments are statements — they
     // don't produce a return value. Track whether one was
-    // finalized so the implicit return emits unit.
+    // finalized so the implicit return emits unit. Array and
+    // field assignments (`todos[0] = x`, `p.x = y`) finalize
+    // here too — without it the store never emits and the RHS
+    // leaks as the closure's implicit return.
     let had_compound =
       self.pending_compound.is_some() || self.pending_compound_field.is_some();
-    let had_assign = self.pending_assign.is_some();
+    let had_assign = self.pending_assign.is_some()
+      || self.pending_array_assign.is_some()
+      || self.pending_field_assign.is_some();
 
     self.finalize_pending_compound();
     self.finalize_pending_assign();
+    self.finalize_pending_array_assign();
+    self.finalize_pending_field_assign();
 
     // -- 10. Emit implicit return ----------------------------
 
@@ -10215,6 +10266,7 @@ impl<'a> Executor<'a> {
           index: index_sir,
           value: sv,
           ty_id: value_ty,
+          owner: Some(array_name),
         });
       }
     }
@@ -19932,6 +19984,7 @@ impl<'a> Executor<'a> {
           index,
           value: new_val,
           ty_id: elem_ty,
+          owner: Some(root),
         });
       }
 

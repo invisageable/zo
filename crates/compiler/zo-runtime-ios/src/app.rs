@@ -7,6 +7,7 @@
 //! `UIScreen::mainScreen` / `UIWindow::initWithFrame:`). The Info.plist
 //! `UIApplicationSceneManifest` names `ZoSceneDelegate`.
 
+use zo_runtime_render::aot::UpdateReport;
 use zo_runtime_render::asset::load_image_bytes;
 use zo_runtime_render::layout::{LayoutTree, Rect, collapse_text};
 use zo_runtime_render::render::{EventPayload, EventRegistry, build_event_map};
@@ -91,7 +92,7 @@ struct Runtime {
   /// commands it rewrote, or that it replaced the stream. Read
   /// after dispatch so the view patches O(dirty) instead of
   /// re-diffing the whole stream.
-  report: Arc<Mutex<zo_runtime_render::aot::UpdateReport>>,
+  report: Arc<Mutex<UpdateReport>>,
   /// The live view hierarchy + its layout tree, retained across taps
   /// so a tap reconciles in place instead of rebuilding every widget.
   /// `None` until the scene connects and the first render runs.
@@ -197,7 +198,7 @@ impl PlacedView {
 pub(crate) fn install(
   registry: EventRegistry,
   shared: Arc<Mutex<Vec<UiCommand>>>,
-  report: Arc<Mutex<zo_runtime_render::aot::UpdateReport>>,
+  report: Arc<Mutex<UpdateReport>>,
 ) {
   RUNTIME.with(|r| {
     *r.borrow_mut() = Some(Runtime {

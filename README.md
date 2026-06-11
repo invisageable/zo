@@ -22,8 +22,6 @@
   ⚡ speed: 704.02K LoC/s.
   ```
 
-[![invisage/zo](https://img.shields.io/badge/github-invisageable/zo-black?logo=github)](https://github.com/invisageable/zo)
-![license: MIT/APACHE](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 [![CI](https://github.com/invisageable/zo/workflows/CI/badge.svg)](https://github.com/invisageable/zo/actions)
 [![Discord](https://img.shields.io/badge/discord-compilords-7289DA?logo=discord)](https://discord.gg/JaNc4Nk5xw)
 ---

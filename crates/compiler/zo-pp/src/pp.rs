@@ -1161,9 +1161,13 @@ impl PrettyPrinter {
 
       match node.token {
         Token::Ident | Token::Int | Token::Float | Token::String => {
-          let value = &printee.source[start..end];
-
-          format!("{:?}({value})", node.token)
+          // Synthetic nodes (template rebalancing, splices) carry
+          // spans outside the source — render a marker instead of
+          // slicing out of bounds.
+          match printee.source.get(start..end) {
+            Some(value) => format!("{:?}({value})", node.token),
+            None => format!("{:?}(<synthetic>)", node.token),
+          }
         }
         _ => format!("{:?}", node.token),
       }
