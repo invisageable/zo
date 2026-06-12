@@ -150,6 +150,11 @@ pub struct AttrBindingAbi {
 
 /// AOT entry-point context. Built in the compiled exe's
 /// stack frame by codegen and passed by reference to
+///
+/// @note — append-only: new fields go at the END, and every shape
+/// change bumps `zo_abi::RUNTIME_ABI_TAG` so `zo build`
+/// rejects stale staged runtimes instead of silently dropping the
+/// new behavior.
 /// `_zo_run_native` at startup.
 ///
 /// Field order is part of the ABI. Optional callback /

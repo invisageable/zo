@@ -79,6 +79,7 @@ zo-emitter-arm = { path = "crates/compiler/zo-emitter-arm", version = "0.4.0" }
 zo-emitter-x86 = { path = "crates/compiler/zo-emitter-x86", version = "0.3.11" }
 zo-error = { path = "crates/compiler/zo-error", version = "0.4.0" }
 zo-executor = { path = "crates/compiler/zo-executor", version = "0.4.0" }
+zo-abi = { path = "crates/compiler/zo-abi", version = "0.4.0" }
 zo-host-paths = { path = "crates/compiler/zo-host-paths", version = "0.4.0" }
 zo-interner = { path = "crates/compiler/zo-interner", version = "0.4.0" }
 zo-linker = { path = "crates/compiler/zo-linker", version = "0.4.0" }

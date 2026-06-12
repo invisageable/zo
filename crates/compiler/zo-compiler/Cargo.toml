@@ -23,6 +23,7 @@ zo-linker = { workspace = true }
 zo-ownership = { workspace = true }
 zo-parser = { workspace = true }
 zo-sir = { workspace = true }
+zo-abi = { workspace = true }
 zo-pp = { workspace = true }
 zo-profiler = { workspace = true }
 zo-reporter = { workspace = true }

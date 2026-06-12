@@ -2623,6 +2623,14 @@ fn stage_dylib_as(
   // partial one.
   for src in &candidates {
     if src.exists() {
+      // The runtime dylib carries an ABI tag; a staged copy whose
+      // tag differs from the compiler's would decode an older
+      // `ZoRuntimeContext` and silently drop behavior (dead
+      // reactivity). Refuse the build instead.
+      if dest == RUNTIME_STAGED_DYLIB {
+        verify_runtime_abi_tag(src);
+      }
+
       let destination = output_dir.join(dest);
       let tmp =
         output_dir.join(format!(".{}.{}.tmp", dest, std::process::id()));
@@ -2636,4 +2644,46 @@ fn stage_dylib_as(
       return;
     }
   }
+}
+
+/// Scan a runtime dylib's bytes for the ABI tag and compare it to
+/// the compiler's expected value. A missing or mismatched tag
+/// aborts the build: a stale runtime next to a fresh binary fails
+/// silently at runtime (the staged library reads an older context
+/// layout), which costs far more than failing loudly here.
+fn verify_runtime_abi_tag(dylib: &std::path::Path) {
+  let Ok(bytes) = std::fs::read(dylib) else {
+    // Unreadable staging sources surface as copy failures below;
+    // nothing useful to add here.
+    return;
+  };
+
+  let found = zo_abi::find_abi_tag(&bytes);
+
+  if found == Some(zo_abi::RUNTIME_ABI_TAG.as_slice()) {
+    return;
+  }
+
+  let expected = String::from_utf8_lossy(zo_abi::RUNTIME_ABI_TAG);
+
+  match found {
+    Some(stale) => eprintln!(
+      "zo: runtime ABI mismatch — the staged runtime library \
+       ({}) carries tag `{}` but this compiler expects \
+       `{expected}`. Rebuild the runtime flavor libraries the \
+       compiler ships with (libzo_runtime_ui / libzo_runtime_core) \
+       so they match this compiler build.",
+      dylib.display(),
+      String::from_utf8_lossy(stale),
+    ),
+    None => eprintln!(
+      "zo: runtime ABI tag missing — the staged runtime library \
+       ({}) predates ABI tagging and cannot be paired with this \
+       compiler. Rebuild the runtime flavor libraries \
+       (libzo_runtime_ui / libzo_runtime_core).",
+      dylib.display(),
+    ),
+  }
+
+  std::process::exit(1);
 }

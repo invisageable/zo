@@ -96,15 +96,15 @@ Like all new langages developped in a technological context. zo's goals focus on
 
 > *""Simplicity is a prerequisite for reliability." — Edsger W. Dijkstra*
 
-"\"Re-think traditional compiler design.\" — Chandler Carruth",
+> *""Re-think traditional compiler design." — Chandler Carruth"*
 
-"\"The faster your software runs, the less power his consumed.\" — Chandler Carruth",
+> *""The faster your software runs, the less power his consumed." — Chandler Carruth"*
 
-"\"Challenge assumptions with aggressive goals.\" — Chandler Carruth",
+> *""Challenge assumptions with aggressive goals." — Chandler Carruth"*
 
-"\"Performance is king!\" — Mike Acton",
+> *""Performance is king!" — Mike Acton"*
 
-"\"People don't get it! People don't know how fast computers are!\" — Jonathan Blow",
+> *""People don't get it! People don't know how fast computers are!" — Jonathan Blow"*
 
 ---
 
@@ -125,11 +125,13 @@ favour. Five prominent lineages contribute the most:
 
 **-cyclone-and-ada**
 
-...
+Cyclone is a programming language to make a low-level C-like language safe made by Nikhil Swamy, Michael Hicks, Greg Morrisett, Dan Grossman and Trevor Jim. zo adopt 
+
+Ada is an extremely strong typing programming language and is designed for developing very large software systems.
 
 **-imba**
 
-...
+Imba is a fascinating Web programming language, the right fit to build frontend and backend made by Sindre Aarsaether and (...). zo integrated a similar system to do styling with zsx.
 
 **-es4-and-e4x**
 

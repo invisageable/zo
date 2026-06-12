@@ -8026,6 +8026,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "zo-abi"
+version = "0.4.0"
+
+[[package]]
 name = "zo-analyzer"
 version = "0.4.0"
 dependencies = [
@@ -8208,6 +8212,7 @@ dependencies = [
  "hashbrown 0.16.1",
  "rustc-hash 2.1.2",
  "tempfile",
+ "zo-abi",
  "zo-analyzer",
  "zo-bundler",
  "zo-codegen",
@@ -8569,6 +8574,7 @@ dependencies = [
  "sha1",
  "sha2",
  "sysinfo",
+ "zo-abi",
  "zo-c-abi",
  "zo-error",
  "zo-reporter",
