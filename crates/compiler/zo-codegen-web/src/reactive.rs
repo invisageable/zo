@@ -748,6 +748,7 @@ mod tests {
       )],
       computed: Vec::new(),
       list: Vec::new(),
+      conditional: Vec::new(),
     };
 
     let js = ReactiveJs::new(&sir, &interner)
@@ -823,6 +824,7 @@ mod tests {
           ],
         },
       )],
+      conditional: Vec::new(),
     };
 
     let js = ReactiveJs::new(&sir, &interner)

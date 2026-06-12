@@ -17,7 +17,7 @@
 //!   appliers, shared by the `aot` and `zo run` paths.
 
 use crate::evaluator::HandlerEvaluator;
-use crate::render::StateCell;
+use crate::render::{StateCell, StateValue};
 
 use zo_interner::Symbol;
 use zo_sir::{Insn, ListItemCmd};
@@ -516,6 +516,93 @@ pub fn apply_list_bindings(
     new_cmds.splice(target..target + 1, rendered);
     offset += new_len as isize - 1;
   }
+}
+
+/// One tier-2 conditional, its variable resolved to a state-cell
+/// slot — the driver builds these from
+/// `TemplateBindings::conditional` + the slot table.
+#[derive(Clone)]
+pub struct ResolvedConditional {
+  /// Region start in the BASE template commands (the inline,
+  /// initially-active branch).
+  pub cmd_idx: usize,
+  /// The inline branch's length in the base stream.
+  pub len: usize,
+  /// The condition's state-cell slot; truthiness is non-zero /
+  /// non-empty.
+  pub slot: usize,
+  /// Branch blobs with their reactive text interps as
+  /// `(branch_relative_idx, slot)` pairs substituted at splice.
+  pub on_true: Vec<UiCommand>,
+  pub true_text: Vec<(usize, usize)>,
+  pub on_false: Vec<UiCommand>,
+  pub false_text: Vec<(usize, usize)>,
+}
+
+/// Splice each conditional's ACTIVE branch over its base region,
+/// substituting the branch's reactive text from the cells.
+/// Returns `(base_cmd_idx, delta)` per binding so the caller can
+/// shift later bindings that target commands past a region whose
+/// length changed. Entries must be in ascending `cmd_idx` order
+/// (the executor records them in walk order).
+pub fn apply_conditional_bindings(
+  new_cmds: &mut Vec<UiCommand>,
+  conds: &[ResolvedConditional],
+  cells: &[StateCell],
+) -> Vec<(usize, isize)> {
+  let mut deltas = Vec::with_capacity(conds.len());
+  let mut offset: isize = 0;
+
+  for cond in conds {
+    let target = (cond.cmd_idx as isize + offset) as usize;
+
+    // The executor type-checked the condition as `bool`; any
+    // other variant here is a wiring fault and reads false rather
+    // than inventing truthiness.
+    let truthy = cells
+      .get(cond.slot)
+      .is_some_and(|cell| matches!(cell.get(), StateValue::Bool(true)));
+
+    let (blob, texts) = if truthy {
+      (&cond.on_true, &cond.true_text)
+    } else {
+      (&cond.on_false, &cond.false_text)
+    };
+
+    let mut rendered = blob.clone();
+
+    for (branch_idx, slot) in texts {
+      if let (Some(UiCommand::Text(out)), Some(cell)) =
+        (rendered.get_mut(*branch_idx), cells.get(*slot))
+      {
+        *out = cell.get().display();
+      }
+    }
+
+    let new_len = rendered.len();
+
+    new_cmds.splice(target..target + cond.len, rendered);
+    deltas.push((cond.cmd_idx, new_len as isize - cond.len as isize));
+    offset += new_len as isize - cond.len as isize;
+  }
+
+  deltas
+}
+
+/// Shift a base-stream command index by every conditional delta
+/// whose region precedes it — bindings recorded before the
+/// conditional keep their index; bindings after move with the
+/// swap.
+pub fn shift_for_deltas(cmd_idx: usize, deltas: &[(usize, isize)]) -> usize {
+  let mut shifted = cmd_idx as isize;
+
+  for (at, delta) in deltas {
+    if cmd_idx > *at {
+      shifted += delta;
+    }
+  }
+
+  shifted.max(0) as usize
 }
 
 /// Re-run each computed binding's closure over the current state
@@ -1074,5 +1161,110 @@ mod tests {
     assert_eq!(cmds[1], UiCommand::Text("untouched".into()));
     assert_eq!(cmds[2], UiCommand::Text("X".into()));
     assert_eq!(out.to_vec(), vec![0, 2]);
+  }
+}
+
+#[cfg(test)]
+mod conditional_tests {
+  use super::*;
+
+  use crate::render::StateValue;
+
+  use zo_ui_protocol::ElementTag;
+
+  fn text(s: &str) -> UiCommand {
+    UiCommand::Text(s.into())
+  }
+
+  fn el(tag: ElementTag) -> UiCommand {
+    UiCommand::Element {
+      tag,
+      attrs: vec![],
+      self_closing: false,
+    }
+  }
+
+  fn cond_fixture() -> ResolvedConditional {
+    ResolvedConditional {
+      cmd_idx: 1,
+      len: 3,
+      slot: 0,
+      on_true: vec![el(ElementTag::Ul), text("menu"), UiCommand::EndElement],
+      true_text: vec![],
+      on_false: vec![el(ElementTag::P), text("closed"), UiCommand::EndElement],
+      false_text: vec![],
+    }
+  }
+
+  /// Base: `<div> [false branch inline] </div>`.
+  fn base_stream() -> Vec<UiCommand> {
+    vec![
+      el(ElementTag::Div),
+      el(ElementTag::P),
+      text("closed"),
+      UiCommand::EndElement,
+      UiCommand::EndElement,
+    ]
+  }
+
+  #[test]
+  fn truthy_cell_splices_the_true_branch() {
+    let mut cmds = base_stream();
+    let cells = vec![StateCell::new(StateValue::Bool(true))];
+
+    let deltas =
+      apply_conditional_bindings(&mut cmds, &[cond_fixture()], &cells);
+
+    assert!(matches!(&cmds[1], UiCommand::Element { tag, .. }
+      if *tag == ElementTag::Ul));
+    assert!(matches!(&cmds[2], UiCommand::Text(t) if t == "menu"));
+    assert_eq!(deltas, vec![(1, 0)], "equal-length swap: zero delta");
+  }
+
+  #[test]
+  fn falsy_cell_keeps_the_false_branch() {
+    let mut cmds = base_stream();
+    let cells = vec![StateCell::new(StateValue::Bool(false))];
+
+    apply_conditional_bindings(&mut cmds, &[cond_fixture()], &cells);
+
+    assert!(matches!(&cmds[2], UiCommand::Text(t) if t == "closed"));
+  }
+
+  #[test]
+  fn else_less_empty_branch_shrinks_and_reports_delta() {
+    let mut cmds = base_stream();
+    let cells = vec![StateCell::new(StateValue::Bool(false))];
+    let cond = ResolvedConditional {
+      on_false: Vec::new(),
+      ..cond_fixture()
+    };
+
+    let deltas = apply_conditional_bindings(&mut cmds, &[cond], &cells);
+
+    assert_eq!(cmds.len(), 2, "region removed entirely");
+    assert_eq!(deltas, vec![(1, -3)]);
+    assert_eq!(shift_for_deltas(4, &deltas), 1, "downstream shifts back");
+    assert_eq!(shift_for_deltas(1, &deltas), 1, "region start holds");
+  }
+
+  #[test]
+  fn branch_text_substitutes_from_cells() {
+    let mut cmds = base_stream();
+    let cells = vec![
+      StateCell::new(StateValue::Bool(true)),
+      StateCell::new(StateValue::Str("ada".into())),
+    ];
+    let cond = ResolvedConditional {
+      true_text: vec![(1, 1)],
+      ..cond_fixture()
+    };
+
+    apply_conditional_bindings(&mut cmds, &[cond], &cells);
+
+    assert!(
+      matches!(&cmds[2], UiCommand::Text(t) if t == "ada"),
+      "branch interp reads the live cell"
+    );
   }
 }

@@ -40,6 +40,33 @@ pub struct TemplateBindings {
   /// with the rendered batch. Used for
   /// `<X>{arr.map(fn(t) => <body>)}</X>`.
   pub list: Vec<(usize, ListBinding)>,
+  /// Tier-2 conditionals: each entry swaps a command region
+  /// between two compiled branches when its reactive variable
+  /// changes (`{when open ? <a>…</a> : <b>…</b>}`). Both
+  /// branches compile; the initially-active one is inline in the
+  /// template commands at `[cmd_idx, cmd_idx + len)`.
+  pub conditional: Vec<ConditionalBinding>,
+}
+
+/// One tier-2 conditional region — see
+/// [`TemplateBindings::conditional`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConditionalBinding {
+  /// Region start in the template's command stream.
+  pub cmd_idx: usize,
+  /// Length of the INITIALLY-ACTIVE branch (the region inline in
+  /// the template commands).
+  pub len: usize,
+  /// The reactive variable the condition reads; truthiness is
+  /// non-zero.
+  pub var: Symbol,
+  /// The true branch's commands, with its reactive text interps
+  /// as `(branch_relative_idx, var)` pairs substituted at splice.
+  pub on_true: Vec<UiCommand>,
+  pub true_text: Vec<(usize, Symbol)>,
+  /// The false branch (an empty fragment for else-less forms).
+  pub on_false: Vec<UiCommand>,
+  pub false_text: Vec<(usize, Symbol)>,
 }
 
 /// Side-channel for a compound `{expr}` template

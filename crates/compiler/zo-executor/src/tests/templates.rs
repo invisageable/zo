@@ -1751,3 +1751,152 @@ fun main() {
     ErrorKind::StatementInTemplate,
   );
 }
+
+#[test]
+fn tier2_conditional_compiles_both_branches() {
+  assert_sir_structure(
+    r#"
+fun main() {
+  mut open := false;
+
+  imu page ::= <div>
+    <button @click={fn() => open = true}>menu</button>
+    {when open ? <ul>menu items</ul> : <p>closed</p>}
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let (commands, bindings) = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template {
+            commands, bindings, ..
+          } => Some((commands, bindings)),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      assert_eq!(bindings.conditional.len(), 1, "one conditional region");
+
+      let cond = &bindings.conditional[0];
+
+      let blob_text = |cmds: &[UiCommand]| -> String {
+        cmds
+          .iter()
+          .filter_map(|c| match c {
+            UiCommand::Text(t) => Some(t.as_str()),
+            _ => None,
+          })
+          .collect()
+      };
+
+      assert!(
+        blob_text(&cond.on_true).contains("menu items"),
+        "true branch compiled: {:?}",
+        cond.on_true
+      );
+      assert!(
+        blob_text(&cond.on_false).contains("closed"),
+        "false branch compiled: {:?}",
+        cond.on_false
+      );
+
+      // `open` starts false → the false branch is inline.
+      assert_eq!(cond.len, cond.on_false.len());
+
+      let region_text: String = commands[cond.cmd_idx..cond.cmd_idx + cond.len]
+        .iter()
+        .filter_map(|c| match c {
+          UiCommand::Text(t) => Some(t.as_str()),
+          _ => None,
+        })
+        .collect();
+
+      assert!(
+        region_text.contains("closed"),
+        "inline region is the initial branch: {region_text}"
+      );
+
+      // The branch blobs never leak into the SIR stream.
+      assert!(
+        !blob_text(commands).contains("menu items"),
+        "inactive branch must not be inline"
+      );
+    },
+  );
+}
+
+#[test]
+fn tier2_conditional_missing_else_is_an_error() {
+  // `when` always takes both branches — `?` without `:` is an
+  // error, never an implicit empty fragment.
+  assert_execution_error(
+    r#"
+fun main() {
+  mut open := true;
+
+  imu page ::= <div>
+    <button @click={fn() => open = false}>hide</button>
+    {when open ? <ul>menu items</ul>}
+  </div>;
+
+  #render page;
+}"#,
+    ErrorKind::ExpectedExpression,
+  );
+}
+
+#[test]
+fn compile_time_conditional_keeps_the_tier1_fold() {
+  // `imu` condition: no runtime swap — the general path folds it
+  // and no conditional binding is recorded.
+  assert_sir_structure(
+    r#"
+fun main() {
+  imu fancy := true;
+
+  imu page ::= <div>
+    {when fancy ? <b>bold</b> : <p>plain</p>}
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let bindings = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { bindings, .. } => Some(bindings),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      assert!(
+        bindings.conditional.is_empty(),
+        "compile-time conditions stay tier 1"
+      );
+    },
+  );
+}
+
+#[test]
+fn tier2_conditional_rejects_non_bool_condition() {
+  // Conditions are `bool` — an int flag is a type error, never a
+  // truthy coercion.
+  assert_execution_error(
+    r#"
+fun main() {
+  mut open := 0;
+
+  imu page ::= <div>
+    <button @click={fn() => open = 1}>menu</button>
+    {when open ? <ul>menu items</ul> : <p>closed</p>}
+  </div>;
+
+  #render page;
+}"#,
+    ErrorKind::TypeMismatch,
+  );
+}

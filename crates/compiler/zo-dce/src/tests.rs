@@ -743,6 +743,8 @@ fn template_computed_binding_pins_closure() {
       },
     )],
     list: Vec::new(),
+
+    conditional: Vec::new(),
   };
 
   let mut insns = vec![Insn::FunDef {

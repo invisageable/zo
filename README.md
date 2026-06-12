@@ -1,27 +1,5 @@
 # zo.
 
-  ```
-  [zo] lines processed (including blank lines and comments) — 499998.
-  │
-  ├── "Why accept slow compilers? Just make them faster." — Jonathan Blow
-  │
-  ├── ✓ [zo@front-end] time — 301.591 ms (42.5%).
-  │   ├── ⏺ [zo@tokenizer] time — 57.064 ms (8.0%).
-  │   │   └── ⏺ processed — 2399990 tokens.
-  │   ├── ⏺ [zo@parser] time — 36.126 ms (5.1%).
-  │   │   └── ⏺ parsed — 2350646 nodes.
-  │   └── ⏺ [zo@analyzer] time — 208.401 ms (29.3%).
-  │       └── ⏺ annotated — 349996 nodes.
-  ├── ✓ [zo@back-end] time — 408.614 ms (57.5%).
-  │   ├── ⏺ [zo@codegen:arm64-apple-darwin] time — 391.537 ms (55.1%).
-  │   │   └── ⏺ generated — 1 artifacts.
-  │   └── ⏺ [zo@linker] time — 17.076 ms (2.4%).
-  │       └── ⏺ linked — 1 files.
-  └── ✓ [zo@total] time — 710.205 ms (100.0%).
-
-  ⚡ speed: 704.02K LoC/s.
-  ```
-
 [![CI](https://github.com/invisageable/zo/workflows/CI/badge.svg)](https://github.com/invisageable/zo/actions)
 [![Discord](https://img.shields.io/badge/discord-compilords-7289DA?logo=discord)](https://discord.gg/JaNc4Nk5xw)
 ---
@@ -30,7 +8,7 @@
 
 THE AiM OF THE PROJECT iS TO ENHANCE THE DEVELOPER EXPERiENCE, MAKiNG iT SEAMLESS TO BUiLD SOFTWARE THAT REFLECTS YOUR CREATiViTY. WE FOCUS ON DETAiLS THAT MATTER, WHERE TRANSFORMiNG YOUR THOUGHTS iNTO PROGRAMS iS NOT JUST EASY, BUT ENJOYABLE.
 
-zo (pronounced `/zuː/` just like "zoo") iS A SiMPLE, LiGHTWEiGHT, CROSS-PLATFORM, GENERAL-PURPOSE PROGRAMMiNG LANGUAGE. TO SHiP, RUN AND BUiLD TYPED-SAFE DESKTOP, MOBiLE AND WEB APPLiCATiONS WiTH ONE CODE SOURCE. THE CORE LiBRARY iNCLUDES SEVERAL PACKAGES. PROViDERS ARE AVAiLABLE TO EXPAND THE LANGUAGE's CAPABiLiTiES.
+zo (pronounced `/zuː/` just like "zoo") iS A SiMPLE, LiGHTWEiGHT, CROSS-PLATFORM, GENERAL-PURPOSE PROGRAMMiNG LANGUAGE. TO SHiP, RUN AND BUiLD TYPE-SAFE DESKTOP, MOBiLE AND WEB APPLiCATiONS WiTH ONE CODE SOURCE. THE CORE LiBRARY iNCLUDES SEVERAL PACKAGES. PROViDERS ARE AVAiLABLE TO EXPAND THE LANGUAGE's CAPABiLiTiES.
 
 **JOiN THE DEVOLUTiON.**
 
@@ -38,7 +16,7 @@ zo (pronounced `/zuː/` just like "zoo") iS A SiMPLE, LiGHTWEiGHT, CROSS-PLATFOR
 
 ## usage.
 
-THiS PROGRAM DECLARES A COMPONENT (`counter`) COMPOSED BY TWO BUTTONS (`<button>`) AND A TEXT-BiNDiNG (`{count}`) ASSiGNED TO `0` BY DEFAULT. EACH BUTTONS CONTAiNS AN EVENT (`@click`), ON CLiCK, iT TRiGGERS AND EXECUTE AN ACTiON TO DECREASE OR iNCREASE THE `count` VALUE. iT THEN RENDERS THE COMPONENT ViA A DiRECTiVE (`#render`).
+THiS PROGRAM DECLARES A COMPONENT (`counter`) COMPOSED BY TWO BUTTONS (`<button>`) AND A TEXT-BiNDiNG (`{count}`) ASSiGNED TO `0` BY DEFAULT. EACH BUTTON CONTAiNS AN EVENT (`@click`), ON CLiCK, iT TRiGGERS AND EXECUTES AN ACTiON TO DECREASE OR iNCREASE THE `count` VALUE. iT THEN RENDERS THE COMPONENT ViA A DiRECTiVE (`#render`).
 
   ```zo
   fun main() {
@@ -81,9 +59,11 @@ Total Memory      — 18.0 GB
 Available Memory  — 9.4 GB
 ```
 
-> *zo is in early development and not ready for production yet. Currently it supports desktop (ARM64), MacOS (iOS, tvOS, visionOS, watchOS), web (bundled or webview). We plan to supports more — desktop (Linux, Windows) and mobile (Android). Styling is not already unified between all platforms for now.*
+> *zo is in early development and is not yet ready for production. Currently it supports desktop (ARM64), MacOS (iOS, tvOS, visionOS, watchOS), web (bundled or webview). We plan to support more — desktop (Linux, Windows) and mobile (Android). Styling is not yet fully unified across all platforms.*
 >
 > *WARNiNG — regarding Ai usage, we are using Ai to build based on our architecture and specification (made by humans). The compiler currently covers over 1500 unit and integration tests.*
+>
+> *DiSCLAiMER — this project is about having fun again. It is maintained by a small group of volunteers during their spare time. zo is not the new X or better than Y, zo is just different. Period. Be gentle.*
 
 ## sponsors & supports.
 

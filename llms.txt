@@ -1,39 +1,12 @@
 # zo
 
-> Turn your thoughts into type-safe software and Ui instantly.
+> *Turn your thoughts into type-safe software and Ui instantly.*
 
-A language to ship, run, and build native and web applications optimized for speed. zo is a feature-rich ecosystem focus on high-performance, simplicity and data-oriented.
+zo (pronounced /zuː/ just like "zoo") iS A SiMPLE, LiGHTWEiGHT, CROSS-PLATFORM, GENERAL-PURPOSE PROGRAMMiNG LANGUAGE. TO SHiP, RUN AND BUiLD TYPED-SAFE DESKTOP, MOBiLE AND WEB APPLiCATiONS WiTH ONE CODE SOURCE. THE CORE LiBRARY iNCLUDES SEVERAL PACKAGES. PROViDERS ARE AVAiLABLE TO EXPAND THE LANGUAGE's CAPABiLiTiES.
 
 ## Architecture
 - [CLAUDE.md](CLAUDE.md): The Three Prime Directives (velocity, pragmatism, insight) + pipeline overview
 - [Grammar (EBNF)](crates/compiler/zo-notes/public/grammar/zo.ebnf): Formal language grammar
-
-## Compiler crates
-- [zo-tokenizer](crates/compiler/zo-tokenizer): Zero-allocation tokenizer, pre-balanced delimiters
-- [zo-parser](crates/compiler/zo-parser): Linear postorder parse tree, no recursion
-- [zo-tree](crates/compiler/zo-tree): Parse tree data structure, indexed access
-- [zo-analyzer](crates/compiler/zo-analyzer): Tree → SIR execution, type checking
-- [zo-sir](crates/compiler/zo-sir): Semantic IR — typed, output of executing Tree
-- [zo-ty](crates/compiler/zo-ty): Type representation
-- [zo-ty-checker](crates/compiler/zo-ty-checker): Hindley-Milner type inference
-- [zo-codegen-backend](crates/compiler/zo-codegen-backend): Codegen trait/abstraction layer
-- [zo-codegen](crates/compiler/zo-codegen): Codegen orchestrator
-- [zo-codegen-arm](crates/compiler/zo-codegen-arm): AArch64 backend
-- [zo-codegen-clif](crates/compiler/zo-codegen-clif): Cranelift backend
-- [zo-emitter](crates/compiler/zo-emitter): Machine code emission
-- [zo-emitter-arm](crates/compiler/zo-emitter-arm): AArch64 instruction emission
-- [zo-writer](crates/compiler/zo-writer): Binary file writer
-- [zo-writer-macho](crates/compiler/zo-writer-macho): Mach-O object/binary writer
-- [zo-linker](crates/compiler/zo-linker): Linking
-- [zo-runtime](crates/compiler/zo-runtime): Scheduler, structured concurrency, TLS
-- [zo-runtime-native](crates/compiler/zo-runtime-native): Native runtime support
-- [zo-runtime-render](crates/compiler/zo-runtime-render): Render runtime support
-- [zo-runtime-web](crates/compiler/zo-runtime-web): Web runtime support
-- [zo-ui-protocol](crates/compiler/zo-ui-protocol): UI protocol bridging executor → render runtime (zsx commands)
-- [zo-reporter](crates/compiler/zo-reporter): Diagnostic collection
-- [zo-driver](crates/compiler/zo-driver): Orchestrates phases, owns the compile-to-run path
-- [zo-benches](crates/compiler/zo-benches): Throughput benchmarks against clang, rustc
-- [zo-test-runner](crates/compiler/zo-test-runner): Integration tests on compiled programs
 
 ## Tools
 - [fret](crates/packager/fret): Zero-config package manager
@@ -41,7 +14,6 @@ A language to ship, run, and build native and web applications optimized for spe
 
 ## Apps
 - [Site](apps/site): Astro-based marketing/docs site (zo.compilords.house)
-- [codelord](https://github.com/invisageable/codelord): Editor designed to disappear
 
 ## Performance targets
 - Tokenize + Parse: 10,000,000 LoC/s (Carbon: 8M)

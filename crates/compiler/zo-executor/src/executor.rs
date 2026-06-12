@@ -13,9 +13,9 @@ use zo_reporter::{
   report_error_with_suggestion, report_error_with_types,
 };
 use zo_sir::{
-  BinOp, ComputedBinding, ImportKind, Insn, LinkEntry, LinkPath,
-  LinkResolution, LinkSpec, ListBinding, ListItemCmd, LoadSource, NurseryKind,
-  Sir, SpawnKind, TemplateBindings, UnOp,
+  BinOp, ComputedBinding, ConditionalBinding, ImportKind, Insn, LinkEntry,
+  LinkPath, LinkResolution, LinkSpec, ListBinding, ListItemCmd, LoadSource,
+  NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
 };
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
@@ -25030,6 +25030,20 @@ impl<'a> Executor<'a> {
             k
           };
 
+          // Tier-2 conditional: `{when m ? <a>…</a> : <b>…</b>}`
+          // over a reactive `mut`. Both branches compile; the
+          // active one inlines and the binding carries both so
+          // the runtime swaps the region when the variable
+          // changes. Compile-time conditions (imu/constants)
+          // fall through to the general path's fold.
+          if self.tree.nodes[idx].token == Token::When
+            && self.try_conditional_interp(idx, close_idx, &mut commands)
+          {
+            idx = close_idx + 1;
+
+            continue;
+          }
+
           // Fast path: `{count}` (single ident) — resolves
           // the local's compile-time value directly and
           // records reactive text binding for `mut` vars.
@@ -25735,6 +25749,187 @@ impl<'a> Executor<'a> {
   /// return that template's commands for inlining. Otherwise
   /// returns None. Preserves the component-resolution behavior
   /// from the legacy `TagKind::Unknown` path.
+  /// Recognize and compile a tier-2 conditional interp. Returns
+  /// `false` when the shape doesn't match (not a single reactive
+  /// `mut` condition, or no template branches) — the caller falls
+  /// through to the general expression path, which folds
+  /// compile-time conditions exactly as before.
+  fn try_conditional_interp(
+    &mut self,
+    when_idx: usize,
+    close_idx: usize,
+    commands: &mut Vec<UiCommand>,
+  ) -> bool {
+    // Shape: When Ident Question TemplateFragmentStart …
+    let cond_idx = when_idx + 1;
+
+    if cond_idx + 2 >= close_idx
+      || self.tree.nodes[cond_idx].token != Token::Ident
+      || self.tree.nodes[cond_idx + 1].token != Token::Question
+      || self.tree.nodes[cond_idx + 2].token != Token::TemplateFragmentStart
+    {
+      return false;
+    }
+
+    let Some(NodeValue::Symbol(var)) = self.node_value(cond_idx) else {
+      return false;
+    };
+
+    // Only a reactive `mut` swaps at runtime; everything else
+    // keeps the compile-time fold.
+    let Some(local) = self.lookup_local(var) else {
+      return false;
+    };
+
+    if local.mutability != Mutability::Yes {
+      return false;
+    }
+
+    // Conditions are `bool` — no truthiness. An int/str condition
+    // is a type error at the condition's span, exactly as in any
+    // other condition position.
+    let local_ty = local.ty_id;
+    let local_value = local.value_id;
+
+    if !matches!(self.ty_checker.resolve_ty(local_ty), Ty::Bool) {
+      let span = self.tree.spans[cond_idx];
+      let error = self.type_mismatch_error(span, Span::ZERO);
+
+      report_error_with_types(
+        error,
+        TyNames {
+          primary: self.ty_display_name(local_ty).into(),
+          secondary: "bool".into(),
+        },
+      );
+
+      return true;
+    }
+
+    let active_is_true = {
+      let value_idx = local_value.0 as usize;
+
+      matches!(
+        self.values.kinds.get(value_idx),
+        Some(Value::Bool)
+          if self.values.bools
+            [self.values.indices[value_idx] as usize]
+      )
+    };
+
+    // Split the fragment at the root-level `:` — element depth
+    // via open/close tag pairs (`<x>` opens, `</x` and `/>`
+    // close).
+    let body_start = cond_idx + 3;
+    let mut split = None;
+    let mut depth = 0i32;
+    let mut k = body_start;
+
+    while k < close_idx {
+      match self.tree.nodes[k].token {
+        Token::LAngle => {
+          if self
+            .tree
+            .nodes
+            .get(k + 1)
+            .is_some_and(|n| n.token == Token::Slash2)
+          {
+            depth -= 1;
+          } else {
+            depth += 1;
+          }
+        }
+        Token::Slash2 if self.tree.nodes[k - 1].token != Token::LAngle => {
+          // Self-closing `<x />`.
+          depth -= 1;
+        }
+        Token::Colon if depth == 0 => {
+          split = Some(k);
+
+          break;
+        }
+        _ => {}
+      }
+
+      k += 1;
+    }
+
+    // `when` always takes both branches — a missing `:` is an
+    // error, never an implicit empty branch. An intentionally
+    // empty branch is written explicitly (`: <></>`).
+    let Some(colon) = split else {
+      let span = self.tree.spans[close_idx.min(self.tree.spans.len() - 1)];
+
+      self.report(ErrorKind::ExpectedExpression, span);
+
+      return true;
+    };
+
+    let (true_range, false_range) =
+      ((body_start, colon), (colon + 1, close_idx));
+
+    let (on_true, true_text) =
+      self.capture_conditional_branch(true_range.0, true_range.1);
+    let (on_false, false_text) =
+      self.capture_conditional_branch(false_range.0, false_range.1);
+
+    let active = if active_is_true { &on_true } else { &on_false };
+    let cmd_idx = commands.len();
+    let len = active.len();
+
+    commands.extend(active.iter().cloned());
+    self.template_bindings.conditional.push(ConditionalBinding {
+      cmd_idx,
+      len,
+      var,
+      on_true,
+      true_text,
+      on_false,
+      false_text,
+    });
+
+    true
+  }
+
+  /// Execute one conditional branch into its own command blob,
+  /// rolled back from SIR exactly like a component instantiation
+  /// — the blob lives in the binding, not the instruction stream.
+  fn capture_conditional_branch(
+    &mut self,
+    start: usize,
+    end: usize,
+  ) -> (Vec<UiCommand>, Vec<(usize, Symbol)>) {
+    let saved_pending_var = self.pending_var_name.take();
+    let saved_styles = std::mem::take(&mut self.pending_styles);
+    let saved_bindings = std::mem::take(&mut self.template_bindings);
+    let sir_len = self.sir.instructions.len();
+
+    self.instantiating += 1;
+    self.execute_template_fragment(start, end);
+    self.instantiating -= 1;
+
+    self.value_stack.pop();
+    self.ty_stack.pop();
+    self.sir_values.pop();
+
+    let mut branch_commands = Vec::new();
+
+    for insn in &self.sir.instructions[sir_len..] {
+      if let Insn::Template { commands, .. } = insn {
+        branch_commands = commands.clone();
+      }
+    }
+
+    let captured =
+      std::mem::replace(&mut self.template_bindings, saved_bindings);
+
+    self.sir.truncate(sir_len);
+    self.pending_var_name = saved_pending_var;
+    self.pending_styles = saved_styles;
+
+    (branch_commands, captured.text)
+  }
+
   /// Finish a component used with children: drain the children
   /// stream (and its bindings) built since the opening tag,
   /// instantiate the component with that slot content, and splice
