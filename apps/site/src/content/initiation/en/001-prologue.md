@@ -5,7 +5,7 @@ title: Prologue
 
 # prologue
 
-[tsh-tsh]
+[tsh-tsh] This initiation is for the `zo` programming language.
 
 What are we waiting for to improve our developer experience? Why does having to wait several seconds, or even minutes, to get feedback on the correctness of our program bother absolutely no one?
 

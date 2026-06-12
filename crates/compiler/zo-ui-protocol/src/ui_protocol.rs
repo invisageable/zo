@@ -303,6 +303,19 @@ impl ElementTag {
   }
 }
 
+/// Tier-2 conditional branch payload, postcard-encoded into the
+/// AOT context's `ConditionalBindingAbi`: both compiled branch
+/// blobs plus their reactive text interps as
+/// `(branch_relative_idx, state_slot, is_str)` triples the runtime
+/// substitutes at splice time.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub struct ConditionalPayload {
+  pub on_true: Vec<UiCommand>,
+  pub true_text: Vec<(u32, u32, bool)>,
+  pub on_false: Vec<UiCommand>,
+  pub false_text: Vec<(u32, u32, bool)>,
+}
+
 /// Event types that can occur in the UI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum EventKind {

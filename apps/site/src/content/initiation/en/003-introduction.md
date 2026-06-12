@@ -29,7 +29,7 @@ Every lesson delivers a high-fidelity snapshot of a functional zo program. Pay c
 Every executable compilation unit inside zo must expose an explicit, non-colored entry block called `main`:
 
   ```zo
-  -- Wassup?! I'm `main` a function.
+  -- Wassup?! I'm `main`, a function.
   -- Use me as a entry point with `fun` keyword.
   fun main() {
     -- This program does nothing... yet.
