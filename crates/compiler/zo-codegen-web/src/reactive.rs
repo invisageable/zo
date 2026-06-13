@@ -156,7 +156,10 @@ impl<'a> ReactiveJs<'a> {
        function fire(slot){{var ops=binds[slot];if(!ops)return;\
        for(var i=0;i<ops.length;i++){{var op=ops[i],el=q(op[1]);if(!el)continue;\
        if(op[0]===\"t\")el.textContent=state[slot];\
-       else if(op[0]===\"a\")el.setAttribute(op[2],state[slot]);\
+       else if(op[0]===\"a\"){{var an=op[2];\
+       if(an===\"checked\"||an===\"disabled\"||an===\"selected\")\
+       el[an]=state[slot]&&state[slot]!==\"false\";\
+       else el.setAttribute(an,state[slot]);}}\
        else if(op[0]===\"c\")el.textContent=computed[op[1]]();\
        else if(op[0]===\"l\")el.innerHTML=lists[op[1]]();}}}}\
        var handlers={{{handlers}}};\
@@ -761,7 +764,10 @@ mod tests {
       js.contains("\"count\":[[\"t\",4],[\"a\",3,\"title\"]]"),
       "{js}"
     );
-    assert!(js.contains("el.setAttribute(op[2],state[slot])"));
+    // Non-boolean attrs still setAttribute (via the `an` alias);
+    // boolean attrs (checked/disabled/selected) set the property.
+    assert!(js.contains("el.setAttribute(an,state[slot])"));
+    assert!(js.contains("el[an]=state[slot]&&state[slot]!==\"false\""));
     // The handler writes state and fires the var.
     assert!(js.contains("state[\"count\"]=v3;fire(\"count\");"), "{js}");
   }

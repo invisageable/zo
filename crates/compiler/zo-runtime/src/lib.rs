@@ -58,6 +58,6 @@ pub use zo_runtime_ios::zo_run_native;
 /// the cdylib root so BOTH flavors carry it — the lean core build
 /// excludes the render tree entirely. `#[used]` keeps the bytes in
 /// the artifact even with no Rust reader. See
-/// `zo_abi::RUNTIME_ABI_TAG` for the bump rule.
+/// `zo_abi::RUNTIME_ABI_TAG` for the contract.
 #[used]
 pub static ZO_RUNTIME_ABI_TAG: [u8; 14] = *zo_abi::RUNTIME_ABI_TAG;

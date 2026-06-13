@@ -27087,29 +27087,10 @@ fn is_dyld_resolvable_system_path(path: &str) -> bool {
 /// `ElementTag`. Unknown tags fall through to
 /// `ElementTag::Custom` so the renderer can still stamp them
 /// verbatim (and component resolution is attempted one layer up).
+/// Resolve a markup tag to its `ElementTag`. Delegates to
+/// `ElementTag::from_name` — the single source of truth for the
+/// tag table — so new tags never need a second edit here. An empty
+/// tag (never produced by the parser) falls back to `Div`.
 fn tag_to_element(tag: &str) -> ElementTag {
-  match tag {
-    "div" => ElementTag::Div,
-    "section" => ElementTag::Section,
-    "main" => ElementTag::Main,
-    "article" => ElementTag::Article,
-    "aside" => ElementTag::Aside,
-    "header" => ElementTag::Header,
-    "footer" => ElementTag::Footer,
-    "nav" => ElementTag::Nav,
-    "form" => ElementTag::Form,
-    "ul" => ElementTag::Ul,
-    "ol" => ElementTag::Ol,
-    "li" => ElementTag::Li,
-    "span" => ElementTag::Span,
-    "h1" => ElementTag::H1,
-    "h2" => ElementTag::H2,
-    "h3" => ElementTag::H3,
-    "p" => ElementTag::P,
-    "img" => ElementTag::Img,
-    "button" => ElementTag::Button,
-    "input" => ElementTag::Input,
-    "textarea" => ElementTag::Textarea,
-    other => ElementTag::Custom(other.to_string()),
-  }
+  ElementTag::from_name(tag).unwrap_or(ElementTag::Div)
 }

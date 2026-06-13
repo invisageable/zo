@@ -8,7 +8,7 @@
 
 use std::io;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 /// One Simulator device, addressed by a `simctl` specifier — a UDID
 /// (preferred, unambiguous) or a device name.
@@ -77,9 +77,24 @@ impl Simulator {
     run("xcrun", &["simctl", "install", &self.device, app])
   }
 
-  /// Launch the installed app by its bundle identifier.
+  /// Launch the installed app by its bundle identifier, streaming
+  /// its stdout/stderr to this terminal (`--console-pty`) so app
+  /// logs surface during `zo run --target ios`, like `cargo run`.
+  /// Blocks until the app exits (Ctrl-C to stop).
   fn start(&self, bundle_id: &str) -> io::Result<()> {
-    run("xcrun", &["simctl", "launch", &self.device, bundle_id])
+    let status = Command::new("xcrun")
+      .args(["simctl", "launch", "--console-pty", &self.device, bundle_id])
+      .stdout(Stdio::inherit())
+      .stderr(Stdio::inherit())
+      .status()?;
+
+    if status.success() {
+      return Ok(());
+    }
+
+    Err(io::Error::other(format!(
+      "xcrun simctl launch {bundle_id}: exited with {status}"
+    )))
   }
 }
 

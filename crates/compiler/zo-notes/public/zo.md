@@ -2,7 +2,7 @@
 
 > *Turn your thoughts into type-safe software and Ui instantly.*
 
-This manual is for the zo programming language.
+This reference manual is for the zo programming language.
 
 @author — invisageable
 @author — compilords
@@ -125,13 +125,13 @@ favour. Five prominent lineages contribute the most:
 
 **-cyclone-and-ada**
 
-Cyclone is a programming language to make a low-level C-like language safe made by Nikhil Swamy, Michael Hicks, Greg Morrisett, Dan Grossman and Trevor Jim. zo adopt 
+Cyclone is a programming language to make a low-level C-like language safe made by Nikhil Swamy, Michael Hicks, Greg Morrisett, Dan Grossman and Trevor Jim. zo adopt Cyclone's static lifetime analysis, unique/affine pointer semantics, and lexical region drop boundaries.
 
 Ada is an extremely strong typing programming language and is designed for developing very large software systems.
 
 **-imba**
 
-Imba is a fascinating Web programming language, the right fit to build frontend and backend made by Sindre Aarsaether and (...). zo integrated a similar system to do styling with zsx.
+Imba is a fascinating Web programming language, the right fit to build frontend and backend made by Sindre Aarsaether and (...). zo integrated a similar styling system coupled to zsx, it includes shorthands `d == display`, `bg == background`, etc.
 
 **-es4-and-e4x**
 

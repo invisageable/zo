@@ -24,8 +24,8 @@ use objc2::{ClassType, MainThreadMarker, MainThreadOnly, define_class, sel};
 
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_foundation::{
-  NSBundle, NSData, NSDictionary, NSObjectProtocol, NSOperatingSystemVersion,
-  NSProcessInfo, NSString,
+  NSArray, NSBundle, NSData, NSDictionary, NSObjectProtocol,
+  NSOperatingSystemVersion, NSProcessInfo, NSString,
 };
 #[cfg(target_os = "watchos")]
 use objc2_ui_kit::UIScreen;
@@ -33,8 +33,9 @@ use objc2_ui_kit::{
   UIApplication, UIApplicationLaunchOptionsKey, UIButton,
   UIButtonConfiguration, UIButtonType, UIColor, UIControlEvents,
   UIControlState, UIFont, UIGlassEffect, UIGlassEffectStyle, UIImage,
-  UIImageView, UILabel, UITextBorderStyle, UITextField, UIView,
-  UIViewContentMode, UIViewController, UIVisualEffectView, UIWindow,
+  UIImageView, UILabel, UISegmentedControl, UISwitch, UITextBorderStyle,
+  UITextField, UIView, UIViewContentMode, UIViewController, UIVisualEffectView,
+  UIWindow,
 };
 #[cfg(target_os = "ios")]
 use objc2_ui_kit::{
@@ -121,6 +122,13 @@ enum PlacedView {
   /// An editable text input (`<input>` / `<textarea>`) wired to
   /// fire `@input` on every edit and `@submit` on the return key.
   Field(Retained<UITextField>),
+  /// A `<input type="checkbox">` → `UISwitch`, firing `@change`
+  /// with `"true"` / `"false"` on toggle.
+  Switch(Retained<UISwitch>),
+  /// A `<select>` → `UISegmentedControl` over its `<option>`
+  /// children — the idiomatic iOS one-of-N picker; `@change`
+  /// carries the chosen option's title.
+  Segmented(Retained<UISegmentedControl>),
   /// Reserved geometry for leaves the iOS path does not paint yet
   /// (image).
   Other(Retained<UIView>),
@@ -150,6 +158,8 @@ impl PlacedView {
       Self::Button(button) => button.setFrame(frame),
       Self::Label(label) => label.setFrame(frame),
       Self::Field(field) => field.setFrame(frame),
+      Self::Switch(toggle) => toggle.setFrame(frame),
+      Self::Segmented(control) => control.setFrame(frame),
       Self::Other(view) => view.setFrame(frame),
       // Frame the glass panel; the inner view fills it at local origin,
       // so the solver's geometry stays the source of truth.
@@ -183,6 +193,9 @@ impl PlacedView {
         }
       }
       Self::Other(_) => {}
+      // Switch / segmented state is driven by their controls, not
+      // by reconciled text.
+      Self::Switch(_) | Self::Segmented(_) => {}
       // The glass wrapper holds no text of its own; defer to its
       // inner content (a label whose text the reconciler refreshes).
       Self::Glass { inner, .. } => inner.set_text(text),
@@ -323,6 +336,48 @@ define_class!(
       );
     }
 
+    /// `UISwitch` toggle → `@change`, carrying `"true"` / `"false"`.
+    #[unsafe(method(switchToggled:))]
+    fn switch_toggled(&self, sender: &UISwitch) {
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Change,
+        EventPayload::with_value(sender.isOn().to_string()),
+      );
+    }
+
+    /// Radio `UIButton` tap → `@change`. The handler closure carries
+    /// which value it selects (as the desktop path), so the payload
+    /// is empty.
+    #[unsafe(method(radioTapped:))]
+    fn radio_tapped(&self, sender: &UIButton) {
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Change,
+        EventPayload::default(),
+      );
+    }
+
+    /// `UISegmentedControl` change → `@change`, carrying the chosen
+    /// segment's title.
+    #[unsafe(method(segmentChanged:))]
+    fn segment_changed(&self, sender: &UISegmentedControl) {
+      let index = sender.selectedSegmentIndex();
+      // `selectedSegmentIndex` is -1 when nothing is selected;
+      // only a non-negative index has a title.
+      let title = usize::try_from(index)
+        .ok()
+        .and_then(|i| sender.titleForSegmentAtIndex(i))
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Change,
+        EventPayload::with_value(title),
+      );
+    }
+
     /// `UITextField` edit → `@input`, carrying the field's
     /// current text as the payload.
     #[unsafe(method(textChanged:))]
@@ -404,6 +459,48 @@ define_class!(
         sender.tag().to_string(),
         EventKind::Click,
         EventPayload::default(),
+      );
+    }
+
+    /// `UISwitch` toggle → `@change`, carrying `"true"` / `"false"`.
+    #[unsafe(method(switchToggled:))]
+    fn switch_toggled(&self, sender: &UISwitch) {
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Change,
+        EventPayload::with_value(sender.isOn().to_string()),
+      );
+    }
+
+    /// Radio `UIButton` tap → `@change`. The handler closure carries
+    /// which value it selects (as the desktop path), so the payload
+    /// is empty.
+    #[unsafe(method(radioTapped:))]
+    fn radio_tapped(&self, sender: &UIButton) {
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Change,
+        EventPayload::default(),
+      );
+    }
+
+    /// `UISegmentedControl` change → `@change`, carrying the chosen
+    /// segment's title.
+    #[unsafe(method(segmentChanged:))]
+    fn segment_changed(&self, sender: &UISegmentedControl) {
+      let index = sender.selectedSegmentIndex();
+      // `selectedSegmentIndex` is -1 when nothing is selected;
+      // only a non-negative index has a title.
+      let title = usize::try_from(index)
+        .ok()
+        .and_then(|i| sender.titleForSegmentAtIndex(i))
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+
+      self.dispatch_widget_event(
+        sender.tag().to_string(),
+        EventKind::Change,
+        EventPayload::with_value(title),
       );
     }
 
@@ -501,7 +598,9 @@ impl SceneDelegate {
       let handler = {
         let cmds = runtime.shared.lock().unwrap();
 
-        build_event_map(&cmds).get(&(widget_id, kind)).cloned()
+        build_event_map(&cmds)
+          .get(&(widget_id.clone(), kind))
+          .cloned()
       };
 
       if let Some(handler) = handler {
@@ -518,6 +617,19 @@ impl SceneDelegate {
 
         (report.structural, report.appended)
       };
+
+      // Radio group exclusivity: a tapped radio takes the filled
+      // glyph and clears its same-`name` siblings immediately — a
+      // plain `UIButton` does not self-toggle the way UISwitch /
+      // UISegmentedControl do. A no-op for non-radio widgets.
+      if kind == EventKind::Change {
+        let cmds = runtime.shared.lock().unwrap().clone();
+
+        if let Some(host) = runtime.host.as_mut() {
+          select_radio_in_group(host, &cmds, &widget_id);
+        }
+      }
+
       let Some(host) = runtime.host.as_mut() else {
         return;
       };
@@ -668,13 +780,13 @@ impl<'a> ViewBuilder<'a> {
   }
 
   /// Build, frame, and attach the native view for the placed leaf at
-  /// `commands[idx]`. `Element{Button}` → `UIButton` titled by its
+  /// `commands[index]`. `Element{Button}` → `UIButton` titled by its
   /// collapsed text and tagged with its lowering widget id (wired to
   /// `buttonTapped:`); a text tag or free-standing `Text` → `UILabel`.
   /// Other leaves (image, input) get a bare reserved view. The
   /// `placement` says where to attach (top-level container or a glass
   /// effect view's `contentView`), the local frame, and the styles.
-  fn place(&self, idx: usize, placement: &Placement) -> PlacedView {
+  fn place(&self, index: usize, placement: &Placement) -> PlacedView {
     let &Placement {
       superview,
       frame,
@@ -682,10 +794,10 @@ impl<'a> ViewBuilder<'a> {
       author,
     } = placement;
 
-    match &self.cmds[idx] {
+    match &self.cmds[index] {
       UiCommand::Element { tag, attrs, .. } if *tag == ElementTag::Button => {
         let button = UIButton::buttonWithType(UIButtonType::System, self.mtm);
-        let title = NSString::from_str(&collapse_text(self.cmds, idx + 1));
+        let title = NSString::from_str(&collapse_text(self.cmds, index + 1));
 
         button.setTitle_forState(Some(&title), UIControlState::Normal);
 
@@ -752,6 +864,136 @@ impl<'a> ViewBuilder<'a> {
         PlacedView::Button(button)
       }
 
+      // `<input type="checkbox">` -> `UISwitch`.
+      UiCommand::Element {
+        tag: ElementTag::Input,
+        attrs,
+        ..
+      } if attr_text(attrs, "type").as_deref() == Some("checkbox") => {
+        let toggle = UISwitch::initWithFrame(UISwitch::alloc(self.mtm), frame);
+
+        toggle.setOn(attr_bool(attrs, "checked"));
+
+        if let Some(id) = widget_id(attrs) {
+          toggle.setTag(id);
+        }
+
+        // SAFETY: the scene delegate is live; `switchToggled:` is a
+        // registered selector taking the sender. `ValueChanged`
+        // fires on each toggle (-> `@change`).
+        let target_object: &AnyObject = self.target.as_ref();
+
+        unsafe {
+          toggle.addTarget_action_forControlEvents(
+            Some(target_object),
+            sel!(switchToggled:),
+            UIControlEvents::ValueChanged,
+          );
+        }
+
+        superview.addSubview(&toggle);
+
+        PlacedView::Switch(toggle)
+      }
+
+      // `<input type="radio">` -> a `UIButton` toggle. iOS has no
+      // native radio; the button shows the filled/empty glyph from
+      // `checked` and fires `@change` on tap (the handler closure
+      // carries which value it selects, like the desktop path).
+      UiCommand::Element {
+        tag: ElementTag::Input,
+        attrs,
+        ..
+      } if attr_text(attrs, "type").as_deref() == Some("radio") => {
+        let button = UIButton::buttonWithType(UIButtonType::System, self.mtm);
+        let glyph = if attr_bool(attrs, "checked") {
+          RADIO_SELECTED
+        } else {
+          RADIO_UNSELECTED
+        };
+
+        button.setTitle_forState(
+          Some(&NSString::from_str(glyph)),
+          UIControlState::Normal,
+        );
+
+        if let Some(id) = widget_id(attrs) {
+          button.setTag(id);
+        }
+
+        // SAFETY: the scene delegate is live; `radioTapped:` is a
+        // registered selector taking the sender.
+        let target_object: &AnyObject = self.target.as_ref();
+
+        unsafe {
+          button.addTarget_action_forControlEvents(
+            Some(target_object),
+            sel!(radioTapped:),
+            UIControlEvents::TouchUpInside,
+          );
+        }
+
+        button.setFrame(frame);
+        superview.addSubview(&button);
+
+        PlacedView::Button(button)
+      }
+
+      // `<select>` -> `UISegmentedControl` over its `<option>`
+      // children (gathered from the stream; Select is a layout leaf,
+      // so its options are not placed separately).
+      UiCommand::Element {
+        tag: ElementTag::Select,
+        attrs,
+        ..
+      } => {
+        let options = gather_options(self.cmds, index);
+        let items = NSArray::from_retained_slice(
+          &options
+            .iter()
+            .map(|o| NSString::from_str(o))
+            .collect::<Vec<_>>(),
+        );
+
+        // `initWithItems:` takes an untyped `&NSArray`; cast the
+        // typed `NSArray<NSString>` (a no-op reinterpret — every
+        // element is already an object). Both this and the init are
+        // unsafe per objc2's FFI contract.
+        let items: Retained<NSArray> =
+          unsafe { Retained::cast_unchecked(items) };
+        let control = unsafe {
+          UISegmentedControl::initWithItems(
+            UISegmentedControl::alloc(self.mtm),
+            Some(&items),
+          )
+        };
+        let value = attr_text(attrs, "value").unwrap_or_default();
+        let selected = options.iter().position(|o| *o == value).unwrap_or(0);
+
+        control.setSelectedSegmentIndex(selected as isize);
+        control.setFrame(frame);
+
+        if let Some(id) = widget_id(attrs) {
+          control.setTag(id);
+        }
+
+        // SAFETY: the scene delegate is live; `segmentChanged:` is a
+        // registered selector taking the sender.
+        let target_object: &AnyObject = self.target.as_ref();
+
+        unsafe {
+          control.addTarget_action_forControlEvents(
+            Some(target_object),
+            sel!(segmentChanged:),
+            UIControlEvents::ValueChanged,
+          );
+        }
+
+        superview.addSubview(&control);
+
+        PlacedView::Segmented(control)
+      }
+
       UiCommand::Element {
         tag: ElementTag::Input | ElementTag::Textarea,
         attrs,
@@ -805,7 +1047,7 @@ impl<'a> ViewBuilder<'a> {
       }
 
       UiCommand::Element { tag, .. } if tag.is_text_tag() => {
-        self.label(&collapse_text(self.cmds, idx + 1), placement)
+        self.label(&collapse_text(self.cmds, index + 1), placement)
       }
 
       UiCommand::Text(content) => self.label(content, placement),
@@ -952,6 +1194,14 @@ fn ui_color(color: Rgba) -> Retained<UIColor> {
     color.a as f64 / 255.0,
   )
 }
+
+/// Radio-button glyph when selected — a filled circle (●, U+25CF).
+/// iOS has no native radio control, so the `UIButton` toggle shows
+/// this in place of a dot.
+const RADIO_SELECTED: &str = "\u{25cf}";
+
+/// Radio-button glyph when unselected — a hollow circle (○, U+25CB).
+const RADIO_UNSELECTED: &str = "\u{25cb}";
 
 /// Corner radius (pt) of a glass panel until a `border-radius` property
 /// exists. The glass material is clipped to this rounded box.
@@ -1293,7 +1543,7 @@ fn render_into(
   // effect view's `contentView`, framed in that view's local space.
   let mut views: Vec<PlacedView> = Vec::with_capacity(rects.len());
 
-  for (i, (idx, rect)) in rects.iter().enumerate() {
+  for (i, (index, rect)) in rects.iter().enumerate() {
     let (superview, frame) =
       attach_target(container, &views, parents[i], &rects, *rect);
 
@@ -1304,7 +1554,7 @@ fn render_into(
       author: &authors[i],
     };
 
-    views.push(builder.place(*idx, &placement));
+    views.push(builder.place(*index, &placement));
   }
 
   (tree, views)
@@ -1396,6 +1646,14 @@ fn widget_id(attrs: &[Attr]) -> Option<isize> {
     .or_else(|| attr.as_str().and_then(|s| s.parse().ok()))
 }
 
+/// The `data-id` as a string, regardless of whether it was stored
+/// as a number (`<input>` ids) or a string (`select_N` / tag ids).
+/// `attr_text` alone misses the numeric form. Used to match a
+/// command against a tapped widget's `tag().to_string()`.
+fn widget_id_str(attrs: &[Attr]) -> Option<String> {
+  widget_id(attrs).map(|id| id.to_string())
+}
+
 /// The string value of attribute `name` (a `Prop` or `Dynamic`),
 /// used to seed a text field's placeholder / initial value.
 fn attr_text(attrs: &[Attr], name: &str) -> Option<String> {
@@ -1404,6 +1662,116 @@ fn attr_text(attrs: &[Attr], name: &str) -> Option<String> {
     .find(|a| a.name() == name)
     .and_then(|a| a.as_str())
     .map(str::to_string)
+}
+
+/// Read a boolean attribute: present-and-truthy. A bare `checked`
+/// or `checked="true"` reads true; `checked="false"` (the reactive
+/// bool's rendered form) reads false.
+fn attr_bool(attrs: &[Attr], name: &str) -> bool {
+  match attrs.iter().find(|a| a.name() == name) {
+    Some(attr) => attr.as_str().map(|v| v != "false").unwrap_or(true),
+    None => false,
+  }
+}
+
+/// Apply radio group exclusivity after a radio tap: the tapped
+/// radio shows the filled glyph and every other radio sharing its
+/// `name` shows the hollow one. Reads the group from the command
+/// stream and repaints the matching placed `UIButton`s in place —
+/// a plain `UIButton` has no built-in toggle, so the renderer owns
+/// the visual selection (the desktop egui path gets this free from
+/// its per-frame group map).
+fn select_radio_in_group(
+  host: &mut ViewHost,
+  cmds: &[UiCommand],
+  tapped: &str,
+) {
+  // The tapped widget is only a radio when its command carries
+  // `type="radio"`; resolve its group `name` (else this was a
+  // checkbox / select change — nothing to do).
+  let group = cmds.iter().find_map(|cmd| match cmd {
+    UiCommand::Element {
+      tag: ElementTag::Input,
+      attrs,
+      ..
+    } if widget_id_str(attrs).as_deref() == Some(tapped)
+      && attr_text(attrs, "type").as_deref() == Some("radio") =>
+    {
+      Some(attr_text(attrs, "name").unwrap_or_default())
+    }
+    _ => None,
+  });
+
+  let Some(group) = group else {
+    return;
+  };
+
+  // Clone the placement→command map so the views can be borrowed
+  // mutably while we walk it (the slice borrows `host.tree`).
+  let placements: Vec<usize> = host.tree.cmd_index().to_vec();
+
+  for (placement, cmd_idx) in placements.into_iter().enumerate() {
+    let Some(UiCommand::Element {
+      tag: ElementTag::Input,
+      attrs,
+      ..
+    }) = cmds.get(cmd_idx)
+    else {
+      continue;
+    };
+
+    if attr_text(attrs, "type").as_deref() != Some("radio")
+      || attr_text(attrs, "name").unwrap_or_default() != group
+    {
+      continue;
+    }
+
+    let glyph = if widget_id_str(attrs).as_deref() == Some(tapped) {
+      RADIO_SELECTED
+    } else {
+      RADIO_UNSELECTED
+    };
+
+    if let Some(PlacedView::Button(button)) = host.views.get(placement) {
+      button.setTitle_forState(
+        Some(&NSString::from_str(glyph)),
+        UIControlState::Normal,
+      );
+    }
+  }
+}
+
+/// Gather a `<select>`'s `<option>` choice strings by scanning the
+/// command stream from the select element to its matching
+/// `EndElement`. Mirrors the desktop renderer's `gather_options`.
+fn gather_options(cmds: &[UiCommand], select_idx: usize) -> Vec<String> {
+  let mut options = Vec::new();
+  let mut depth = 0i32;
+  let mut index = select_idx;
+
+  while index < cmds.len() {
+    match &cmds[index] {
+      UiCommand::Element { tag, .. } => {
+        if *tag == ElementTag::Option {
+          options.push(collapse_text(cmds, index + 1));
+        }
+
+        depth += 1;
+      }
+      UiCommand::EndElement => {
+        depth -= 1;
+
+        if depth == 0 {
+          break;
+        }
+      }
+      _ => {}
+    }
+
+    index += 1;
+  }
+
+  options
 }
 
 /// Realize the Carousel scene-specification classes before the run

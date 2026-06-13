@@ -37,6 +37,20 @@ const IMAGE_FALLBACK: f32 = 256.0;
 /// height falls out of the line measure.
 const INPUT_WIDTH: f32 = 180.0;
 
+/// Intrinsic box for a checkbox / radio leaf (`<input
+/// type="checkbox|radio">`). The native control (egui checkbox,
+/// `UISwitch`/radio `UIButton`) draws inside this; without an
+/// explicit size the leaf measures from its empty text to ~0 and
+/// the drawn control overflows into its siblings.
+const TOGGLE_WIDTH: f32 = 52.0;
+const TOGGLE_HEIGHT: f32 = 32.0;
+
+/// Intrinsic box for a `<select>` leaf (egui `ComboBox` /
+/// `UISegmentedControl`). Width is generous enough for a few
+/// options; height matches the other controls' line box.
+const SELECT_WIDTH: f32 = 200.0;
+const SELECT_HEIGHT: f32 = 32.0;
+
 /// Centre-cluster gap between the synthetic root's children.
 const ROOT_GAP: f32 = 8.0;
 
@@ -413,6 +427,14 @@ impl LayoutTree {
   /// runtime leaves every leaf on the root container.
   pub fn parents(&self) -> &[Option<usize>] {
     &self.parents
+  }
+
+  /// Source command index for each placement, parallel to `solve`'s
+  /// returned order — `commands[cmd_index()[i]]` is the element the
+  /// i-th view renders. A runtime reads this to map a placed view
+  /// back to its command (e.g. radio group exclusivity).
+  pub fn cmd_index(&self) -> &[usize] {
+    &self.cmd_index
   }
 
   /// The stylesheet image catalog. A `ComputedStyle`'s
@@ -965,9 +987,30 @@ fn leaf_size_override(
         height: Dimension::length(height as f32),
       })
     }
+    // Checkbox / radio draw a fixed-size control, not text — give
+    // the leaf that box so the solver reserves real space and the
+    // widget doesn't overlap its siblings.
+    ElementTag::Input
+      if matches!(
+        attrs
+          .iter()
+          .find(|a| a.name() == "type")
+          .and_then(|a| a.as_str()),
+        Some("checkbox") | Some("radio")
+      ) =>
+    {
+      Some(TaffySize {
+        width: Dimension::length(TOGGLE_WIDTH),
+        height: Dimension::length(TOGGLE_HEIGHT),
+      })
+    }
     ElementTag::Input | ElementTag::Textarea => Some(TaffySize {
       width: Dimension::length(INPUT_WIDTH),
       height: Dimension::auto(),
+    }),
+    ElementTag::Select => Some(TaffySize {
+      width: Dimension::length(SELECT_WIDTH),
+      height: Dimension::length(SELECT_HEIGHT),
     }),
     _ => None,
   }
@@ -984,6 +1027,7 @@ fn is_leaf_tag(tag: &ElementTag) -> bool {
         | ElementTag::Img
         | ElementTag::Input
         | ElementTag::Textarea
+        | ElementTag::Select
     )
 }
 

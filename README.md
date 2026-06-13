@@ -60,10 +60,12 @@ Available Memory  — 9.4 GB
 ```
 
 > *zo is in early development and is not yet ready for production. Currently it supports desktop (ARM64), MacOS (iOS, tvOS, visionOS, watchOS), web (bundled or webview). We plan to support more — desktop (Linux, Windows) and mobile (Android). Styling is not yet fully unified across all platforms.*
->
-> *WARNiNG — regarding Ai usage, we are using Ai to build based on our architecture and specification (made by humans). The compiler currently covers over 1500 unit and integration tests.*
->
-> *DiSCLAiMER — this project is about having fun again. It is maintained by a small group of volunteers during their spare time. zo is not the new X or better than Y, zo is just different. Period. Be gentle.*
+
+> [!IMPORTANT]
+> *This project is about having fun again. It is maintained by a small group of volunteers during their spare time. We're exploring. zo is not the new X or better than Y, zo is just different. Period. Be gentle.*
+
+> [!CAUTION]
+> *For transparency: regarding Ai usage, we're using Ai to build zo based on our architecture and specification (made by humans). The compiler currently covers over 1500 unit and integration tests.*
 
 ## sponsors & supports.
 

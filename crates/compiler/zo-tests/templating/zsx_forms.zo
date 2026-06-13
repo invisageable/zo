@@ -1,0 +1,24 @@
+-- test-run-pass: form controls (HTML-faithful surface). A
+-- checkbox bound to a bool, a radio group, and a select dropdown
+-- over its options — each driving reactive state through @change.
+
+fun main() {
+  mut agreed := false;
+  mut color := "red";
+
+  imu page ::= <form>
+    <input type="checkbox" checked={agreed} @change={fn() => agreed = true} />
+    <span>terms</span>
+
+    <input type="radio" name="size" value="sm" checked={true} />
+    <input type="radio" name="size" value="lg" />
+
+    <select value={color} @change={fn() => color = "blue"}>
+      <option>red</option>
+      <option>green</option>
+      <option>blue</option>
+    </select>
+  </form>;
+
+  #render page;
+}

@@ -27,6 +27,17 @@ pub struct UiState {
   /// the program-side clear silently keeps the stale
   /// user-typed text.
   last_value_attr: HashMap<u32, String>,
+  /// Checkbox state per widget id, synced from the `checked`
+  /// attribute the same way `text_inputs` syncs from `value`.
+  checkboxes: HashMap<u32, bool>,
+  /// Last-seen `checked` attribute per checkbox id — the resync
+  /// gate (program-side `agreed = false` overrides the toggle).
+  last_checked_attr: HashMap<u32, bool>,
+  /// Radio group selection: `name` → the selected option `value`.
+  /// Radios sharing a `name` are mutually exclusive.
+  radios: HashMap<String, String>,
+  /// Select (dropdown) current value per widget id.
+  selects: HashMap<u32, String>,
   /// Events fired this frame and waiting to be drained
   /// by the runtime, as `(widget_id, kind, payload)`. The
   /// `payload.value` is empty for `Click`-shaped events
@@ -168,9 +179,15 @@ impl Renderer {
           self.put_image(ui, src, rect);
         }
 
-        ElementTag::Input | ElementTag::Textarea => {
-          self.put_input(ui, attrs, rect);
-        }
+        ElementTag::Input => match attr_str(attrs, "type").unwrap_or("text") {
+          "checkbox" => self.put_checkbox(ui, attrs, rect),
+          "radio" => self.put_radio(ui, attrs, rect),
+          _ => self.put_input(ui, attrs, rect),
+        },
+
+        ElementTag::Textarea => self.put_input(ui, attrs, rect),
+
+        ElementTag::Select => self.put_select(ui, commands, idx, attrs, rect),
 
         t if t.is_text_tag() => {
           let content = collapse_text(commands, idx + 1);
@@ -250,6 +267,146 @@ impl Renderer {
       ));
 
       response.request_focus();
+    }
+  }
+
+  /// Place a checkbox at `rect`, bound to its `checked` attribute.
+  /// Program-side writes (`agreed = false`) resync through
+  /// `last_checked_attr`, mirroring `put_input`'s `value` sync; a
+  /// user toggle fires `@change` carrying `"true"` / `"false"`.
+  fn put_checkbox(
+    &mut self,
+    ui: &mut egui::Ui,
+    attrs: &[Attr],
+    rect: egui::Rect,
+  ) {
+    let id = attr_num(attrs, "data-id").unwrap_or(0);
+    let checked_attr = attr_bool(attrs, "checked");
+
+    let resync = self
+      .state
+      .last_checked_attr
+      .get(&id)
+      .map(|prev| *prev != checked_attr)
+      .unwrap_or(true);
+
+    if resync {
+      self.state.checkboxes.insert(id, checked_attr);
+      self.state.last_checked_attr.insert(id, checked_attr);
+    }
+
+    let mut checked = self
+      .state
+      .checkboxes
+      .get(&id)
+      .copied()
+      .unwrap_or(checked_attr);
+    let response = ui.put(rect, egui::Checkbox::new(&mut checked, ""));
+
+    self.state.checkboxes.insert(id, checked);
+
+    if response.changed() {
+      self.state.pending_events.push((
+        id,
+        EventKind::Change,
+        EventPayload::with_value(checked.to_string()),
+      ));
+    }
+  }
+
+  /// Place a radio button at `rect`. Radios sharing a `name` are
+  /// mutually exclusive — the group's selected `value` lives in
+  /// `radios[name]`. An initial `checked` seeds the group default;
+  /// a click selects this option and fires `@change` with its
+  /// `value`.
+  fn put_radio(&mut self, ui: &mut egui::Ui, attrs: &[Attr], rect: egui::Rect) {
+    let id = attr_num(attrs, "data-id").unwrap_or(0);
+    let group = attr_str(attrs, "name").unwrap_or("").to_string();
+    let value = attr_str(attrs, "value").unwrap_or("").to_string();
+
+    if attr_bool(attrs, "checked") && !self.state.radios.contains_key(&group) {
+      self.state.radios.insert(group.clone(), value.clone());
+    }
+
+    let selected = self
+      .state
+      .radios
+      .get(&group)
+      .map(|chosen| chosen == &value)
+      .unwrap_or(false);
+    let response = ui.put(rect, egui::RadioButton::new(selected, ""));
+
+    if response.clicked() {
+      self.state.radios.insert(group, value.clone());
+      self.state.pending_events.push((
+        id,
+        EventKind::Change,
+        EventPayload::with_value(value),
+      ));
+    }
+  }
+
+  /// Place a dropdown at `rect`. The `<option>` children supply
+  /// the choices (gathered from the command stream); the current
+  /// value syncs from the `value` attribute and a selection fires
+  /// `@change`. egui's `ComboBox` manages its own popup, so the
+  /// widget is built inside a `max_rect` scope rather than `put`.
+  fn put_select(
+    &mut self,
+    ui: &mut egui::Ui,
+    commands: &[UiCommand],
+    idx: usize,
+    attrs: &[Attr],
+    rect: egui::Rect,
+  ) {
+    let id = attr_num(attrs, "data-id").unwrap_or(0);
+    let options = gather_options(commands, idx);
+    let value_attr = attr_str(attrs, "value").unwrap_or("").to_string();
+
+    let resync = self
+      .state
+      .last_value_attr
+      .get(&id)
+      .map(|prev| prev != &value_attr)
+      .unwrap_or(true);
+
+    if resync {
+      let initial = if value_attr.is_empty() {
+        options.first().cloned().unwrap_or_default()
+      } else {
+        value_attr.clone()
+      };
+
+      self.state.selects.insert(id, initial);
+      self.state.last_value_attr.insert(id, value_attr);
+    }
+
+    let mut current = self.state.selects.get(&id).cloned().unwrap_or_default();
+    let mut changed = false;
+
+    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+      egui::ComboBox::from_id_salt(id)
+        .selected_text(current.clone())
+        .show_ui(ui, |ui| {
+          for option in &options {
+            if ui
+              .selectable_value(&mut current, option.clone(), option.clone())
+              .changed()
+            {
+              changed = true;
+            }
+          }
+        });
+    });
+
+    self.state.selects.insert(id, current.clone());
+
+    if changed {
+      self.state.pending_events.push((
+        id,
+        EventKind::Change,
+        EventPayload::with_value(current),
+      ));
     }
   }
 
@@ -460,6 +617,50 @@ fn paint_surface(
       egui::StrokeKind::Inside,
     );
   }
+}
+
+/// Read a boolean attribute: present-and-truthy. A bare
+/// `checked` (boolean attribute) or `checked="true"` both read
+/// true; `checked="false"` reads false (the reactive bool's
+/// rendered form).
+fn attr_bool(attrs: &[Attr], name: &str) -> bool {
+  match attrs.iter().find(|attr| attr.name() == name) {
+    Some(attr) => attr.as_str().map(|v| v != "false").unwrap_or(true),
+    None => false,
+  }
+}
+
+/// Gather a `<select>`'s `<option>` choice strings by scanning the
+/// command stream from the select element to its matching
+/// `EndElement`. Each option's text becomes one choice.
+fn gather_options(commands: &[UiCommand], select_idx: usize) -> Vec<String> {
+  let mut options = Vec::new();
+  let mut depth = 0i32;
+  let mut idx = select_idx;
+
+  while idx < commands.len() {
+    match &commands[idx] {
+      UiCommand::Element { tag, .. } => {
+        if *tag == ElementTag::Option {
+          options.push(collapse_text(commands, idx + 1));
+        }
+
+        depth += 1;
+      }
+      UiCommand::EndElement => {
+        depth -= 1;
+
+        if depth == 0 {
+          break;
+        }
+      }
+      _ => {}
+    }
+
+    idx += 1;
+  }
+
+  options
 }
 
 fn attr_num(attrs: &[Attr], name: &str) -> Option<u32> {

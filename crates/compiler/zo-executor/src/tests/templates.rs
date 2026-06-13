@@ -1951,3 +1951,81 @@ fun main() {
     },
   );
 }
+
+#[test]
+fn form_controls_emit_their_tags_and_attrs() {
+  // HTML-faithful surface: checkbox/radio are `<input type=...>`,
+  // dropdowns are `<select>` + `<option>`. The command stream must
+  // carry the tags and the type/value/name attributes intact.
+  assert_sir_structure(
+    r#"
+fun main() {
+  mut agreed := false;
+  mut color := "red";
+
+  imu page ::= <div>
+    <input type="checkbox" checked={agreed} />
+    <input type="radio" name="size" value="sm" />
+    <select value={color}>
+      <option>red</option>
+      <option>green</option>
+    </select>
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let tag_of = |tag: &ElementTag, name: &str| {
+        page
+          .iter()
+          .filter(|c| {
+            matches!(c, UiCommand::Element { tag: t, attrs, .. }
+            if t == tag
+              && attrs.iter().any(|a| a.name() == "type"
+                && a.as_str() == Some(name)))
+          })
+          .count()
+      };
+
+      assert_eq!(tag_of(&ElementTag::Input, "checkbox"), 1, "checkbox");
+      assert_eq!(tag_of(&ElementTag::Input, "radio"), 1, "radio");
+
+      let selects = page
+        .iter()
+        .filter(|c| {
+          matches!(c, UiCommand::Element { tag, .. }
+          if *tag == ElementTag::Select)
+        })
+        .count();
+      let options = page
+        .iter()
+        .filter(|c| {
+          matches!(c, UiCommand::Element { tag, .. }
+          if *tag == ElementTag::Option)
+        })
+        .count();
+
+      assert_eq!(selects, 1, "one select");
+      assert_eq!(options, 2, "two options");
+
+      // The radio's group name + value survive as attributes.
+      let radio_named = page.iter().any(|c| {
+        matches!(c,
+        UiCommand::Element { attrs, .. }
+          if attrs.iter().any(|a| a.name() == "name"
+            && a.as_str() == Some("size")))
+      });
+
+      assert!(radio_named, "radio carries its group name");
+    },
+  );
+}

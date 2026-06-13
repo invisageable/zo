@@ -11,8 +11,12 @@
 /// Runtime ABI tag, embedded verbatim in the runtime dylib and
 /// scanned by `zo build` from the staged copy.
 ///
-/// @note — BUMP THE SUFFIX whenever `ZoRuntimeContext` or any
-/// `#[repr(C)]` binding ABI changes shape.
+/// @note — the digits are a fixed sentinel, not a version: the
+/// guard's job today is catching a runtime dylib that predates
+/// tagging entirely (a flavor never rebuilt). Versioning the tag
+/// for cross-binary compatibility waits until zo ships binaries to
+/// users — until then, `just build_runtime` keeps the flavors in
+/// lockstep with the compiler.
 pub const RUNTIME_ABI_TAG: &[u8; 14] = b"ZO_RT_ABI:0001";
 
 /// The tag's scan prefix — version-independent, used to locate the
