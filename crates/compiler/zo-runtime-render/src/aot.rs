@@ -17,7 +17,7 @@ use crate::reactive::{
 use crate::render::{EventHandler, EventRegistry};
 
 use zo_ui_protocol::codec::{self, CodecError};
-use zo_ui_protocol::{LIST_ITEM_SENTINEL, UiCommand};
+use zo_ui_protocol::{ConditionalPayload, LIST_ITEM_SENTINEL, UiCommand};
 
 use std::collections::HashSet;
 use std::slice;
@@ -116,6 +116,23 @@ pub struct ListBindingAbi {
   pub recipe_len: usize,
 }
 
+/// One tier-2 conditional region in the AOT context. The inline
+/// region `[cmd_idx, cmd_idx + len)` of the base template holds
+/// the initially-active branch; the blob at
+/// `(payload_ptr, payload_len)` is a postcard
+/// [`ConditionalPayload`]. Field order + sizes are ABI:
+/// `cmd_idx`@0, `len`@4, `slot`@8, `_pad`@12, `payload_ptr`@16,
+/// `payload_len`@24 (32 bytes, 8-aligned).
+#[repr(C)]
+pub struct ConditionalBindingAbi {
+  pub cmd_idx: u32,
+  pub len: u32,
+  pub slot: u32,
+  pub _pad: u32,
+  pub payload_ptr: *const u8,
+  pub payload_len: usize,
+}
+
 /// One reactive attribute binding (`<input value={input_val}>`).
 /// The runtime re-applies `commands[cmd_idx].attrs[attr_idx]`'s
 /// value from state slot `slot` (`is_str` selects `STR_STATE`
@@ -133,6 +150,11 @@ pub struct AttrBindingAbi {
 
 /// AOT entry-point context. Built in the compiled exe's
 /// stack frame by codegen and passed by reference to
+///
+/// @note — append-only: new fields go at the END, and any shape
+/// change needs a `just build_runtime` so the staged flavors match
+/// this compiler — `zo build` refuses an untagged (pre-guard)
+/// runtime rather than silently dropping behavior.
 /// `_zo_run_native` at startup.
 ///
 /// Field order is part of the ABI. Optional callback /
@@ -184,6 +206,12 @@ pub struct ZoRuntimeContext {
   pub attr_bindings_ptr: *const AttrBindingAbi,
   /// Number of `AttrBindingAbi`s at `attr_bindings_ptr`.
   pub attr_bindings_count: usize,
+  /// Pointer to an array of `ConditionalBindingAbi` records —
+  /// tier-2 `{when flag ? … : …}` regions. Null / count 0 = none.
+  pub conditional_bindings_ptr: *const ConditionalBindingAbi,
+  /// Number of `ConditionalBindingAbi`s at
+  /// `conditional_bindings_ptr`.
+  pub conditional_bindings_count: usize,
 }
 
 /// Send wrapper for a raw pointer or fn pointer. The exe's
@@ -450,6 +478,59 @@ pub struct ListBindingDecoded {
   pub recipe: Vec<UiCommand>,
 }
 
+/// One decoded tier-2 conditional, payload unpacked.
+#[derive(Clone)]
+pub struct ConditionalDecoded {
+  pub cmd_idx: usize,
+  pub len: usize,
+  pub slot: u32,
+  pub payload: ConditionalPayload,
+}
+
+/// Decode the context's `ConditionalBindingAbi` array. A binding
+/// whose payload fails to decode is skipped (defensive — a
+/// corrupt blob drops that one region, not the whole UI).
+///
+/// # Safety
+///
+/// `ctx.conditional_bindings_ptr` must be null or point to
+/// `ctx.conditional_bindings_count` valid entries whose payload
+/// ranges are valid for the call.
+pub unsafe fn decode_conditional_bindings(
+  ctx: &ZoRuntimeContext,
+) -> Vec<ConditionalDecoded> {
+  if ctx.conditional_bindings_ptr.is_null() {
+    return Vec::new();
+  }
+
+  let abis = unsafe {
+    slice::from_raw_parts(
+      ctx.conditional_bindings_ptr,
+      ctx.conditional_bindings_count,
+    )
+  };
+  let mut out = Vec::with_capacity(abis.len());
+
+  for abi in abis {
+    let bytes =
+      unsafe { slice::from_raw_parts(abi.payload_ptr, abi.payload_len) };
+
+    let decoded: Result<ConditionalPayload, CodecError> =
+      codec::decode_payload(bytes);
+
+    if let Ok(payload) = decoded {
+      out.push(ConditionalDecoded {
+        cmd_idx: abi.cmd_idx as usize,
+        len: abi.len as usize,
+        slot: abi.slot,
+        payload,
+      });
+    }
+  }
+
+  out
+}
+
 /// Decode the context's `ListBindingAbi` array into owned
 /// `ListBinding`s, postcard-decoding each recipe once. A binding
 /// whose recipe fails to decode is skipped (defensive — a
@@ -578,13 +659,17 @@ fn apply_attr_bindings(
 ///
 /// `text_bindings_ptr` must be null or point to
 /// `text_bindings_count` valid `TextBinding` entries.
-pub unsafe fn rebuild_with_lists(
-  base: &[UiCommand],
-  text_bindings_ptr: *const TextBinding,
-  text_bindings_count: usize,
-  attrs: &[AttrBindingDecoded],
-  lists: &[ListBindingDecoded],
+pub unsafe fn rebuild_with_regions(
+  inputs: RebuildInputs<'_>,
 ) -> Vec<UiCommand> {
+  let RebuildInputs {
+    base,
+    text_bindings_ptr,
+    text_bindings_count,
+    attrs,
+    lists,
+    conditionals,
+  } = inputs;
   let mut cmds = base.to_vec();
 
   unsafe {
@@ -595,15 +680,66 @@ pub unsafe fn rebuild_with_lists(
     );
   }
 
-  // Attr bindings apply before the splice — they target the base
+  // Attr bindings apply before any splice — they target the base
   // commands (e.g. the `<input>`), all of which sit before any
-  // list anchor in the current shapes.
+  // region in the current shapes.
   apply_attr_bindings(&mut cmds, attrs, |_| true);
+
+  // Conditional regions splice FIRST, against base coordinates;
+  // their deltas shift every later list anchor — the same order
+  // the `zo run` applier uses.
+  let mut cond_deltas: Vec<(usize, isize)> =
+    Vec::with_capacity(conditionals.len());
+  let mut cond_offset: isize = 0;
+
+  for cond in conditionals {
+    let target = (cond.cmd_idx as isize + cond_offset) as usize;
+
+    // The state cell holds the executor-checked `bool`,
+    // represented as 0/1 in scalar state — this reads the bool's
+    // representation, not a truthiness coercion.
+    let truthy = zo_state_get(cond.slot) != 0;
+    let (blob, texts) = if truthy {
+      (&cond.payload.on_true, &cond.payload.true_text)
+    } else {
+      (&cond.payload.on_false, &cond.payload.false_text)
+    };
+
+    let mut rendered = blob.clone();
+
+    for &(branch_idx, slot, is_str) in texts {
+      if let Some(UiCommand::Text(out)) = rendered.get_mut(branch_idx as usize)
+        && let Some(text) = state_slot_text(slot, is_str)
+      {
+        *out = text;
+      }
+    }
+
+    let new_len = rendered.len();
+
+    if target + cond.len <= cmds.len() {
+      cmds.splice(target..target + cond.len, rendered);
+      cond_deltas.push((cond.cmd_idx, new_len as isize - cond.len as isize));
+      cond_offset += new_len as isize - cond.len as isize;
+    }
+  }
+
+  let shift = |idx: usize| -> usize {
+    let mut shifted = idx as isize;
+
+    for &(at, delta) in &cond_deltas {
+      if idx > at {
+        shifted += delta;
+      }
+    }
+
+    shifted.max(0) as usize
+  };
 
   let mut offset: isize = 0;
 
   for list in lists {
-    let target = (list.cmd_idx as isize + offset) as usize;
+    let target = (shift(list.cmd_idx) as isize + offset) as usize;
 
     if target >= cmds.len() {
       continue;
@@ -618,6 +754,17 @@ pub unsafe fn rebuild_with_lists(
   }
 
   cmds
+}
+
+/// Inputs for one full stream rebuild from the base template —
+/// see [`rebuild_with_regions`].
+pub struct RebuildInputs<'a> {
+  pub base: &'a [UiCommand],
+  pub text_bindings_ptr: *const TextBinding,
+  pub text_bindings_count: usize,
+  pub attrs: &'a [AttrBindingDecoded],
+  pub lists: &'a [ListBindingDecoded],
+  pub conditionals: &'a [ConditionalDecoded],
 }
 
 /// Refresh every reactive `commands[cmd_idx]` from
@@ -832,6 +979,8 @@ pub struct RegistryInputs {
   pub bindings_count: usize,
   /// Per-event update report the view layer reads after dispatch.
   pub report: Arc<Mutex<UpdateReport>>,
+  /// Decoded tier-2 conditionals (empty when none).
+  pub conditionals: Vec<ConditionalDecoded>,
 }
 
 /// Build an `EventRegistry` whose callbacks dispatch through
@@ -860,6 +1009,7 @@ pub fn build_registry(
     bindings_ptr,
     bindings_count,
     report,
+    conditionals,
   } = inputs;
   let mut registry = EventRegistry::new();
 
@@ -872,6 +1022,7 @@ pub fn build_registry(
       .map(|list| arr_slot_items(list.items_slot))
       .collect(),
   ));
+  let conditionals = Arc::new(conditionals);
   let mut seen: HashSet<String> = HashSet::new();
   let mut handler_idx: u32 = 0;
 
@@ -914,6 +1065,7 @@ pub fn build_registry(
     let attrs = Arc::clone(&attrs);
     let report = Arc::clone(&report);
     let list_keys = Arc::clone(&list_keys);
+    let conditionals = Arc::clone(&conditionals);
     let cb: EventHandler = Box::new(move |payload| {
       // RFC 2229 disjoint captures would otherwise pull
       // `dispatch_send.0` / `bindings_send.0` directly into the
@@ -950,9 +1102,11 @@ pub fn build_registry(
       drain_dirty(&mut written);
 
       let hits_list = lists.iter().any(|l| written.contains(&l.items_slot));
+      let hits_conditional =
+        conditionals.iter().any(|c| written.contains(&c.slot));
       let mut cmds = cmds_arc.lock().unwrap();
 
-      if hits_list {
+      if hits_list || hits_conditional {
         // Keyed diff per written list: same item count means the
         // stream keeps its shape (fixed stride per item), so the
         // write patches in place — only the changed commands mark
@@ -986,13 +1140,14 @@ pub fn build_registry(
         }
 
         let rebuilt = unsafe {
-          rebuild_with_lists(
-            base.as_slice(),
-            bindings_send.0,
-            bindings_count,
-            attrs.as_slice(),
-            lists.as_slice(),
-          )
+          rebuild_with_regions(RebuildInputs {
+            base: base.as_slice(),
+            text_bindings_ptr: bindings_send.0,
+            text_bindings_count: bindings_count,
+            attrs: attrs.as_slice(),
+            lists: lists.as_slice(),
+            conditionals: conditionals.as_slice(),
+          })
         };
 
         let mut report = report.lock().unwrap();
@@ -1106,6 +1261,8 @@ mod tests {
       list_bindings_count: 0,
       attr_bindings_ptr: std::ptr::null(),
       attr_bindings_count: 0,
+      conditional_bindings_ptr: std::ptr::null(),
+      conditional_bindings_count: 0,
     }
   }
 
@@ -1504,6 +1661,7 @@ mod tests {
         bindings_ptr: SendPtr(std::ptr::null()),
         bindings_count: 0,
         report: Arc::clone(&report),
+        conditionals: Vec::new(),
       },
     );
 
@@ -1598,6 +1756,8 @@ mod tests {
       list_bindings_count: abis.len(),
       attr_bindings_ptr: std::ptr::null(),
       attr_bindings_count: 0,
+      conditional_bindings_ptr: std::ptr::null(),
+      conditional_bindings_count: 0,
     };
 
     let decoded = unsafe { decode_list_bindings(&ctx) };
@@ -1613,7 +1773,7 @@ mod tests {
   }
 
   #[test]
-  fn rebuild_with_lists_splices_array_items() {
+  fn rebuild_with_regions_splices_array_items() {
     let _serial = state_lock();
     // Array slot 420 is unique to this test.
     zo_state_init(430);
@@ -1637,8 +1797,16 @@ mod tests {
       recipe: li_recipe(),
     }];
 
-    let rebuilt =
-      unsafe { rebuild_with_lists(&base, std::ptr::null(), 0, &[], &lists) };
+    let rebuilt = unsafe {
+      rebuild_with_regions(RebuildInputs {
+        base: &base,
+        text_bindings_ptr: std::ptr::null(),
+        text_bindings_count: 0,
+        attrs: &[],
+        lists: &lists,
+        conditionals: &[],
+      })
+    };
 
     assert_eq!(
       rebuilt,
@@ -1764,6 +1932,7 @@ mod tests {
         bindings_ptr: SendPtr(std::ptr::null()),
         bindings_count: 0,
         report: Arc::new(Mutex::new(UpdateReport::default())),
+        conditionals: Vec::new(),
       },
     );
     let mut out: Vec<String> = cmds

@@ -310,20 +310,10 @@ impl WebGen {
   fn emit_attr(&mut self, tag: &ElementTag, attr: &Attr) {
     match attr {
       Attr::Prop { name, value } => {
-        let s = value.to_display();
-        let rendered = self.rewrite_attr_value(tag, name, &s);
-
-        self
-          .html_buffer
-          .push_str(&format!(" {name}=\"{}\"", escape_html(&rendered),));
+        self.emit_value_attr(tag, name, &value.to_display());
       }
       Attr::Dynamic { name, initial, .. } => {
-        let s = initial.to_display();
-        let rendered = self.rewrite_attr_value(tag, name, &s);
-
-        self
-          .html_buffer
-          .push_str(&format!(" {name}=\"{}\"", escape_html(&rendered),));
+        self.emit_value_attr(tag, name, &initial.to_display());
       }
       Attr::Style { name, value } => {
         // Inline style shorthand — emit as a style="" segment. MVP: one
@@ -340,6 +330,31 @@ impl WebGen {
         // not inline HTML attributes.
       }
     }
+  }
+
+  /// Emit one HTML attribute. Boolean attributes (`checked`,
+  /// `disabled`, …) are present-means-true: a truthy `value`
+  /// writes the bare name, a falsy one writes nothing — never
+  /// `checked="false"`, which a browser reads as checked. Every
+  /// other attribute writes `name="value"`.
+  fn emit_value_attr(&mut self, tag: &ElementTag, name: &str, value: &str) {
+    if is_boolean_attr(name) {
+      // The push and the early return guard DIFFERENT conditions —
+      // the return skips the `name="value"` path for every boolean
+      // attr, the push fires only for truthy ones — so they can't
+      // collapse into one `&&`.
+      if value != "false" {
+        self.html_buffer.push_str(&format!(" {name}"));
+      }
+
+      return;
+    }
+
+    let rendered = self.rewrite_attr_value(tag, name, value);
+
+    self
+      .html_buffer
+      .push_str(&format!(" {name}=\"{}\"", escape_html(&rendered)));
   }
 
   /// Per-tag attribute value rewrites. Currently only Img `src` needs
@@ -431,6 +446,16 @@ fn escape_html(s: &str) -> String {
     .replace('>', "&gt;")
     .replace('"', "&quot;")
     .replace('\'', "&#39;")
+}
+
+/// HTML boolean attributes — present means true, absent means
+/// false. A reactive `checked={flag}` renders as bare `checked`
+/// only when the flag is truthy.
+fn is_boolean_attr(name: &str) -> bool {
+  matches!(
+    name,
+    "checked" | "disabled" | "selected" | "readonly" | "multiple"
+  )
 }
 
 #[cfg(test)]

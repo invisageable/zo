@@ -38,6 +38,22 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<UiCommand>, CodecError> {
   postcard::from_bytes(bytes)
 }
 
+/// Encode any postcard payload (the tier-2 conditional branch
+/// payload rides this; `encode` stays the command-stream entry).
+pub fn encode_payload<T: serde::Serialize>(
+  value: &T,
+) -> Result<Vec<u8>, CodecError> {
+  postcard::to_allocvec(value)
+}
+
+/// Decode any postcard payload — the sibling of
+/// [`encode_payload`].
+pub fn decode_payload<T: serde::de::DeserializeOwned>(
+  bytes: &[u8],
+) -> Result<T, CodecError> {
+  postcard::from_bytes(bytes)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

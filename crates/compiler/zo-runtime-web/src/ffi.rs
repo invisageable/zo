@@ -11,9 +11,9 @@
 use crate::runtime::Runtime;
 
 use zo_runtime_render::aot::{
-  RegistryInputs, SendPtr, UpdateReport, ZoRuntimeContext, build_registry,
-  decode_attr_bindings, decode_list_bindings, decode_template,
-  rebuild_with_lists,
+  RebuildInputs, RegistryInputs, SendPtr, UpdateReport, ZoRuntimeContext,
+  build_registry, decode_attr_bindings, decode_conditional_bindings,
+  decode_list_bindings, decode_template, rebuild_with_regions,
 };
 use zo_runtime_render::render::RuntimeConfig;
 
@@ -55,19 +55,21 @@ pub unsafe extern "C" fn zo_run_web(ctx: *const ZoRuntimeContext) {
 
   let lists = unsafe { decode_list_bindings(ctx_ref) };
   let attrs = unsafe { decode_attr_bindings(ctx_ref) };
+  let conditionals = unsafe { decode_conditional_bindings(ctx_ref) };
 
   // Initial frame: bake every `mut`'s value into its `Text`, apply
   // attribute bindings, and splice each list's initial items over its
   // placeholder — identical to the native entry, since the command
   // stream is backend-agnostic.
   let initial = unsafe {
-    rebuild_with_lists(
-      &base,
-      ctx_ref.text_bindings_ptr,
-      ctx_ref.text_bindings_count,
-      &attrs,
-      &lists,
-    )
+    rebuild_with_regions(RebuildInputs {
+      base: &base,
+      text_bindings_ptr: ctx_ref.text_bindings_ptr,
+      text_bindings_count: ctx_ref.text_bindings_count,
+      attrs: &attrs,
+      lists: &lists,
+      conditionals: &conditionals,
+    })
   };
 
   let shared = Arc::new(Mutex::new(initial));
@@ -86,6 +88,7 @@ pub unsafe extern "C" fn zo_run_web(ctx: *const ZoRuntimeContext) {
         bindings_ptr: SendPtr(ctx_ref.text_bindings_ptr),
         bindings_count: ctx_ref.text_bindings_count,
         report: Arc::new(Mutex::new(UpdateReport::default())),
+        conditionals,
       },
     ));
   }

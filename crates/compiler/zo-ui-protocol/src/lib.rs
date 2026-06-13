@@ -6,8 +6,8 @@ mod ui_protocol;
 
 pub use ui::Ui;
 pub use ui_protocol::{
-  Attr, ElementTag, EventKind, LIST_ITEM_SENTINEL, PropValue, StyleScope,
-  UiCommand,
+  Attr, ConditionalPayload, ElementTag, EventKind, LIST_ITEM_SENTINEL,
+  PropValue, StyleScope, UiCommand,
 };
 
 /// Whether a directive name mounts a template onto the active

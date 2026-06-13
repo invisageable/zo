@@ -28,3 +28,6 @@ libloading = { workspace = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true }
 thin-vec = { workspace = true }
+
+[dev-dependencies]
+egui_kittest = { workspace = true }

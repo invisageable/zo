@@ -1,0 +1,18 @@
+-- test-run-pass: tier-2 conditional rendering. `open` and `done`
+-- are reactive `bool` state — conditions are typed, never coerced
+-- — so both branches compile and the runtime swaps the region
+-- when a handler flips the flag.
+
+fun main() {
+  mut open := false;
+  mut done := false;
+
+  imu page ::= <div>
+    <button @click={fn() => open = !open}>menu</button>
+    <button @click={fn() => done = true}>finish</button>
+    {when open ? <ul>menu items</ul> : <p>closed</p>}
+    {when done ? <b>finished</b> : <i>pending</i>}
+  </div>;
+
+  #render page;
+}

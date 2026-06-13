@@ -139,6 +139,9 @@ pub enum ElementTag {
   Button,
   Input,
   Textarea,
+  // Dropdown: `<select>` + its `<option>` children.
+  Select,
+  Option,
   // Escape hatch for any HTML tag the compiler hasn't enumerated.
   Custom(String),
 }
@@ -171,6 +174,8 @@ impl ElementTag {
       Self::Button => "button",
       Self::Input => "input",
       Self::Textarea => "textarea",
+      Self::Select => "select",
+      Self::Option => "option",
       Self::Custom(s) => s.as_str(),
     }
   }
@@ -210,6 +215,8 @@ impl ElementTag {
       "button" => Self::Button,
       "input" => Self::Input,
       "textarea" => Self::Textarea,
+      "select" => Self::Select,
+      "option" => Self::Option,
       "" => return None,
       other => Self::Custom(other.to_string()),
     })
@@ -266,7 +273,9 @@ impl ElementTag {
       Self::Button => 21,
       Self::Input => 22,
       Self::Textarea => 23,
-      Self::Custom(_) => 24,
+      Self::Select => 24,
+      Self::Option => 25,
+      Self::Custom(_) => 26,
     }
   }
 
@@ -298,9 +307,24 @@ impl ElementTag {
       21 => Self::Button,
       22 => Self::Input,
       23 => Self::Textarea,
+      24 => Self::Select,
+      25 => Self::Option,
       _ => return None,
     })
   }
+}
+
+/// Tier-2 conditional branch payload, postcard-encoded into the
+/// AOT context's `ConditionalBindingAbi`: both compiled branch
+/// blobs plus their reactive text interps as
+/// `(branch_relative_idx, state_slot, is_str)` triples the runtime
+/// substitutes at splice time.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub struct ConditionalPayload {
+  pub on_true: Vec<UiCommand>,
+  pub true_text: Vec<(u32, u32, bool)>,
+  pub on_false: Vec<UiCommand>,
+  pub false_text: Vec<(u32, u32, bool)>,
 }
 
 /// Event types that can occur in the UI.

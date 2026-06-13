@@ -1,0 +1,7 @@
+[package]
+name = "zo-abi"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+doctest = false

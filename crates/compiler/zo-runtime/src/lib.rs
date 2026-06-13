@@ -53,3 +53,11 @@ pub use zo_runtime_web::{Browsering, Quiet, Server};
 /// that reference.
 #[cfg(all(feature = "ui", any(target_os = "ios", target_os = "watchos")))]
 pub use zo_runtime_ios::zo_run_native;
+
+/// The ABI tag `zo build` scans for in the staged dylib. Lives in
+/// the cdylib root so BOTH flavors carry it — the lean core build
+/// excludes the render tree entirely. `#[used]` keeps the bytes in
+/// the artifact even with no Rust reader. See
+/// `zo_abi::RUNTIME_ABI_TAG` for the contract.
+#[used]
+pub static ZO_RUNTIME_ABI_TAG: [u8; 14] = *zo_abi::RUNTIME_ABI_TAG;

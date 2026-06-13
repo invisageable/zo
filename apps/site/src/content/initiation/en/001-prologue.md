@@ -5,16 +5,16 @@ title: Prologue
 
 # prologue
 
-[tsh-tsh]
+[tsh-tsh] This initiation is for the `zo` programming language.
 
-If you're still here, it's probably because you're convinced software should be better. Accepting its mediocrity means bowing to the executive committees who shove their products at us in wave after wave of relentless marketing.
+What are we waiting for to improve our developer experience? Why does having to wait several seconds, or even minutes, to get feedback on the correctness of our program bother absolutely no one?
 
-Is it possible to offer something different? If zo is David and they're Goliath, then zo has to exist — to bridge the gap between high-level and low-level. The zo ecosystem will make developers' lives better. Can you picture not having to wait seconds, sometimes minutes, just to find out if your program even compiles? Or a text editor that actually puts a smile on your face when you use it?
+The quality of our current tools and infrastructure borders on mediocrity. Fortunately, some developers, resistant to this pervasive nonsense, perpetually continue to refine our ecosystem. To accept this mediocrity is to submit to the dictates of executive committees who force their products on us through waves of intensive marketing.
 
-When front-end programmers get curious about low-level, they realize fast that it's a whole different beast. First thing — memory management, for crying out loud! We won't dwell on it. Fact is, the iteration loop is just different — especially for a brainless soul like me. It's stacking up against a hundred tiny frictions like this that made us go: we need to simplify the process so anyone coming from high-level can have a blast building high-performance apps.
+zo is not a revolutionary programming language: its concepts come from languages that have proven themselves. zo does not solve any new problem that another language hasn't already solved. It is a different language, but one that aims to be familiar, so that people from diverse backgrounds can explore low-level programming through a high-level language.
 
-The real idea is to upgrade the experience of writing code, and let you turn your thoughts into code in a snap, no friction. To get there, with the compilords we zeroed in on the tiny details that matter — the ones everyone pretends not to see. So we can crack open new dimensions where our thoughts turn into a string of zeros and ones, without killing the joy.
+Whether you are back-end, front-end, a hacker, curious, a nerd, a scientist, a Ph.D., or a creative, zo is just another field of possibilities among many. It’s up to you to see if you want to discover more.
 
-Whether you're shipping a high-performance tool or a tiny web app, you should be able to do it with the same logic, the same syntax — zsx. The zo syntax extension gives you total control over your program. On top of a real programming language, you get an HTML-like syntax for building GPU-juiced apps, for real.
+Our convictions rest on simplicity, software harmony, and the developer experience. For this, with the compilords, we focused on the minuscule details that matter, but that everyone pretends not to see. The main idea remains to open new dimensions in which our thoughts transform into a series of zeros and ones, without ever sacrificing the joy.
 
 <b class="green-100">JOiN THE DEVOLUTiON</b>.

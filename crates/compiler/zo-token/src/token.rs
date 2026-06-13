@@ -256,16 +256,24 @@ impl Token {
   ///
   /// @note — deliberately narrower than `is_regex_prefix`:
   /// only *value* positions — `return`, a block tail (after
-  /// `{` / `;`), a `match` arm (after `=>`). Assignment
-  /// operators are excluded by language design: `::=` is the
-  /// one and only template binding form, so `:= <p>` and
-  /// `= <p>` stay `Lt` and fail downstream as the invalid
-  /// programs they are.
+  /// `{` / `;`), a `match` arm or closure body (after `=>`),
+  /// and the two ternary positions (`when c ? <a> : <b>`; no
+  /// valid expression starts with `<`, and `</>` in type
+  /// position bypasses the door — its next byte is `/`).
+  /// Assignment operators are excluded by language design:
+  /// `::=` is the one and only template binding form, so
+  /// `:= <p>` and `= <p>` stay `Lt` and fail downstream as
+  /// the invalid programs they are.
   #[inline(always)]
   pub fn is_template_opener(&self) -> bool {
     matches!(
       self,
-      Self::Return | Self::LBrace | Self::Semicolon | Self::FatArrow
+      Self::Return
+        | Self::LBrace
+        | Self::Semicolon
+        | Self::FatArrow
+        | Self::Question
+        | Self::Colon
     )
   }
 

@@ -13,9 +13,9 @@ use zo_reporter::{
   report_error_with_suggestion, report_error_with_types,
 };
 use zo_sir::{
-  BinOp, ComputedBinding, ImportKind, Insn, LinkEntry, LinkPath,
-  LinkResolution, LinkSpec, ListBinding, ListItemCmd, LoadSource, NurseryKind,
-  Sir, SpawnKind, TemplateBindings, UnOp,
+  BinOp, ComputedBinding, ConditionalBinding, ImportKind, Insn, LinkEntry,
+  LinkPath, LinkResolution, LinkSpec, ListBinding, ListItemCmd, LoadSource,
+  NurseryKind, Sir, SpawnKind, TemplateBindings, UnOp,
 };
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
@@ -78,7 +78,7 @@ pub struct ExecuteOutput {
 const MAX_COMPONENT_DEPTH: usize = 64;
 
 /// One registered component body fragment.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct ComponentFragment {
   /// Fragment node range in this executor's tree.
   range: (usize, usize),
@@ -86,6 +86,23 @@ struct ComponentFragment {
   /// component must always instantiate — its registration-time
   /// bake has no slot content to show.
   slot: Slot,
+  /// Body-local `mut` declarations: every instantiation creates
+  /// its own cells for these under synthetic per-instance names,
+  /// so two `<counter />`s count independently.
+  state: Vec<ComponentState>,
+}
+
+/// One body-local `mut` a component re-materializes per use site.
+#[derive(Clone, Copy)]
+struct ComponentState {
+  /// The declared name — aliased to the synthetic per-instance
+  /// name during the instantiation's body re-execution.
+  name: Symbol,
+  /// Snapshot of the initial value at registration (the decl's
+  /// init already executed; the value store is append-only, so
+  /// the id stays valid).
+  value_id: ValueId,
+  ty_id: TyId,
 }
 
 /// One component tag opened with children
@@ -347,6 +364,13 @@ pub struct Executor<'a> {
   /// site. Suppresses component registration (the enclosing
   /// function must not re-register with an instance's template).
   instantiating: u32,
+  /// Per-instantiation alias frames: the component body's state
+  /// names resolve to their synthetic per-instance names
+  /// (`count` → `count$3`) while the frame is live. A stack so
+  /// nested instantiations compose.
+  instance_aliases: Vec<HashMap<Symbol, Symbol>>,
+  /// Monotonic id minting the synthetic state names.
+  instance_counter: u32,
   /// Components currently being instantiated, outermost first.
   /// Local components can't recurse (registration order), but an
   /// *imported* fragment re-executes where every spliced component
@@ -1008,6 +1032,8 @@ impl<'a> Executor<'a> {
       saw_slot_tag: false,
       slot_frames: Vec::new(),
       instantiating: 0,
+      instance_aliases: Vec::new(),
+      instance_counter: 0,
       instantiation_stack: Vec::new(),
       saved_outer_funs: Vec::new(),
       pending_function: None,
@@ -2275,6 +2301,7 @@ impl<'a> Executor<'a> {
         ComponentFragment {
           range: (entry.range.0 as usize, entry.range.1 as usize),
           slot: entry.slot,
+          state: Vec::new(),
         },
       );
     }
@@ -3735,6 +3762,7 @@ impl<'a> Executor<'a> {
             name_span: self.pending_fn_name_span,
             pending_return: false,
             scope_depth: self.scope_stack.len(),
+            locals_base: self.locals.len(),
           });
 
           // Update body_start in the pending function
@@ -4711,6 +4739,12 @@ impl<'a> Executor<'a> {
         }
 
         if let Some(NodeValue::Symbol(sym)) = self.node_value(idx) {
+          // Inside a component instantiation, a body `mut` resolves
+          // to its synthetic per-instance name (`count` → `count$N`)
+          // so each instance reads/writes its own cell. A no-op
+          // outside instantiation and for non-state symbols.
+          let sym = self.resolve_instance_alias(sym);
+
           // Copy fields to avoid borrow issues.
           let local_info = self.lookup_local(sym).map(|l| {
             (
@@ -6163,6 +6197,7 @@ impl<'a> Executor<'a> {
           self.sir_values.pop();
 
           let span = self.tree.spans[target_idx];
+          let name = self.resolve_instance_alias(name);
 
           self.pending_assign = Some((name, span));
         } else if self.tree.nodes[target_idx].token == Token::RBracket {
@@ -8688,6 +8723,7 @@ impl<'a> Executor<'a> {
       name_span: Span::ZERO,
       pending_return: false,
       scope_depth: self.scope_stack.len(),
+      locals_base: self.locals.len(),
     });
 
     // Executing the body here only lowers it to SIR — the closure runs
@@ -19884,6 +19920,7 @@ impl<'a> Executor<'a> {
       self.sir_values.pop();
 
       let span = self.tree.spans[target_idx];
+      let name = self.resolve_instance_alias(name);
 
       self.pending_compound_receiver = None;
       self.pending_compound = Some((name, op, span));
@@ -25030,6 +25067,20 @@ impl<'a> Executor<'a> {
             k
           };
 
+          // Tier-2 conditional: `{when m ? <a>…</a> : <b>…</b>}`
+          // over a reactive `mut`. Both branches compile; the
+          // active one inlines and the binding carries both so
+          // the runtime swaps the region when the variable
+          // changes. Compile-time conditions (imu/constants)
+          // fall through to the general path's fold.
+          if self.tree.nodes[idx].token == Token::When
+            && self.try_conditional_interp(idx, close_idx, &mut commands)
+          {
+            idx = close_idx + 1;
+
+            continue;
+          }
+
           // Fast path: `{count}` (single ident) — resolves
           // the local's compile-time value directly and
           // records reactive text binding for `mut` vars.
@@ -25039,7 +25090,7 @@ impl<'a> Executor<'a> {
             && self.tree.nodes[idx].token == Token::Ident
           {
             self.node_value(idx).and_then(|v| match v {
-              NodeValue::Symbol(s) => Some(s),
+              NodeValue::Symbol(s) => Some(self.resolve_instance_alias(s)),
               _ => None,
             })
           } else {
@@ -25265,6 +25316,7 @@ impl<'a> Executor<'a> {
             name_span: Span::ZERO,
             pending_return: false,
             scope_depth: self.scope_stack.len(),
+            locals_base: self.locals.len(),
           });
 
           // Param scope: push each capture as a local so
@@ -25506,12 +25558,36 @@ impl<'a> Executor<'a> {
         Slot::No
       };
 
+      // Body-local `mut`s become per-instance state: each use
+      // site re-materializes them under synthetic names, so two
+      // instances never share a cell.
+      let state: Vec<ComponentState> = self
+        .current_function
+        .as_ref()
+        .map(|ctx| ctx.locals_base)
+        .map(|base| {
+          self.locals[base.min(self.locals.len())..]
+            .iter()
+            .filter(|local| {
+              local.mutability == Mutability::Yes
+                && local.local_kind == LocalKind::Variable
+            })
+            .map(|local| ComponentState {
+              name: local.name,
+              value_id: local.value_id,
+              ty_id: local.ty_id,
+            })
+            .collect()
+        })
+        .unwrap_or_default();
+
       self.component_templates.insert(name, template_id);
       self.component_fragments.insert(
         name,
         ComponentFragment {
           range: (start_idx, end_idx),
           slot,
+          state,
         },
       );
 
@@ -25735,6 +25811,187 @@ impl<'a> Executor<'a> {
   /// return that template's commands for inlining. Otherwise
   /// returns None. Preserves the component-resolution behavior
   /// from the legacy `TagKind::Unknown` path.
+  /// Recognize and compile a tier-2 conditional interp. Returns
+  /// `false` when the shape doesn't match (not a single reactive
+  /// `mut` condition, or no template branches) — the caller falls
+  /// through to the general expression path, which folds
+  /// compile-time conditions exactly as before.
+  fn try_conditional_interp(
+    &mut self,
+    when_idx: usize,
+    close_idx: usize,
+    commands: &mut Vec<UiCommand>,
+  ) -> bool {
+    // Shape: When Ident Question TemplateFragmentStart …
+    let cond_idx = when_idx + 1;
+
+    if cond_idx + 2 >= close_idx
+      || self.tree.nodes[cond_idx].token != Token::Ident
+      || self.tree.nodes[cond_idx + 1].token != Token::Question
+      || self.tree.nodes[cond_idx + 2].token != Token::TemplateFragmentStart
+    {
+      return false;
+    }
+
+    let Some(NodeValue::Symbol(var)) = self.node_value(cond_idx) else {
+      return false;
+    };
+
+    // Only a reactive `mut` swaps at runtime; everything else
+    // keeps the compile-time fold.
+    let Some(local) = self.lookup_local(var) else {
+      return false;
+    };
+
+    if local.mutability != Mutability::Yes {
+      return false;
+    }
+
+    // Conditions are `bool` — no truthiness. An int/str condition
+    // is a type error at the condition's span, exactly as in any
+    // other condition position.
+    let local_ty = local.ty_id;
+    let local_value = local.value_id;
+
+    if !matches!(self.ty_checker.resolve_ty(local_ty), Ty::Bool) {
+      let span = self.tree.spans[cond_idx];
+      let error = self.type_mismatch_error(span, Span::ZERO);
+
+      report_error_with_types(
+        error,
+        TyNames {
+          primary: self.ty_display_name(local_ty).into(),
+          secondary: "bool".into(),
+        },
+      );
+
+      return true;
+    }
+
+    let active_is_true = {
+      let value_idx = local_value.0 as usize;
+
+      matches!(
+        self.values.kinds.get(value_idx),
+        Some(Value::Bool)
+          if self.values.bools
+            [self.values.indices[value_idx] as usize]
+      )
+    };
+
+    // Split the fragment at the root-level `:` — element depth
+    // via open/close tag pairs (`<x>` opens, `</x` and `/>`
+    // close).
+    let body_start = cond_idx + 3;
+    let mut split = None;
+    let mut depth = 0i32;
+    let mut k = body_start;
+
+    while k < close_idx {
+      match self.tree.nodes[k].token {
+        Token::LAngle => {
+          if self
+            .tree
+            .nodes
+            .get(k + 1)
+            .is_some_and(|n| n.token == Token::Slash2)
+          {
+            depth -= 1;
+          } else {
+            depth += 1;
+          }
+        }
+        Token::Slash2 if self.tree.nodes[k - 1].token != Token::LAngle => {
+          // Self-closing `<x />`.
+          depth -= 1;
+        }
+        Token::Colon if depth == 0 => {
+          split = Some(k);
+
+          break;
+        }
+        _ => {}
+      }
+
+      k += 1;
+    }
+
+    // `when` always takes both branches — a missing `:` is an
+    // error, never an implicit empty branch. An intentionally
+    // empty branch is written explicitly (`: <></>`).
+    let Some(colon) = split else {
+      let span = self.tree.spans[close_idx.min(self.tree.spans.len() - 1)];
+
+      self.report(ErrorKind::ExpectedExpression, span);
+
+      return true;
+    };
+
+    let (true_range, false_range) =
+      ((body_start, colon), (colon + 1, close_idx));
+
+    let (on_true, true_text) =
+      self.capture_conditional_branch(true_range.0, true_range.1);
+    let (on_false, false_text) =
+      self.capture_conditional_branch(false_range.0, false_range.1);
+
+    let active = if active_is_true { &on_true } else { &on_false };
+    let cmd_idx = commands.len();
+    let len = active.len();
+
+    commands.extend(active.iter().cloned());
+    self.template_bindings.conditional.push(ConditionalBinding {
+      cmd_idx,
+      len,
+      var,
+      on_true,
+      true_text,
+      on_false,
+      false_text,
+    });
+
+    true
+  }
+
+  /// Execute one conditional branch into its own command blob,
+  /// rolled back from SIR exactly like a component instantiation
+  /// — the blob lives in the binding, not the instruction stream.
+  fn capture_conditional_branch(
+    &mut self,
+    start: usize,
+    end: usize,
+  ) -> (Vec<UiCommand>, Vec<(usize, Symbol)>) {
+    let saved_pending_var = self.pending_var_name.take();
+    let saved_styles = std::mem::take(&mut self.pending_styles);
+    let saved_bindings = std::mem::take(&mut self.template_bindings);
+    let sir_len = self.sir.instructions.len();
+
+    self.instantiating += 1;
+    self.execute_template_fragment(start, end);
+    self.instantiating -= 1;
+
+    self.value_stack.pop();
+    self.ty_stack.pop();
+    self.sir_values.pop();
+
+    let mut branch_commands = Vec::new();
+
+    for insn in &self.sir.instructions[sir_len..] {
+      if let Insn::Template { commands, .. } = insn {
+        branch_commands = commands.clone();
+      }
+    }
+
+    let captured =
+      std::mem::replace(&mut self.template_bindings, saved_bindings);
+
+    self.sir.truncate(sir_len);
+    self.pending_var_name = saved_pending_var;
+    self.pending_styles = saved_styles;
+
+    (branch_commands, captured.text)
+  }
+
   /// Finish a component used with children: drain the children
   /// stream (and its bindings) built since the opening tag,
   /// instantiate the component with that slot content, and splice
@@ -25850,7 +26107,7 @@ impl<'a> Executor<'a> {
     tag_span: Span,
   ) -> Option<(Vec<UiCommand>, TemplateBindings)> {
     let sym = self.interner.symbol(tag)?;
-    let fragment = *self.component_fragments.get(&sym)?;
+    let fragment = self.component_fragments.get(&sym)?.clone();
     let (frag_start, frag_end) = fragment.range;
 
     // Instantiating a component already on the stack (or past the
@@ -25883,14 +26140,17 @@ impl<'a> Executor<'a> {
 
     if params.is_empty()
       && fragment.slot == Slot::No
+      && fragment.state.is_empty()
       && self.pending_slot.is_empty()
       && self.component_templates.contains_key(&sym)
     {
-      // A local zero-prop, slot-free component has a baked
-      // registration-time template identical for every use — the
-      // clone path is cheaper. A slotted component (or one used
-      // with children) must instantiate, and an imported component
-      // has no local bake; both fall through.
+      // A local zero-prop, slot-free, STATELESS component has a
+      // baked registration-time template identical for every use —
+      // the clone path is cheaper. A component with body `mut`
+      // state must instantiate so each use site gets its own cells;
+      // a slotted component (or one used with children) must
+      // instantiate too, and an imported component has no local
+      // bake; all fall through.
       return None;
     }
 
@@ -25957,6 +26217,16 @@ impl<'a> Executor<'a> {
     // the parent's collected-so-far bindings must survive the
     // nested completion's `mem::take`.
     let saved_bindings = std::mem::take(&mut self.template_bindings);
+
+    // Per-instance state cells: re-materialize each body `mut`
+    // under a synthetic name BEFORE the SIR snapshot — the init
+    // instructions belong to the enclosing stream (codegen seeds
+    // the slot from them), only the fragment's emissions roll
+    // back.
+    let aliases = self.materialize_instance_state(&fragment.state);
+
+    self.instance_aliases.push(aliases);
+
     let sir_len = self.sir.instructions.len();
 
     self.instantiating += 1;
@@ -25964,6 +26234,7 @@ impl<'a> Executor<'a> {
     self.execute_template_fragment(frag_start, frag_end);
     self.instantiation_stack.pop();
     self.instantiating -= 1;
+    self.instance_aliases.pop();
 
     self.pending_styles = saved_styles;
     self.pending_var_name = saved_pending_var;
@@ -25988,6 +26259,127 @@ impl<'a> Executor<'a> {
     }
 
     instance
+  }
+
+  /// Re-materialize a component's body `mut`s for one use site:
+  /// fresh value cells under synthetic names (`count$3`), init SIR
+  /// emitted into the enclosing stream so codegen and the run path
+  /// seed each instance's slot, and the alias map the body's
+  /// references resolve through. Only scalar state (int / bool /
+  /// str) is supported — exactly what the reactive cells model.
+  fn materialize_instance_state(
+    &mut self,
+    state: &[ComponentState],
+  ) -> HashMap<Symbol, Symbol> {
+    let mut aliases = HashMap::default();
+
+    for entry in state {
+      self.instance_counter += 1;
+
+      let synthetic = self.interner.intern(&format!(
+        "{}${}",
+        self.interner.get(entry.name),
+        self.instance_counter
+      ));
+
+      let value_idx = entry.value_id.0 as usize;
+      let Some(kind) = self.values.kinds.get(value_idx).copied() else {
+        continue;
+      };
+      let payload = self.values.indices[value_idx] as usize;
+
+      let (fresh_value, init_sir) = match kind {
+        Value::Int => {
+          let value = self.values.ints[payload];
+          let dst = ValueId(self.sir.next_value_id);
+
+          self.sir.next_value_id += 1;
+          self.sir.emit(Insn::ConstInt {
+            dst,
+            value,
+            ty_id: entry.ty_id,
+          });
+
+          (self.values.store_int(value), dst)
+        }
+        Value::Bool => {
+          let value = self.values.bools[payload];
+          let dst = ValueId(self.sir.next_value_id);
+
+          self.sir.next_value_id += 1;
+          self.sir.emit(Insn::ConstBool {
+            dst,
+            value,
+            ty_id: entry.ty_id,
+          });
+
+          (self.values.store_bool(value), dst)
+        }
+        Value::String => {
+          let symbol = self.values.strings[payload];
+          let dst = ValueId(self.sir.next_value_id);
+
+          self.sir.next_value_id += 1;
+          self.sir.emit(Insn::ConstString {
+            dst,
+            symbol,
+            ty_id: entry.ty_id,
+          });
+
+          (self.values.store_string(symbol), dst)
+        }
+        // Non-scalar body state falls outside the reactive cell
+        // model; the body still sees the registration-time value.
+        _ => continue,
+      };
+
+      self.sir.emit(Insn::VarDef {
+        name: synthetic,
+        ty_id: entry.ty_id,
+        init: Some(init_sir),
+        mutability: Mutability::Yes,
+        pubness: Pubness::No,
+      });
+      self.sir.emit(Insn::Store {
+        name: synthetic,
+        value: init_sir,
+        ty_id: entry.ty_id,
+      });
+
+      self.push_local(Local {
+        name: synthetic,
+        ty_id: entry.ty_id,
+        value_id: fresh_value,
+        pubness: Pubness::No,
+        mutability: Mutability::Yes,
+        sir_value: Some(init_sir),
+        local_kind: LocalKind::Variable,
+        auto_drop: AutoDrop::No,
+        owning_pack: None,
+        span: Span::ZERO,
+      });
+
+      if let Some(frame) = self.scope_stack.last_mut() {
+        frame.count += 1;
+      }
+
+      aliases.insert(entry.name, synthetic);
+    }
+
+    aliases
+  }
+
+  /// Resolve a body symbol through the live instantiation alias
+  /// frames (innermost first) — `count` inside an instance reads
+  /// and writes its own `count$N` cell.
+  fn resolve_instance_alias(&self, sym: Symbol) -> Symbol {
+    for frame in self.instance_aliases.iter().rev() {
+      if let Some(&aliased) = frame.get(&sym) {
+        return aliased;
+      }
+    }
+
+    sym
   }
 
   fn try_resolve_template_component(
@@ -26656,6 +27048,10 @@ struct FunCtx {
   /// Scope depth when the function body was entered.
   /// Only close the function at this depth's RBrace.
   pub(crate) scope_depth: usize,
+  /// `locals.len()` at body entry — everything past it belongs to
+  /// this function. Component registration reads the slice to
+  /// capture body-local `mut` state for per-instance cells.
+  pub(crate) locals_base: usize,
 }
 
 /// Snapshot of the outer fun's state when a nested `fun`
@@ -26691,29 +27087,10 @@ fn is_dyld_resolvable_system_path(path: &str) -> bool {
 /// `ElementTag`. Unknown tags fall through to
 /// `ElementTag::Custom` so the renderer can still stamp them
 /// verbatim (and component resolution is attempted one layer up).
+/// Resolve a markup tag to its `ElementTag`. Delegates to
+/// `ElementTag::from_name` — the single source of truth for the
+/// tag table — so new tags never need a second edit here. An empty
+/// tag (never produced by the parser) falls back to `Div`.
 fn tag_to_element(tag: &str) -> ElementTag {
-  match tag {
-    "div" => ElementTag::Div,
-    "section" => ElementTag::Section,
-    "main" => ElementTag::Main,
-    "article" => ElementTag::Article,
-    "aside" => ElementTag::Aside,
-    "header" => ElementTag::Header,
-    "footer" => ElementTag::Footer,
-    "nav" => ElementTag::Nav,
-    "form" => ElementTag::Form,
-    "ul" => ElementTag::Ul,
-    "ol" => ElementTag::Ol,
-    "li" => ElementTag::Li,
-    "span" => ElementTag::Span,
-    "h1" => ElementTag::H1,
-    "h2" => ElementTag::H2,
-    "h3" => ElementTag::H3,
-    "p" => ElementTag::P,
-    "img" => ElementTag::Img,
-    "button" => ElementTag::Button,
-    "input" => ElementTag::Input,
-    "textarea" => ElementTag::Textarea,
-    other => ElementTag::Custom(other.to_string()),
-  }
+  ElementTag::from_name(tag).unwrap_or(ElementTag::Div)
 }

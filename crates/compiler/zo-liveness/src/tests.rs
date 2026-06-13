@@ -17,6 +17,7 @@ fn array_store_uses_three_values() {
     index: ValueId(1),
     value: ValueId(2),
     ty_id: TyId(8),
+    owner: None,
   };
 
   let mut uses = Vec::new();
@@ -71,6 +72,7 @@ fn array_store_produces_no_value() {
     index: ValueId(1),
     value: ValueId(2),
     ty_id: TyId(8),
+    owner: None,
   }];
 
   let ids = compute_value_ids(&insns);

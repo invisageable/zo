@@ -1751,3 +1751,281 @@ fun main() {
     ErrorKind::StatementInTemplate,
   );
 }
+
+#[test]
+fn tier2_conditional_compiles_both_branches() {
+  assert_sir_structure(
+    r#"
+fun main() {
+  mut open := false;
+
+  imu page ::= <div>
+    <button @click={fn() => open = true}>menu</button>
+    {when open ? <ul>menu items</ul> : <p>closed</p>}
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let (commands, bindings) = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template {
+            commands, bindings, ..
+          } => Some((commands, bindings)),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      assert_eq!(bindings.conditional.len(), 1, "one conditional region");
+
+      let cond = &bindings.conditional[0];
+
+      let blob_text = |cmds: &[UiCommand]| -> String {
+        cmds
+          .iter()
+          .filter_map(|c| match c {
+            UiCommand::Text(t) => Some(t.as_str()),
+            _ => None,
+          })
+          .collect()
+      };
+
+      assert!(
+        blob_text(&cond.on_true).contains("menu items"),
+        "true branch compiled: {:?}",
+        cond.on_true
+      );
+      assert!(
+        blob_text(&cond.on_false).contains("closed"),
+        "false branch compiled: {:?}",
+        cond.on_false
+      );
+
+      // `open` starts false → the false branch is inline.
+      assert_eq!(cond.len, cond.on_false.len());
+
+      let region_text: String = commands[cond.cmd_idx..cond.cmd_idx + cond.len]
+        .iter()
+        .filter_map(|c| match c {
+          UiCommand::Text(t) => Some(t.as_str()),
+          _ => None,
+        })
+        .collect();
+
+      assert!(
+        region_text.contains("closed"),
+        "inline region is the initial branch: {region_text}"
+      );
+
+      // The branch blobs never leak into the SIR stream.
+      assert!(
+        !blob_text(commands).contains("menu items"),
+        "inactive branch must not be inline"
+      );
+    },
+  );
+}
+
+#[test]
+fn tier2_conditional_missing_else_is_an_error() {
+  // `when` always takes both branches — `?` without `:` is an
+  // error, never an implicit empty fragment.
+  assert_execution_error(
+    r#"
+fun main() {
+  mut open := true;
+
+  imu page ::= <div>
+    <button @click={fn() => open = false}>hide</button>
+    {when open ? <ul>menu items</ul>}
+  </div>;
+
+  #render page;
+}"#,
+    ErrorKind::ExpectedExpression,
+  );
+}
+
+#[test]
+fn compile_time_conditional_keeps_the_tier1_fold() {
+  // `imu` condition: no runtime swap — the general path folds it
+  // and no conditional binding is recorded.
+  assert_sir_structure(
+    r#"
+fun main() {
+  imu fancy := true;
+
+  imu page ::= <div>
+    {when fancy ? <b>bold</b> : <p>plain</p>}
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let bindings = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { bindings, .. } => Some(bindings),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      assert!(
+        bindings.conditional.is_empty(),
+        "compile-time conditions stay tier 1"
+      );
+    },
+  );
+}
+
+#[test]
+fn tier2_conditional_rejects_non_bool_condition() {
+  // Conditions are `bool` — an int flag is a type error, never a
+  // truthy coercion.
+  assert_execution_error(
+    r#"
+fun main() {
+  mut open := 0;
+
+  imu page ::= <div>
+    <button @click={fn() => open = 1}>menu</button>
+    {when open ? <ul>menu items</ul> : <p>closed</p>}
+  </div>;
+
+  #render page;
+}"#,
+    ErrorKind::TypeMismatch,
+  );
+}
+
+#[test]
+fn per_instance_state_gives_each_instance_its_own_cell() {
+  // Two `<counter />` instances must NOT share a `count` cell. The
+  // executor re-materializes the body `mut` under a synthetic
+  // per-instance name (`count$N`); the page must carry two
+  // distinct reactive text bindings, each with its own init.
+  assert_sir_structure(
+    r#"
+fun counter() -> </> {
+  mut count := 0;
+
+  return <div>
+    <button @click={fn() => count += 1}>+</button>
+    <span>{count}</span>
+  </div>;
+}
+
+fun main() {
+  imu page ::= <div>
+    <counter />
+    <counter />
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      // The page template carries two text bindings (one per
+      // instance's `{count}`), and they target distinct symbols.
+      let bindings = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { bindings, .. } => Some(bindings),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      assert_eq!(
+        bindings.text.len(),
+        2,
+        "two instances → two independent text bindings: {:?}",
+        bindings.text
+      );
+
+      let (a, b) = (bindings.text[0].1, bindings.text[1].1);
+
+      assert_ne!(a, b, "the two instances must bind DISTINCT state symbols");
+    },
+  );
+}
+
+#[test]
+fn form_controls_emit_their_tags_and_attrs() {
+  // HTML-faithful surface: checkbox/radio are `<input type=...>`,
+  // dropdowns are `<select>` + `<option>`. The command stream must
+  // carry the tags and the type/value/name attributes intact.
+  assert_sir_structure(
+    r#"
+fun main() {
+  mut agreed := false;
+  mut color := "red";
+
+  imu page ::= <div>
+    <input type="checkbox" checked={agreed} />
+    <input type="radio" name="size" value="sm" />
+    <select value={color}>
+      <option>red</option>
+      <option>green</option>
+    </select>
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      let page = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { commands, .. } => Some(commands),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      let tag_of = |tag: &ElementTag, name: &str| {
+        page
+          .iter()
+          .filter(|c| {
+            matches!(c, UiCommand::Element { tag: t, attrs, .. }
+            if t == tag
+              && attrs.iter().any(|a| a.name() == "type"
+                && a.as_str() == Some(name)))
+          })
+          .count()
+      };
+
+      assert_eq!(tag_of(&ElementTag::Input, "checkbox"), 1, "checkbox");
+      assert_eq!(tag_of(&ElementTag::Input, "radio"), 1, "radio");
+
+      let selects = page
+        .iter()
+        .filter(|c| {
+          matches!(c, UiCommand::Element { tag, .. }
+          if *tag == ElementTag::Select)
+        })
+        .count();
+      let options = page
+        .iter()
+        .filter(|c| {
+          matches!(c, UiCommand::Element { tag, .. }
+          if *tag == ElementTag::Option)
+        })
+        .count();
+
+      assert_eq!(selects, 1, "one select");
+      assert_eq!(options, 2, "two options");
+
+      // The radio's group name + value survive as attributes.
+      let radio_named = page.iter().any(|c| {
+        matches!(c,
+        UiCommand::Element { attrs, .. }
+          if attrs.iter().any(|a| a.name() == "name"
+            && a.as_str() == Some("size")))
+      });
+
+      assert!(radio_named, "radio carries its group name");
+    },
+  );
+}

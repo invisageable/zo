@@ -1,0 +1,22 @@
+-- test-run-pass: per-instance component state. Each `<counter />`
+-- owns its own `count` cell — clicking one instance's button must
+-- not change the other's display.
+
+fun counter(label: str) -> </> {
+  mut count := 0;
+
+  return <div>
+    <span>{label}</span>
+    <button @click={fn() => count += 1}>+</button>
+    <span>{count}</span>
+  </div>;
+}
+
+fun main() {
+  imu page ::= <div>
+    <counter label="a" />
+    <counter label="b" />
+  </div>;
+
+  #render page;
+}

@@ -8,7 +8,8 @@ use zo_error::{Error, ErrorKind};
 use zo_interner::Symbol;
 use zo_runtime::{Runtime, Server};
 use zo_runtime_render::reactive::{
-  ResolvedComputedBindings, apply_computed_bindings, apply_list_bindings,
+  ResolvedComputedBindings, ResolvedConditional, apply_computed_bindings,
+  apply_conditional_bindings, apply_list_bindings, shift_for_deltas,
 };
 use zo_runtime_render::render::{EventRegistry, Graphics, RuntimeConfig};
 use zo_runtime_render::render::{StateCell, StateValue};
@@ -42,6 +43,8 @@ struct ReactiveContext<'a> {
   /// (one item per element of `items_var`'s state cell)
   /// on every reactive update.
   list_bindings: &'a [(usize, ListBinding)],
+  /// Tier-2 conditional regions, rebased like their siblings.
+  conditional_bindings: &'a [zo_sir::ConditionalBinding],
   commands: &'a [UiCommand],
   shared_cmds: std::sync::Arc<std::sync::Mutex<Vec<UiCommand>>>,
 }
@@ -136,6 +139,7 @@ impl Run {
     // as an empty slot, which is correct for the empty-array
     // initial frame.
     let mut list_bindings: Vec<(usize, ListBinding)> = Vec::new();
+    let mut conditional_bindings: Vec<zo_sir::ConditionalBinding> = Vec::new();
 
     for insn in &semantic.sir.instructions {
       if let Insn::Template {
@@ -164,6 +168,13 @@ impl Run {
 
         for (cmd_idx, lb) in &bindings.list {
           list_bindings.push((base + cmd_idx, lb.clone()));
+        }
+
+        for cond in &bindings.conditional {
+          let mut rebased = cond.clone();
+
+          rebased.cmd_idx += base;
+          conditional_bindings.push(rebased);
         }
       }
     }
@@ -216,7 +227,8 @@ impl Run {
       let has_bindings = !text_bindings.is_empty()
         || !attr_bindings.is_empty()
         || !computed_bindings.is_empty()
-        || !list_bindings.is_empty();
+        || !list_bindings.is_empty()
+        || !conditional_bindings.is_empty();
       let is_reactive = has_bindings
         && handler_names.iter().any(|h| h.starts_with("__closure_"));
 
@@ -248,6 +260,7 @@ impl Run {
           attr_bindings: &attr_bindings,
           computed_bindings: &computed_bindings,
           list_bindings: &list_bindings,
+          conditional_bindings: &conditional_bindings,
           commands: &ui_commands,
           shared_cmds,
         };
@@ -552,6 +565,16 @@ impl Run {
       register_slot(lb.items_var, &mut state_slots);
     }
 
+    // Conditional regions read their condition var, and each
+    // branch's text interps read theirs at splice time.
+    for cond in ctx.conditional_bindings {
+      register_slot(cond.var, &mut state_slots);
+
+      for (_, sym) in cond.true_text.iter().chain(&cond.false_text) {
+        register_slot(*sym, &mut state_slots);
+      }
+    }
+
     // Every reactive var keyed to its cell slot, so a handler that
     // mutates a template mutable without capturing it (the `+` of a
     // counter — the executor leaves a post-binding closure's mutable
@@ -643,12 +666,18 @@ impl Run {
         })
         .collect();
 
+      let conditional_binds = Self::resolve_conditional_bindings(
+        ctx.conditional_bindings,
+        &state_slots,
+      );
+
       let commands_copy = commands.to_vec();
       let shared = shared_cmds.clone();
       let sir = sir_arc.clone();
       let strings = strings_arc.clone();
       let closure_sym = *name;
       let computed_binds_clone = computed_binds.clone();
+      let conditional_binds_clone = conditional_binds.clone();
       let list_binds_clone = list_binds.clone();
       let state_syms_clone = state_syms.clone();
 
@@ -677,20 +706,37 @@ impl Run {
             }
           }
 
+          // Conditional regions splice first: a swap can change
+          // the stream length, so every later binding shifts its
+          // target by the returned deltas.
+          let deltas = apply_conditional_bindings(
+            &mut new_cmds,
+            &conditional_binds_clone,
+            &cells,
+          );
+
           // Element attribute patches dispatch through
           // `UiCommand::set_attr` which handles the per-variant
           // field updates uniformly.
           for (cmd_idx, attr_name, slot_idx) in &attr_binds {
             let value = cells[*slot_idx].get().display();
+            let at = shift_for_deltas(*cmd_idx, &deltas);
 
-            if let Some(cmd) = new_cmds.get_mut(*cmd_idx) {
+            if let Some(cmd) = new_cmds.get_mut(at) {
               cmd.set_attr(attr_name, &value);
             }
           }
 
+          let computed_shifted: ResolvedComputedBindings = computed_binds_clone
+            .iter()
+            .map(|(idx, name, caps)| {
+              (shift_for_deltas(*idx, &deltas), *name, caps.clone())
+            })
+            .collect();
+
           apply_computed_bindings(
             &mut new_cmds,
-            &computed_binds_clone,
+            &computed_shifted,
             &cells,
             &sir,
             &strings,
@@ -702,7 +748,15 @@ impl Run {
           // complex layouts appear, the binding-index
           // remap belongs in the executor's
           // `optimize_with_indices`-style pass.
-          apply_list_bindings(&mut new_cmds, &list_binds_clone, &cells);
+          let lists_shifted: Vec<(usize, usize, Vec<ListItemCmd>)> =
+            list_binds_clone
+              .iter()
+              .map(|(idx, slot, recipe)| {
+                (shift_for_deltas(*idx, &deltas), *slot, recipe.clone())
+              })
+              .collect();
+
+          apply_list_bindings(&mut new_cmds, &lists_shifted, &cells);
 
           *shared.lock().unwrap() = new_cmds;
         }),
@@ -713,19 +767,35 @@ impl Run {
     // once before the runtime starts so the first frame
     // shows the correct content instead of the empty
     // placeholders the executor pushed.
-    if !computed_bindings.is_empty() || !ctx.list_bindings.is_empty() {
+    if !computed_bindings.is_empty()
+      || !ctx.list_bindings.is_empty()
+      || !ctx.conditional_bindings.is_empty()
+    {
       let mut new_cmds = commands.to_vec();
       let cells: Vec<StateCell> = state_slots
         .iter()
         .map(|(_, _, cell)| cell.clone())
         .collect();
 
+      let conditional_binds = Self::resolve_conditional_bindings(
+        ctx.conditional_bindings,
+        &state_slots,
+      );
+      let deltas =
+        apply_conditional_bindings(&mut new_cmds, &conditional_binds, &cells);
+
       let computed_binds =
         Self::resolve_computed_bindings(computed_bindings, &state_slots);
+      let computed_shifted: ResolvedComputedBindings = computed_binds
+        .iter()
+        .map(|(idx, name, caps)| {
+          (shift_for_deltas(*idx, &deltas), *name, caps.clone())
+        })
+        .collect();
 
       apply_computed_bindings(
         &mut new_cmds,
-        &computed_binds,
+        &computed_shifted,
         &cells,
         &sir_arc,
         &strings_arc,
@@ -738,7 +808,13 @@ impl Run {
           state_slots
             .iter()
             .position(|(s, _, _)| *s == lb.items_var)
-            .map(|slot_idx| (*cmd_idx, slot_idx, lb.item_template.clone()))
+            .map(|slot_idx| {
+              (
+                shift_for_deltas(*cmd_idx, &deltas),
+                slot_idx,
+                lb.item_template.clone(),
+              )
+            })
         })
         .collect();
 
@@ -746,6 +822,39 @@ impl Run {
 
       *shared_cmds.lock().unwrap() = new_cmds;
     }
+  }
+
+  /// Resolve each conditional's symbols against the state-slot
+  /// table into the slot-indexed shape
+  /// `apply_conditional_bindings` consumes.
+  fn resolve_conditional_bindings(
+    conds: &[zo_sir::ConditionalBinding],
+    state_slots: &[(Symbol, String, StateCell)],
+  ) -> Vec<ResolvedConditional> {
+    let slot_of =
+      |sym: Symbol| state_slots.iter().position(|(s, _, _)| *s == sym);
+
+    conds
+      .iter()
+      .filter_map(|cond| {
+        let resolve_texts = |texts: &[(usize, Symbol)]| {
+          texts
+            .iter()
+            .filter_map(|(idx, sym)| slot_of(*sym).map(|s| (*idx, s)))
+            .collect::<Vec<_>>()
+        };
+
+        Some(ResolvedConditional {
+          cmd_idx: cond.cmd_idx,
+          len: cond.len,
+          slot: slot_of(cond.var)?,
+          on_true: cond.on_true.clone(),
+          true_text: resolve_texts(&cond.true_text),
+          on_false: cond.on_false.clone(),
+          false_text: resolve_texts(&cond.false_text),
+        })
+      })
+      .collect()
   }
 
   /// Resolve each `ComputedBinding`'s capture list against

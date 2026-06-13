@@ -249,6 +249,23 @@ const RECIPE_BLOB_SYM_BASE: u32 = 0xD000_0000;
 /// `ZoRuntimeContext`'s `ListBindingAbi` array. `recipe_sym` keys
 /// the postcard `Vec<UiCommand>` item recipe in `template_data`
 /// (resolved to an address by the `string_fixups` machinery).
+/// One tier-2 conditional region, ready to emit into the
+/// `ZoRuntimeContext`'s `ConditionalBindingAbi` array.
+/// `payload_sym` keys the postcard `ConditionalPayload` blob in
+/// `template_data`.
+struct ConditionalBindingEntry {
+  /// Region start of the inline (initially-active) branch.
+  cmd_idx: u32,
+  /// Inline branch length.
+  len: u32,
+  /// Reactive `bool` slot the condition reads.
+  slot: u32,
+  /// Symbol of the embedded payload blob.
+  payload_sym: Symbol,
+  /// Byte length of the payload blob.
+  payload_len: u32,
+}
+
 struct ListBindingEntry {
   /// Index of the placeholder `Text` command the rendered list
   /// items replace.
@@ -443,6 +460,9 @@ pub struct ARM64Gen<'a> {
   /// `ZoRuntimeContext`'s `ListBindingAbi` array at `#render`.
   /// Built by the same pre-pass that populates `reactive_slots`.
   template_list_bindings: HashMap<ValueId, Vec<ListBindingEntry>>,
+  /// Per-template tier-2 conditional regions, emitted into the
+  /// `ZoRuntimeContext` at `#render`. Built by the same pre-pass.
+  template_conditional_bindings: HashMap<ValueId, Vec<ConditionalBindingEntry>>,
   /// Per-template attribute bindings — `(cmd_idx, attr_idx,
   /// slot, is_str)` — to emit into the `ZoRuntimeContext`'s
   /// `AttrBindingAbi` array. The runtime re-applies each on
@@ -906,6 +926,7 @@ impl<'a> ARM64Gen<'a> {
       template_text_bindings: HashMap::default(),
       reactive_arr_slots: HashSet::default(),
       template_list_bindings: HashMap::default(),
+      template_conditional_bindings: HashMap::default(),
       template_attr_bindings: HashMap::default(),
       next_recipe_blob: 0,
       fns_needing_calls: HashSet::default(),
@@ -2100,6 +2121,7 @@ impl<'a> ARM64Gen<'a> {
     self.template_text_bindings.clear();
     self.reactive_arr_slots.clear();
     self.template_list_bindings.clear();
+    self.template_conditional_bindings.clear();
     self.template_attr_bindings.clear();
 
     let mut sym_first_store_ty: HashMap<Symbol, TyId> = HashMap::default();
@@ -2205,6 +2227,58 @@ impl<'a> ARM64Gen<'a> {
 
       if !list_entries.is_empty() {
         self.template_list_bindings.insert(*id, list_entries);
+      }
+
+      // Tier-2 conditionals: resolve the condition + branch-text
+      // symbols to slots, embed both branch blobs as one postcard
+      // `ConditionalPayload`, and record the region for the
+      // context emission.
+      let mut conditional_entries =
+        Vec::with_capacity(bindings.conditional.len());
+
+      for cond in &bindings.conditional {
+        let slot = self.reactive_slot_for(cond.var);
+
+        let resolve_texts = |this: &mut Self, texts: &[(usize, Symbol)]| {
+          texts
+            .iter()
+            .map(|(idx, sym)| {
+              let text_slot = this.reactive_slot_for(*sym);
+              let is_str = sym_first_store_ty
+                .get(sym)
+                .is_some_and(|t| t.0 == STR_TYPE_ID);
+
+              (*idx as u32, text_slot, is_str)
+            })
+            .collect::<Vec<(u32, u32, bool)>>()
+        };
+
+        let payload = zo_ui_protocol::ConditionalPayload {
+          on_true: cond.on_true.clone(),
+          true_text: resolve_texts(self, &cond.true_text),
+          on_false: cond.on_false.clone(),
+          false_text: resolve_texts(self, &cond.false_text),
+        };
+        let payload_bytes = codec::encode_payload(&payload).unwrap_or_default();
+        let payload_len = payload_bytes.len() as u32;
+        let payload_sym = Symbol(RECIPE_BLOB_SYM_BASE + self.next_recipe_blob);
+
+        self.next_recipe_blob += 1;
+        self.template_data.push((payload_sym, payload_bytes));
+
+        conditional_entries.push(ConditionalBindingEntry {
+          cmd_idx: cond.cmd_idx as u32,
+          len: cond.len as u32,
+          slot,
+          payload_sym,
+          payload_len,
+        });
+      }
+
+      if !conditional_entries.is_empty() {
+        self
+          .template_conditional_bindings
+          .insert(*id, conditional_entries);
       }
     }
 
@@ -8995,6 +9069,19 @@ impl<'a> ARM64Gen<'a> {
       .cloned()
       .unwrap_or_default();
     let attr_count = attr_bindings.len();
+    // (cmd_idx, len, slot, payload_sym, payload_len) per
+    // conditional region.
+    let conditional_bindings: Vec<(u32, u32, u32, Symbol, u32)> = self
+      .template_conditional_bindings
+      .get(&value)
+      .map(|entries| {
+        entries
+          .iter()
+          .map(|e| (e.cmd_idx, e.len, e.slot, e.payload_sym, e.payload_len))
+          .collect()
+      })
+      .unwrap_or_default();
+    let conditional_count = conditional_bindings.len();
 
     // Stack layout (mirrors `ZoRuntimeContext` in
     // `zo-runtime-render::aot`):
@@ -9007,25 +9094,34 @@ impl<'a> ARM64Gen<'a> {
     //   [sp + 48..56] list_bindings_count
     //   [sp + 56..64] attr_bindings_ptr
     //   [sp + 64..72] attr_bindings_count
-    //   [sp + 72 .. +16*T] TextBinding[T] — 16B each:
+    //   [sp + 72..80] conditional_bindings_ptr
+    //   [sp + 80..88] conditional_bindings_count
+    //   [sp + 88 .. +16*T] TextBinding[T] — 16B each:
     //         cmd_idx u32 @0, slot_id u32 @4, is_str u32 @8,
     //         _pad u32 @12.
     //   [.. +24*L] ListBindingAbi[L] — 24B each: cmd_idx u32 @0,
     //         items_slot u32 @4, recipe_ptr @8, recipe_len @16.
     //   [.. +16*A] AttrBindingAbi[A] — 16B each: cmd_idx u32 @0,
     //         attr_idx u32 @4, slot u32 @8, is_str u32 @12.
-    const CTX_BYTES: i16 = 72;
+    //   [.. +32*C] ConditionalBindingAbi[C] — 32B each:
+    //         cmd_idx u32 @0, len u32 @4, slot u32 @8, _pad @12,
+    //         payload_ptr @16, payload_len @24.
+    const CTX_BYTES: i16 = 88;
     const TEXT_BASE: i16 = CTX_BYTES;
     const TEXT_STRIDE: i16 = 16;
     const LIST_STRIDE: i16 = 24;
     const ATTR_STRIDE: i16 = 16;
+    const CONDITIONAL_STRIDE: i16 = 32;
 
     let text_bytes = (bindings_count as i16) * TEXT_STRIDE;
     let list_base = TEXT_BASE + text_bytes;
     let list_bytes = (list_count as i16) * LIST_STRIDE;
     let attr_base = list_base + list_bytes;
     let attr_bytes = (attr_count as i16) * ATTR_STRIDE;
-    let total = CTX_BYTES + text_bytes + list_bytes + attr_bytes;
+    let conditional_base = attr_base + attr_bytes;
+    let conditional_bytes = (conditional_count as i16) * CONDITIONAL_STRIDE;
+    let total =
+      CTX_BYTES + text_bytes + list_bytes + attr_bytes + conditional_bytes;
     // Align up to 16; AArch64 needs sp 16-byte aligned.
     let stack_reserve = ((total + 15) & !15) as u16;
 
@@ -9155,6 +9251,46 @@ impl<'a> ARM64Gen<'a> {
     } else {
       self.emitter.emit_str(XZR, SP, 56);
       self.emitter.emit_str(XZR, SP, 64);
+    }
+
+    if conditional_count > 0 {
+      // 32-byte `#[repr(C)] ConditionalBindingAbi` per entry:
+      // lo = cmd_idx | len<<32 @0; slot (with _pad=0) @8;
+      // payload_ptr (ADR fixup) @16; payload_len @24.
+      for (i, &(cmd_idx, len, slot, payload_sym, payload_len)) in
+        conditional_bindings.iter().enumerate()
+      {
+        let entry_base = conditional_base + (i as i16) * CONDITIONAL_STRIDE;
+        let lo = (cmd_idx as u64) | ((len as u64) << 32);
+
+        self.emit_mov_imm_64(X9, lo);
+        self.emitter.emit_str(X9, SP, entry_base);
+
+        self.emit_mov_imm_64(X9, slot as u64);
+        self.emitter.emit_str(X9, SP, entry_base + 8);
+
+        // payload_ptr — PC-relative ADR resolved against the
+        // embedded payload blob via `string_fixups`.
+        let adr_pos = self.emitter.current_offset();
+
+        self.string_fixups.push((adr_pos, payload_sym));
+        self.emitter.emit_adr(X9, 0);
+        self.emitter.emit_str(X9, SP, entry_base + 16);
+
+        self.emit_mov_imm_64(X9, payload_len as u64);
+        self.emitter.emit_str(X9, SP, entry_base + 24);
+      }
+
+      // conditional_bindings_ptr = SP + conditional_base.
+      self.emitter.emit_add_imm(X9, SP, conditional_base as u16);
+      self.emitter.emit_str(X9, SP, 72);
+
+      // conditional_bindings_count.
+      self.emit_mov_imm_64(X9, conditional_count as u64);
+      self.emitter.emit_str(X9, SP, 80);
+    } else {
+      self.emitter.emit_str(XZR, SP, 72);
+      self.emitter.emit_str(XZR, SP, 80);
     }
 
     // `MOV X0, SP` — AArch64 MOV (register) is `ORR Rd,

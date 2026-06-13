@@ -1,4 +1,4 @@
-# prologue.
+# guidelines.
 
 > *The guidelines catalog.*
 

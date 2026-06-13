@@ -34,6 +34,7 @@ ui = [
 zo-c-abi = { workspace = true }
 zo-error = { workspace = true }
 zo-reporter = { workspace = true }
+zo-abi = { workspace = true }
 zo-ui-protocol = { workspace = true }
 zo-runtime-render = { workspace = true, optional = true }
 

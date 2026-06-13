@@ -1,22 +1,20 @@
 ---
-order: 2
+order: 1
 title: Prologue
 ---
 
 # prologue
 
-Si tu es encore là, c'est surement parce que tu es convaincu que les logiciels devraient être de meilleur qualité. Accepter leur médiocrité c'est se soumettre face aux dictats des commités d'exécution qui nous imposent leurs produits par vague de marketing intensif.
+[tsh-tsh]
 
-Est-il possible de proposer quelque chose de différent ? Si zo est David et qu'ils sont Goliath, alors zo se doit d'exister pour faire le pont entre le haut niveau et le bas niveau. L'écosystème zo va améliorer le confort des développeurs. Est-ce que tu t'imagines ne plus avoir besoin d'atttendre des secondes, voir même des minutes juste pour savoir si ton programme est correct ? Ou encore, avoir un éditeur de texte qui te donne le sourire lorsque tu l'utilises.
+Qu'attendons-nous pour améliorer notre experience en tant que développeur ? Pourquoi devoir attendre plusieurs secondes voire minutes avant d'avoir un retour sur l'exactitude de notre programme ne dérange-t-il personne ?
 
-Quand des programmeurs front-end s'intéressent au bas niveau, ils réalisent vite qu'il s'agit d'un simulacre bien différent. Premièrement, la gestion de la mémoire bordel !
+La qualité de nos outils et infrastructures actuels frôle la médiocrité. Heureusement certains acteurs, réfractaires à cette fumisterie ambiante, continuent perpétuellement de perfectionner notre ecosystème. Accepter leur médiocrité c'est se soumettre face aux diktats de commités d'exécution qui nous imposent leurs produits par vague de marketing intensif.
 
-"A part La Mémoire dans la peau, je ne vois pas de quoi tu parles ?!"
+zo n'est pas un langage de programmation révolutionnaire : ses concepts proviennent de langages qui ont fait leurs preuves. zo ne résout aucun problème nouveau qu'un autre language n'a pas déjà résolu. C'est un langage différent, mais qui se veut familier, afin que des personnes issues de divers horizons puissent s'intéresser à la programmation bas niveau au travers d'un langage de haut niveau.
 
-On ne va pas s'étaler sur le sujet. Force est de constater que la boucle d'itération est différente, surtout pour un sans cervelle comme moi. C'est face à plein de petites contraintes comme celle-ci qu'on s'est dit qu'il fallait simplifier le process pour permettre à quiconque venant du haut niveau de prendre du plaisir à créer des applications performantes.
+Que tu sois back-end, front-end, hacker, curieux, nerd, scientifique, docteur (Ph.D) ou encore un créatif, zo est autre champ des possibles parmi tant d'autres. A toi de voir si tu as envie d'en découvrir davantage.
 
-L'idée est vraiment d'améliorer l'expérience lorsque l'on code et de faire en sorte que tu puisses en 2-2 transformer tes idées en code sans friction. Pour cela, avec les compilords, on s'est focalisé sur les minuscule détails qui compte mais que tout le monde fait semblant de ne pas voir. Afin d'ouvrir de nouvelles dimensions dans lesquelles nos pensées se transforment en une série de zéro et de un, sans renier au plaisir.
-
-Que tu sois entrain de développer un outil de haute performance ou une p'tite web app, tu devrais pouvoir le faire avec la même logic, la même syntaxe — zsx. L'extension de syntaxe zo va te permettre d'avoir le control total sur ton programme. En plus d'avoir un langage de programmation, tu as en plus une syntaxe similaire au HTML pour créer des applications doper au GPU comme jaja.
+Nos convictions portent sur la simplicité, l'harmonie logicielle et l'expérience du développeur. Pour cela, avec les compilords, on s'est focalisé sur les minuscules détails qui comptent, mais que tout le monde fait semblant de ne pas voir. L'idée principaale reste d'ouvrir de nouvelles dimensions dans lesquelles nos pensées se transforment en une série de zéros et de uns, sans jamais renier au plaisir.
 
 <b class="green-100">JOiN THE DEVOLUTiON</b>.
