@@ -1900,3 +1900,54 @@ fun main() {
     ErrorKind::TypeMismatch,
   );
 }
+
+#[test]
+fn per_instance_state_gives_each_instance_its_own_cell() {
+  // Two `<counter />` instances must NOT share a `count` cell. The
+  // executor re-materializes the body `mut` under a synthetic
+  // per-instance name (`count$N`); the page must carry two
+  // distinct reactive text bindings, each with its own init.
+  assert_sir_structure(
+    r#"
+fun counter() -> </> {
+  mut count := 0;
+
+  return <div>
+    <button @click={fn() => count += 1}>+</button>
+    <span>{count}</span>
+  </div>;
+}
+
+fun main() {
+  imu page ::= <div>
+    <counter />
+    <counter />
+  </div>;
+
+  #render page;
+}"#,
+    |sir| {
+      // The page template carries two text bindings (one per
+      // instance's `{count}`), and they target distinct symbols.
+      let bindings = sir
+        .iter()
+        .filter_map(|i| match i {
+          Insn::Template { bindings, .. } => Some(bindings),
+          _ => None,
+        })
+        .next_back()
+        .expect("page template");
+
+      assert_eq!(
+        bindings.text.len(),
+        2,
+        "two instances → two independent text bindings: {:?}",
+        bindings.text
+      );
+
+      let (a, b) = (bindings.text[0].1, bindings.text[1].1);
+
+      assert_ne!(a, b, "the two instances must bind DISTINCT state symbols");
+    },
+  );
+}
