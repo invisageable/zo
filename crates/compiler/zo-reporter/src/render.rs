@@ -413,6 +413,7 @@ pub(crate) fn error_message(kind: ErrorKind) -> &'static str {
     ErrorKind::StatementInTemplate => {
       "Statement inside a template interpolation"
     }
+    ErrorKind::PackDotAccess => "Pack item reached with `.` instead of `::`",
     ErrorKind::UninitializedVariable => "Uninitialized variable",
     ErrorKind::InvalidSelfReference => "Invalid `self` reference",
     ErrorKind::InvalidTypeAnnotation => "Invalid type annotation",
@@ -612,6 +613,7 @@ fn error_label(kind: ErrorKind) -> &'static str {
     ErrorKind::StatementInTemplate => {
       "this is a statement, not a template expression"
     }
+    ErrorKind::PackDotAccess => "a pack is not a value — use `::` here",
     ErrorKind::UninitializedVariable => "used before initialization",
     ErrorKind::InvalidSelfReference => "`self` used outside of `apply` block",
     ErrorKind::InvalidTypeAnnotation => "invalid type here",
@@ -718,6 +720,9 @@ fn error_help(kind: ErrorKind) -> Option<&'static str> {
       "Render lists with the map form: \
        `{items.map(fn(item) => <li>{item}</li>)}`",
     ),
+    ErrorKind::PackDotAccess => {
+      Some("Reach a pack's items with the `::` path, e.g. `pack::item()`")
+    }
     ErrorKind::EventOnComponent => Some(
       "Declare a function parameter on the component (e.g. `on_click: \
        Fn() -> unit`), wire it inside the body with \

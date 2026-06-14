@@ -99,8 +99,9 @@ fn emit_int_show(
       sig
     });
     let fref = tctx.module.declare_func_in_func(fid, builder.func);
-    let call =
-      builder.ins().call(fref, &[buf_ptr, buf_size, val_i64, radix]);
+    let call = builder
+      .ins()
+      .call(fref, &[buf_ptr, buf_size, val_i64, radix]);
     let len_i32 = builder.inst_results(call)[0];
 
     builder.ins().uextend(tctx.ptr_ty, len_i32)

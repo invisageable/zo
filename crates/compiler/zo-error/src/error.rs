@@ -590,4 +590,9 @@ pub enum ErrorKind {
   /// fragment and die later as a misattributed type error at the
   /// enclosing function.
   StatementInTemplate,
+  /// A pack item reached through `.` instead of `::`
+  /// (`pack.item()`). A pack is a namespace, not a value, so
+  /// dot member access does not apply — only the `::` path
+  /// resolves a pack's items.
+  PackDotAccess,
 }

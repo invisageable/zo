@@ -1,0 +1,29 @@
+-! # how to errors: pack_dot_access.zo
+-!
+-! @cmd: `zo build pack_dot_access.zo`
+-!
+-! A pack is a namespace, not a value, so you cannot reach its items
+-! through `.`. Only the `::` path resolves a pack path. Before the fix
+-! `p.hello()` silently resolved like `p::hello()`, against the grammar;
+-! now it is a hard error. Reach the item with `p::hello()`.
+
+pack p {
+  fun hello() {
+    showln("hi");
+  }
+}
+
+fun main() {
+  p.hello();
+}
+
+-- EXPECTED OUTPUT:
+-- [E0359] Error • Pack item reached with `.` instead of `::`
+--     ╭─[ pack_dot_access.zo:17:4 ]
+--     │
+--  17 │   p.hello();
+--     │    ┬
+--     │    ╰── a pack is not a value — use `::` here
+--     │
+--     │ Help • Reach a pack's items with the `::` path, e.g. `pack::item()`
+-- ────╯

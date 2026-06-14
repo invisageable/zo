@@ -217,6 +217,7 @@ impl ErrorAggregator {
         | ErrorKind::CircularComponent
         | ErrorKind::EventOnComponent
         | ErrorKind::StatementInTemplate
+        | ErrorKind::PackDotAccess
         | ErrorKind::UninitializedVariable
         | ErrorKind::InvalidSelfReference
         | ErrorKind::InvalidTypeAnnotation => {
