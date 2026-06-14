@@ -80,8 +80,8 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
   - **Typestate-Oriented Programming**
     - https://www.cs.cmu.edu/~aldrich/papers/onward2009-state.pdf — Jonathan Aldrich Joshua Sunshine Darpan Saini Zachary Sparks (2009)
 
-- **A lazy, concurrent convertibility checker**
-  - https://xavierleroy.org/publi/concurrent-convertibility.pdf — Nathanaëlle Courant and Xavier Leroy (2026)
+  - **A lazy, concurrent convertibility checker**
+    - https://xavierleroy.org/publi/concurrent-convertibility.pdf — Nathanaëlle Courant and Xavier Leroy (2026)
 
 ## data-structures.
 
@@ -134,6 +134,7 @@ THiS DOCUMENT CONTAiNS ALL MY REFERENCES TO BE ABLE TO BUiLD zo.
 
   - **How Should Compilers Explain Problems to Developers?**
     - https://static.barik.net/barik/publications/fse2018/barik_fse18.pdf — Titus Barik, Denae Ford, Emerson Murphy-Hill and Chris Parnin (2018)
+
   - **Type-Error Ablation and AI Coding Agents**
     - https://arxiv.org/pdf/2606.01522 — Shriram Krishnamurthi and Matthew Flatt (2026)
 

@@ -3,7 +3,7 @@
   "benchmarks_description": "Most of the compilers are <b class='green-100'>2-5x</b> slower than they could be. zo is the <b class='green-100'>fastest</b> next-gen compiler tool to enhance the programmers <b class='green-100'>productivity</b>.",
   "benchmarks_disclaimer_methodology": "<a class='link-basic' href='https://github.com/invisageable/zo/blob/main/crates/compiler/zo-benches'>@methodology-and-full-numbers</a>",
   "benchmarks_disclaimer_workload": "Workload: <b class='green-100'>10,000 lines</b> of code compiled to native <b class='green-100'>ARM64</b> binary (including Hindley-Milner type inference, monomorphization, type checking, constant folding, propagation, dead code elimination and link passes).",
-  "benchmarks_quote_sentence": "The faster your software runs, the less power his consumed.",
+  "benchmarks_quote_sentence": "The faster your software runs, the less power is consumed.",
   "benchmarks_title": "## benchmarks",
   "community_description": "A playground for compiler <b class='green-100'>nerds</b>, frontend <b class='green-100'>hackers</b>, and <b class='green-100'>creatives</b>. Open an issue, or come say hello on <a href='https://discord.gg/JaNc4Nk5xw'>Discord</a>.",
   "community_title": "## community",

@@ -78,8 +78,8 @@ zo has 53 keywords in total:
   </dl>
   <dl class="keywords-list">
     <dt><b>Integers</b></dt><dd>misc letters</dd>
-    <dt><b class="type">uint</b></dt><dd>platform-width unsigned integer</dd>
-    <dt><b class="type">int</b></dt><dd>platform-width signed integer</dd>
+    <dt><b class="type">uint</b></dt><dd>the default unsigned integer (32-bit)</dd>
+    <dt><b class="type">int</b></dt><dd>the default signed integer (32-bit)</dd>
     <dt><b class="type">s16</b></dt><dd>16-bit signed integer</dd>
     <dt><b class="type">s32</b></dt><dd>32-bit signed integer</dd>
     <dt><b class="type">s64</b></dt><dd>64-bit signed integer</dd>
@@ -91,7 +91,7 @@ zo has 53 keywords in total:
   </dl>
   <dl class="keywords-list">
     <dt><b>Floats</b></dt><dd>misc letters</dd>
-    <dt><b class="type">float</b></dt><dd>platform-width floating-point</dd>
+    <dt><b class="type">float</b></dt><dd>the default floating-point (64-bit)</dd>
     <dt><b class="type">f32</b></dt><dd>32-bit floating-point</dd>
     <dt><b class="type">f64</b></dt><dd>64-bit floating-point</dd>
   </dl>
