@@ -15,9 +15,9 @@
     "zo:docs": "node ../site-tasks/build-llms-full.mjs"
   },
   "dependencies": {
-    "@astrojs/sitemap": "^3.7.2",
-    "@astrojs/vercel": "^10.0.6",
-    "astro": "^6.2.1"
+    "@astrojs/sitemap": "^3.7.3",
+    "@astrojs/vercel": "^10.0.8",
+    "astro": "^6.4.6"
   },
   "devDependencies": {
     "@inlang/paraglide-js": "^2.18.0"

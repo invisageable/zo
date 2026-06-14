@@ -55,57 +55,82 @@
 ### arrays
 
   ```zo
-  imu xs: []int = [1, 2, 3, 4, 5];
+  imu scores: []int = [1, 2, 3, 4, 5];
   imu empty: []int = [];
 
-  xs.sum();          -- 15
-  empty.sum();       -- 0
+  scores.sum();        -- 15
+  empty.sum();         -- 0
 
-  xs.contains(3);    -- true
-  empty.contains(5); -- false
+  scores.contains(3);  -- true
+  empty.contains(5);   -- false
 
-  xs.find(3);        -- 2
-  empty.find(99);    -- -1
+  scores.find(3);      -- 2
+  empty.find(99);      -- -1
 
-  xs.min_of()        -- 1
-  xs.max_of()        -- 5
-  empty.min_of();    -- 0
+  scores.min_of()      -- 1
+  scores.max_of()      -- 5
+  empty.min_of();      -- 0
   ```
 
 ### vectors
 
   ```zo
-  mut v: Vec<int> = Vec::new();
+  mut numbers: Vec<int> = Vec::new();
 
-  v.len();      -- 0
+  numbers.len();       -- 0
 
-  v.is_empty(); -- true
+  numbers.is_empty();  -- true
 
-  v.push(10);
-  v.push(20);
-  v.push(30);
+  numbers.push(10);
+  numbers.push(20);
+  numbers.push(30);
 
-  v.get(0);     -- Option::Some(10)
-  v.get(99);    -- Option::None
+  numbers.get(0);      -- Option::Some(10)
+  numbers.get(99);     -- Option::None
 
-  v.set(1, 42); -- set in-bounds.
-  !v.set(7, 0); -- set out-of-bounds returns false.
+  numbers.set(1, 42);  -- set in-bounds.
+  !numbers.set(7, 0);  -- set out-of-bounds returns false.
 
-  v.pop();      -- Option::Some(30)
+  numbers.pop();       -- Option::Some(30)
 
-  v.remove(1);  -- Option::Some(42)
-
-  v.free();
+  numbers.remove(1);   -- Option::Some(42)
   ```
 
 ### sets
 
   ```zo
+  mut ids: HashSet<int> = HashSet::new();
+
+  ids.is_empty();    -- true
+
+  ids.insert(10);    -- true  (new key)
+  ids.insert(20);
+  ids.insert(10);    -- false (already present)
+
+  ids.contains(10);  -- true
+  ids.contains(99);  -- false
+
+  ids.remove(20);    -- true
+  ids.len();         -- 1
   ```
 
 ### maps
 
   ```zo
+  mut counts: HashMap<str, int> = HashMap::new();
+
+  counts.is_empty();         -- true
+
+  counts.insert("a", 1);
+  counts.insert("b", 2);
+
+  counts.get("a");           -- Option::Some(1)
+  counts.get("z");           -- Option::None
+
+  counts.contains_key("b");  -- true
+
+  counts.remove("a");        -- Option::Some(1)
+  counts.len();              -- 1
   ```
 
 ### file system

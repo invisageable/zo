@@ -1,0 +1,52 @@
+---
+import { getCollection, render } from 'astro:content';
+import { pickLocale } from '../../core/page';
+import { getLocale } from '../../paraglide/runtime.js';
+import Base from '../../layouts/base.astro';
+import Header from '../../components/structure/header.astro';
+import Reachout from '../../components/structure/reachout.astro';
+import Screen from '../../components/structure/screen.astro';
+
+const title = "zo — FAQ.";
+const locale = getLocale();
+
+const entry = pickLocale(await getCollection('faq'), locale);
+const Content = entry ? (await render(entry)).Content : null;
+---
+
+<Base title={title} description="Frequently asked questions about zo.">
+  <Header class="header--fixed header--active blur" id="top-bar" />
+  <Screen>
+    {Content && <section class="faq"><Content /></section>}
+    <Reachout />
+  </Screen>
+</Base>
+
+<style is:global>
+  /* The faq page carries no sidebar nav — drop the reserved sidebar
+     width so the content centers on the full viewport. */
+  :root {
+    --sidebar-width: 0px;
+  }
+
+  .faq h1,
+  .faq h2,
+  .faq h3,
+  .faq h4,
+  .faq h5,
+  .faq h6 {
+    font-family: var(--font-cirka);
+  }
+
+  .faq h2::before { content: "## "; }
+  .faq h3::before { content: "### "; }
+  .faq h4::before { content: "#### "; }
+  .faq h5::before { content: "##### "; }
+  .faq h6::before { content: "###### "; }
+
+  .faq pre {
+    padding: 8px;
+    overflow-x: auto;
+    background: #000 !important;
+  }
+</style>

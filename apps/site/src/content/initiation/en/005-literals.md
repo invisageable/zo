@@ -59,11 +59,12 @@ Programming boils down to memory allocation layout and data mutations. Data arri
 ### parse modifiers
 
   ```zo
-  -! Parse modifiers perform quick inline conversions.
+  -! A `#` prefix sets the display base. The digits stay
+  -! decimal; only how the value prints changes.
 
-  b#30 -- Evaluation: 24
-  o#75 -- Evaluation: 61
-  x#76 -- Evaluation: 118
+  b#30 -- value 30, shown in binary
+  o#75 -- value 75, shown in octal
+  x#76 -- value 76, shown in hexadecimal
   ```
 
 ## booleans

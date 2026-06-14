@@ -11,5 +11,5 @@
 
 
   -- Then you can call me, like this:
-  f(7);
+  square(7);
   ```

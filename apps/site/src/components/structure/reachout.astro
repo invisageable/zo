@@ -49,6 +49,11 @@ const socials = [
 </section>
 
 <Paragraph
+  class="human-faq"
+  content="For humans: <a href='/faq'>faq</a>."
+/>
+
+<Paragraph
   class="ai-llm"
   content="For Ai agents: <a href='llms.txt'>llms.txt</a> (curated index) and <a href='docs/llms-full.txt'>llms-full.txt</a> (full docs)."
 />
@@ -134,8 +139,17 @@ const socials = [
     }
   }
 
+  :global(.human-faq),
   :global(.ai-llm) {
     margin: 32px 0;
     font-size: calc(var(--base) * 3);
+  }
+
+  :global(.human-faq) {
+    margin-bottom: 8px;
+  }
+
+  :global(.ai-llm) {
+    margin-top: 8px;
   }
 </style>

@@ -1,0 +1,49 @@
+---
+import { getCollection, render } from 'astro:content';
+import { pickLocale, getPageNavItems } from '../../core/page';
+import { getLocale } from '../../paraglide/runtime.js';
+import Base from '../../layouts/base.astro';
+import NavBar, { type Item } from '../../components/navigation/navbar.astro';
+import Header from '../../components/structure/header.astro';
+import Reachout from '../../components/structure/reachout.astro';
+import Screen from '../../components/structure/screen.astro';
+
+const title = "zo — Specification.";
+const locale = getLocale();
+
+const entry = pickLocale(await getCollection('spec'), locale);
+const items: Item[] = entry ? await getPageNavItems(entry) : [];
+const Content = entry ? (await render(entry)).Content : null;
+---
+
+<Base title={title} description="The zo language reference manual.">
+  <NavBar items={items} />
+  <Header class="header--fixed header--active blur" id="top-bar" />
+  <Screen>
+    {Content && <section class="spec"><Content /></section>}
+    <Reachout />
+  </Screen>
+</Base>
+
+<style is:global>
+  .spec h1,
+  .spec h2,
+  .spec h3,
+  .spec h4,
+  .spec h5,
+  .spec h6 {
+    font-family: var(--font-cirka);
+  }
+
+  .spec h2::before { content: "## "; }
+  .spec h3::before { content: "### "; }
+  .spec h4::before { content: "#### "; }
+  .spec h5::before { content: "##### "; }
+  .spec h6::before { content: "###### "; }
+
+  .spec pre {
+    padding: 8px;
+    overflow-x: auto;
+    background: #000 !important;
+  }
+</style>

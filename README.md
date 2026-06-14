@@ -12,7 +12,7 @@ zo (pronounced `/zuː/` just like "zoo") iS A PRACTiCAL, LiGHTWEiGHT, CROSS-PLAT
 
 **JOiN THE DEVOLUTiON.**
 
-[home](https://zo.compilords.house) — [install](./crates/compiler/zo-notes/public/guidelines/01-install.md) — [initiation](https://zo.compilords.house/initiation) — [news](https://zo.compilords.house/news) — [discord](https://discord.gg/JaNc4Nk5xw)
+[home](https://zo.compilords.house) — [install](./crates/compiler/zo-notes/public/guidelines/01-install.md) — [initiation](https://zo.compilords.house/initiation) — [spec](https://zo.compilords.house/spec) — [news](https://zo.compilords.house/news) — [discord](https://discord.gg/JaNc4Nk5xw)
 
 ## usage.
 
@@ -65,7 +65,7 @@ Available Memory  — 9.4 GB
 > *This project is about having fun again. It is maintained by a small group of volunteers during their spare time. We're exploring. zo is not the new X or better than Y, zo is just different. Period. Be gentle.*
 
 > [!CAUTION]
-> *For transparency: regarding Ai usage, we're using Ai to build zo based on our architecture and specification (made by humans). The compiler currently covers over 1500 unit and integration tests.*
+> *For transparency: regarding Ai usage, we're using Ai to build zo based on our architecture and [specification](https://zo.compilords.house/spec) (made by humans). The compiler currently covers over 1500 unit and integration tests.*
 
 ## sponsors & supports.
 

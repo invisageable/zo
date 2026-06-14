@@ -26,4 +26,24 @@ const initiation = defineCollection({
   }),
 });
 
-export const collections = { news, initiation };
+const spec = defineCollection({
+  loader: glob({
+    pattern: "*/*.md",
+    base: "./src/content/spec",
+  }),
+  schema: z.object({
+    title: z.string().optional(),
+  }),
+});
+
+const faq = defineCollection({
+  loader: glob({
+    pattern: "*/*.md",
+    base: "./src/content/faq",
+  }),
+  schema: z.object({
+    title: z.string().optional(),
+  }),
+});
+
+export const collections = { news, initiation, spec, faq };
