@@ -9,6 +9,7 @@
 //! emitters — reads them.
 
 use zo_interner::{Interner, Symbol};
+use zo_token::Base;
 use zo_ty::TyId;
 use zo_value::ValueId;
 
@@ -95,6 +96,11 @@ pub(crate) struct TCtx<'a> {
   /// Pointer-width CLIF type for the target. Cached so each
   /// `ConstString` doesn't re-query the module config.
   pub(crate) ptr_ty: ir::Type,
+  /// Display base per int-literal `ValueId.0` (`Sir::int_bases`,
+  /// borrowed). SPARSE: only `b#`/`o#`/`x#` literals get an
+  /// entry; absence means `Base::Decimal`. Drives `emit_int_show`
+  /// so `showln(x#76)` prints `4c`.
+  pub(crate) int_bases: &'a std::collections::HashMap<u32, Base>,
 }
 
 /// Per-function translation state. A fresh [`FunCtx`] is built

@@ -19,7 +19,7 @@ use zo_sir::{
 };
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
-use zo_token::{InterpSegment, LiteralStore, Token};
+use zo_token::{Base, InterpSegment, LiteralStore, Token};
 use zo_tree::{NodeHeader, NodeValue, Tree};
 use zo_ty::{Annotation, FloatWidth, Mutability, SelfKind, Ty, TyId};
 use zo_ty_checker::TyChecker;
@@ -4441,6 +4441,14 @@ impl<'a> Executor<'a> {
           self.sir.next_value_id += 1;
 
           let sir_value = self.sir.emit(Insn::ConstInt { dst, value, ty_id });
+
+          // Carry a `b#`/`o#`/`x#` display base to the showln
+          // site so codegen formats the value in that base.
+          let base = self.literals.int_bases[lit_idx as usize];
+          if base != Base::Decimal {
+            self.sir.int_bases.insert(dst.0, base);
+          }
+
           let value_id = self.values.store_int(value);
 
           self.value_stack.push(value_id);

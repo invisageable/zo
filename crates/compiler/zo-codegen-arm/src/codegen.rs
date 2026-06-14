@@ -18,6 +18,7 @@ use zo_register_allocation::{
   flat_struct_slots_of, resolve_ty,
 };
 use zo_sir::{BinOp, Insn, ListItemCmd, LoadSource, Sir, SpawnKind, UnOp};
+use zo_token::Base;
 use zo_ty::{Ty, TyId, TyTable, struct_leaf_words};
 use zo_ui_protocol::codec;
 use zo_ui_protocol::{Attr, LIST_ITEM_SENTINEL, UiCommand};
@@ -54,6 +55,13 @@ const READ_FILE_BUF_SIZE: u16 = 4096;
 // --- ASCII Constants ---
 const ASCII_NEWLINE: u16 = 10;
 const ASCII_ZERO: u16 = 48;
+/// Digit value where hex formatting switches from `0-9` to
+/// `a-f`: a remainder `< 10` is a numeric digit, `>= 10` is a
+/// letter.
+const HEX_DIGIT_SPLIT: u16 = 10;
+/// ASCII bias for lowercase hex letters: digit 10 must map to
+/// `'a'` (97), so the offset is `97 - 10 = 87`.
+const HEX_ALPHA_BIAS: u16 = 87;
 
 // --- Stack Frame Layout ---
 const STACK_SLOT_SIZE: u32 = 8;
@@ -660,6 +668,13 @@ pub struct ARM64Gen<'a> {
   /// call's `ValueId`. Cloned from `Sir::vec_elem_tys`; see
   /// it for why the side channel exists.
   vec_elem_tys: HashMap<u32, TyId>,
+  /// Display base of an int literal, keyed by the literal's
+  /// `ValueId.0`. Cloned from `Sir::int_bases`. SPARSE: only
+  /// non-decimal `b#`/`o#`/`x#` literals get an entry; absence
+  /// means `Base::Decimal`. Drives the radix and digit→ASCII
+  /// mapping in `emit_itoa_and_write` so `showln(x#76)` prints
+  /// `4c` while the stored value stays decimal `76`.
+  int_bases: HashMap<u32, Base>,
   /// Per-array metadata keyed by the array's `TyId.0`.
   /// Populated by the pre-pass in `generate` from
   /// `Insn::ArrayTyDef`. Drives `emit_array_write` (uses
@@ -969,6 +984,7 @@ impl<'a> ARM64Gen<'a> {
       next_enum_sym: ENUM_SYNTHETIC_SYM_BASE,
       value_types: HashMap::default(),
       vec_elem_tys: HashMap::default(),
+      int_bases: HashMap::default(),
       array_metas: HashMap::default(),
       map_metas: HashMap::default(),
       vec_metas: HashMap::default(),
@@ -1954,6 +1970,7 @@ impl<'a> ARM64Gen<'a> {
     // hasher, codegen's alias is `FxHashMap`.
     self.vec_elem_tys =
       sir.vec_elem_tys.iter().map(|(k, v)| (*k, *v)).collect();
+    self.int_bases = sir.int_bases.iter().map(|(k, v)| (*k, *v)).collect();
 
     // Pre-pass: harvest per-pack `#link` paths. Must run
     // BEFORE the fused walk below because that walk
@@ -5876,7 +5893,13 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_mov_reg(X0, src);
       }
 
-      self.emit_itoa_and_write(fd);
+      // SPARSE map: a missing entry means the literal is plain
+      // decimal, so it never affects existing `showln(int)`.
+      let base = arg_vid
+        .and_then(|v| self.int_bases.get(&v.0).copied())
+        .unwrap_or(Base::Decimal);
+
+      self.emit_itoa_and_write(fd, base);
     } else if is_str {
       // String: single pointer to [len: u64][bytes][null].
       let ptr = arg_vid.and_then(|v| self.alloc_reg(v)).unwrap_or(X1);
@@ -5991,7 +6014,7 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_mov_reg(X0, src);
       }
 
-      self.emit_itoa_and_write(fd);
+      self.emit_itoa_and_write(fd, Base::Decimal);
 
       return;
     };
@@ -6184,7 +6207,7 @@ impl<'a> ARM64Gen<'a> {
     } else if is_char {
       self.emit_char_and_write(fd);
     } else {
-      self.emit_itoa_and_write(fd);
+      self.emit_itoa_and_write(fd, Base::Decimal);
     }
   }
 
@@ -6447,7 +6470,7 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_mov_reg(X0, src);
       }
 
-      self.emit_itoa_and_write(fd);
+      self.emit_itoa_and_write(fd, Base::Decimal);
 
       return;
     }
@@ -6735,7 +6758,7 @@ impl<'a> ARM64Gen<'a> {
     self.emitter.emit_svc(0);
   }
 
-  fn emit_itoa_and_write(&mut self, fd: u16) {
+  fn emit_itoa_and_write(&mut self, fd: u16, base: Base) {
     self.emitter.emit_sub_imm(SP, SP, ITOA_BUFFER_SIZE);
 
     // X1 = end of buffer (write pointer, works backward).
@@ -6755,10 +6778,11 @@ impl<'a> ARM64Gen<'a> {
     // Mark as negative.
     self.emitter.emit_mov_imm(X17, 1);
 
-    // X3 = 10 (divisor).
+    // X3 = radix (divisor): 2 / 8 / 10 / 16. For `Decimal`
+    // this is 10 — byte-identical to the prior fixed value.
     let x3 = Register::new(3);
 
-    self.emitter.emit_mov_imm(x3, ASCII_NEWLINE);
+    self.emitter.emit_mov_imm(x3, base.radix() as u16);
 
     let loop_start = self.emitter.current_offset();
 
@@ -6767,10 +6791,28 @@ impl<'a> ARM64Gen<'a> {
     let x5 = Register::new(5);
 
     self.emitter.emit_udiv(x4, X0, x3);
-    // X5 = X0 - X4 * 10 (remainder = digit).
+    // X5 = X0 - X4 * radix (remainder = digit).
     self.emitter.emit_msub(x5, x4, x3, X0);
-    // X5 += '0'.
-    self.emitter.emit_add_imm(x5, x5, ASCII_ZERO);
+    // Digit → ASCII. For radix ≤ 10 the digit is always 0-9,
+    // so `+ '0'` (0x30) is exact — emitted byte-for-byte as
+    // before. Only hex digits reach 10-15 and must map to
+    // `a-f`: `d < 10 ? d + 0x30 : d + 0x57` (97 - 10 = 87 =
+    // 0x57). Branchless via CSEL on the unsigned comparison so
+    // the loop's `cbnz` offset is the only control flow.
+    if base == Base::Hexadecimal {
+      let x6 = Register::new(6);
+      // X6 = digit + '0' (low candidate, digits 0-9).
+      self.emitter.emit_add_imm(x6, x5, ASCII_ZERO);
+      // X16 = digit + 0x57 (high candidate, digits a-f).
+      self.emitter.emit_add_imm(X16, x5, HEX_ALPHA_BIAS);
+      // CMP X5, #10 — sets flags for the unsigned select.
+      self.emitter.emit_cmp_imm(x5, HEX_DIGIT_SPLIT);
+      // X5 = (digit < 10) ? X6 : X16. COND_CC = unsigned <.
+      self.emitter.emit_csel(x5, x6, X16, COND_CC);
+    } else {
+      // X5 += '0'.
+      self.emitter.emit_add_imm(x5, x5, ASCII_ZERO);
+    }
     // Store byte at [X1], X1 -= 1.
     self.emitter.emit_strb_post_dec(x5, X1);
     // X2 += 1 (length).

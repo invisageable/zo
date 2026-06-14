@@ -8187,6 +8187,7 @@ dependencies = [
  "zo-codegen-backend",
  "zo-interner",
  "zo-sir",
+ "zo-token",
  "zo-ty",
  "zo-value",
 ]

@@ -1,6 +1,6 @@
 use zo_interner::{Interner, Symbol};
 use zo_span::Span;
-use zo_token::Token;
+use zo_token::{Base, Token};
 use zo_ty::Mutability;
 use zo_ty::SelfKind;
 use zo_ty::TyId;
@@ -266,6 +266,12 @@ pub struct Sir {
   /// `ValueId` keys stay valid: module merge offsets only
   /// library ids, and these calls are in main.
   pub vec_elem_tys: std::collections::HashMap<u32, TyId>,
+  /// Display base per int-literal `ValueId` (`.0`). Sparse —
+  /// only non-decimal `b#`/`o#`/`x#` literals get an entry;
+  /// absence means `Base::Decimal`. The executor stamps each
+  /// `ConstInt` and each use of a base-tagged binding so codegen
+  /// can format the value in that base at a `showln` site.
+  pub int_bases: std::collections::HashMap<u32, Base>,
 }
 
 impl Sir {
@@ -386,6 +392,7 @@ impl Sir {
       next_label_id: 0,
       node_cursor: 0,
       vec_elem_tys: std::collections::HashMap::new(),
+      int_bases: std::collections::HashMap::new(),
     }
   }
 

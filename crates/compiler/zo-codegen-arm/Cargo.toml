@@ -20,6 +20,7 @@ zo-module-resolver = { workspace = true }
 zo-reporter = { workspace = true }
 zo-sir = { workspace = true }
 zo-span = { workspace = true }
+zo-token = { workspace = true }
 zo-ty = { workspace = true }
 zo-ui-protocol = { workspace = true }
 zo-value = { workspace = true }
@@ -34,7 +35,6 @@ zo-analyzer = { workspace = true }
 zo-executor = { workspace = true }
 zo-linker = { workspace = true }
 zo-parser = { workspace = true }
-zo-token = { workspace = true }
 zo-tokenizer = { workspace = true }
 zo-ty-checker = { workspace = true }
 

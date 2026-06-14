@@ -1,0 +1,21 @@
+-- tests-run-pass: display-base formatting for `showln` of int
+-- literals. `b#`/`o#`/`x#` change only the printed radix; the
+-- stored value stays decimal. `x#` digits 10-15 map to `a-f`.
+
+fun main() {
+  showln(b#30);
+  showln(o#75);
+  showln(x#76);
+  showln(30);
+
+  -- The value is always decimal — only the printed form changes.
+  check@eq(b#30, 30);
+  check@eq(o#75, 75);
+  check@eq(x#76, 76);
+}
+
+-- EXPECTED OUTPUT:
+-- 11110
+-- 113
+-- 4c
+-- 30

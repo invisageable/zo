@@ -2,7 +2,7 @@ use zo_error::{Error, ErrorKind};
 use zo_interner::Interner;
 use zo_reporter::report_error;
 use zo_span::Span;
-use zo_token::{InterpSegment, LiteralStore, Token, TokenBuffer};
+use zo_token::{Base, InterpSegment, LiteralStore, Token, TokenBuffer};
 
 use serde::Serialize;
 
@@ -1112,9 +1112,6 @@ impl<'a> Tokenizer<'a> {
         if self.current() == b'|' {
           self.advance();
           self.tokens.push(Token::PipePipe, start as u32, 2);
-        } else if self.current() == b'>' {
-          self.advance();
-          self.tokens.push(Token::PipeArrow, start as u32, 2);
         } else if self.current() == b'=' {
           self.advance();
           self.tokens.push(Token::PipeEq, start as u32, 2);
@@ -1293,11 +1290,11 @@ impl<'a> Tokenizer<'a> {
     let start = self.cursor;
     let first = self.current();
 
-    // Check for display-base literals (b#, o#, x#).
-    // These store the VALUE as decimal, with a display hint.
-    // b#30 = decimal 30, displayed as binary "11110".
-    // o#75 = decimal 75, displayed as octal "113".
-    // x#76 = decimal 76, displayed as hex "4c".
+    // Display-base literals (b#, o#, x#): the value is
+    // decimal and `Base` records how `showln` formats it.
+    // b#30 = 30, printed in binary "11110".
+    // o#75 = 75, printed in octal "113".
+    // x#76 = 76, printed in hex "4c".
     if (first == b'b' || first == b'o' || first == b'x') && self.peek(1) == b'#'
     {
       self.cursor += 2; // Skip base prefix
@@ -1325,7 +1322,8 @@ impl<'a> Tokenizer<'a> {
 
       let clean = text.replace('_', "");
       let value = clean.parse::<u64>().unwrap_or(0);
-      let id = self.literals.push_int(value);
+      let base = Base::from_prefix(first).unwrap_or(Base::Decimal);
+      let id = self.literals.push_int_base(value, base);
 
       self
         .tokens

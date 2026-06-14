@@ -24,6 +24,43 @@ int zo_ftoa_f64(char *buf, unsigned long size, double val) {
   return snprintf(buf, size, "%g", val);
 }
 
+// Formats `val` into `buf` in `radix` (2/8/10/16) with
+// lowercase digits, treating `val` as unsigned (matching
+// `%llo` / `%llx`). Returns the length written excluding the
+// trailing NUL — matches `snprintf`'s contract. The CLIF
+// backend calls this for the `b#` / `o#` / `x#` display
+// modifiers; printf has no binary specifier, so one helper
+// covers every non-decimal base. The stored value is
+// unchanged — only the printed digits differ.
+int zo_itoa_radix(char *buf, unsigned long size, long long val,
+                  unsigned radix) {
+  if (size == 0) {
+    return 0;
+  }
+
+  char tmp[65]; // 64 binary digits, unsigned view (no sign).
+  unsigned long long u = (unsigned long long)val;
+  int i = 0;
+
+  if (u == 0) {
+    tmp[i++] = '0';
+  }
+
+  while (u != 0) {
+    unsigned d = (unsigned)(u % radix);
+    tmp[i++] = (d < 10) ? (char)('0' + d) : (char)('a' + (d - 10));
+    u /= radix;
+  }
+
+  int len = 0;
+  while (i > 0 && (unsigned long)(len + 1) < size) {
+    buf[len++] = tmp[--i];
+  }
+  buf[len] = '\0';
+
+  return len;
+}
+
 // Concatenates two zo strings (`[u64 LE len, UTF-8 bytes]`
 // layout from `Insn::ConstString`). Allocates a fresh buffer
 // holding `[len_a + len_b, bytes_a, bytes_b]` and returns a

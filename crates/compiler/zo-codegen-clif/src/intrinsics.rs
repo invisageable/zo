@@ -14,6 +14,7 @@ use crate::runtime::{
 };
 use crate::types::is_unsigned_int;
 
+use zo_token::Base;
 use zo_ty::TyId;
 use zo_value::ValueId;
 
@@ -36,6 +37,7 @@ fn emit_int_show(
   fd: i64,
   val: ir::Value,
   ty_id: TyId,
+  base: Base,
 ) {
   let val_ty = builder.func.dfg.value_type(val);
   let val_i64 = if val_ty == ir::types::I64 {
@@ -54,28 +56,55 @@ fn emit_int_show(
   let buf_ptr = builder.ins().stack_addr(tctx.ptr_ty, slot, 0);
   let buf_size = builder.ins().iconst(tctx.ptr_ty, 32);
 
-  let fmt_id = ensure_anon_data(tctx, "fmt_int", b"%lld\0");
-  let fmt_gv = tctx.module.declare_data_in_func(fmt_id, builder.func);
-  let fmt_ptr = builder.ins().global_value(tctx.ptr_ty, fmt_gv);
+  let len = if base == Base::Decimal {
+    // Fast path, unchanged: snprintf("%lld", val).
+    let fmt_id = ensure_anon_data(tctx, "fmt_int", b"%lld\0");
+    let fmt_gv = tctx.module.declare_data_in_func(fmt_id, builder.func);
+    let fmt_ptr = builder.ins().global_value(tctx.ptr_ty, fmt_gv);
 
-  let snprintf_fid = ensure_libc_func(tctx, "snprintf", |ptr_ty, cc| {
-    let mut sig = ir::Signature::new(cc);
+    let snprintf_fid = ensure_libc_func(tctx, "snprintf", |ptr_ty, cc| {
+      let mut sig = ir::Signature::new(cc);
 
-    sig.params.push(AbiParam::new(ptr_ty)); // buf
-    sig.params.push(AbiParam::new(ptr_ty)); // size (size_t)
-    sig.params.push(AbiParam::new(ptr_ty)); // fmt
-    sig.params.push(AbiParam::new(ir::types::I64)); // val
-    sig.returns.push(AbiParam::new(ir::types::I32));
+      sig.params.push(AbiParam::new(ptr_ty)); // buf
+      sig.params.push(AbiParam::new(ptr_ty)); // size (size_t)
+      sig.params.push(AbiParam::new(ptr_ty)); // fmt
+      sig.params.push(AbiParam::new(ir::types::I64)); // val
+      sig.returns.push(AbiParam::new(ir::types::I32));
 
-    sig
-  });
-  let snprintf_fref =
-    tctx.module.declare_func_in_func(snprintf_fid, builder.func);
-  let call = builder
-    .ins()
-    .call(snprintf_fref, &[buf_ptr, buf_size, fmt_ptr, val_i64]);
-  let len_i32 = builder.inst_results(call)[0];
-  let len = builder.ins().uextend(tctx.ptr_ty, len_i32);
+      sig
+    });
+    let snprintf_fref =
+      tctx.module.declare_func_in_func(snprintf_fid, builder.func);
+    let call = builder
+      .ins()
+      .call(snprintf_fref, &[buf_ptr, buf_size, fmt_ptr, val_i64]);
+    let len_i32 = builder.inst_results(call)[0];
+
+    builder.ins().uextend(tctx.ptr_ty, len_i32)
+  } else {
+    // `b#`/`o#`/`x#`: format in the literal's base via the
+    // runtime helper (printf has no binary specifier). The
+    // value is unchanged; only the printed digits differ.
+    let radix = builder.ins().iconst(ir::types::I32, base.radix() as i64);
+
+    let fid = ensure_libc_func(tctx, "zo_itoa_radix", |ptr_ty, cc| {
+      let mut sig = ir::Signature::new(cc);
+
+      sig.params.push(AbiParam::new(ptr_ty)); // buf
+      sig.params.push(AbiParam::new(ptr_ty)); // size (size_t)
+      sig.params.push(AbiParam::new(ir::types::I64)); // val
+      sig.params.push(AbiParam::new(ir::types::I32)); // radix
+      sig.returns.push(AbiParam::new(ir::types::I32));
+
+      sig
+    });
+    let fref = tctx.module.declare_func_in_func(fid, builder.func);
+    let call =
+      builder.ins().call(fref, &[buf_ptr, buf_size, val_i64, radix]);
+    let len_i32 = builder.inst_results(call)[0];
+
+    builder.ins().uextend(tctx.ptr_ty, len_i32)
+  };
 
   emit_write_call(tctx, builder, fd, buf_ptr, len);
 }
@@ -413,7 +442,15 @@ pub(crate) fn emit_io_intrinsic(
     // route the whole TyId through the int formatter;
     // slice-with-show needs a type-table discriminator.
     5..=14 => {
-      emit_int_show(tctx, builder, fd, arg_val, arg_ty_id);
+      // SPARSE: a missing entry is plain decimal, so this never
+      // affects existing `showln(int)`.
+      let base = tctx
+        .int_bases
+        .get(&arg_id.0)
+        .copied()
+        .unwrap_or(Base::Decimal);
+
+      emit_int_show(tctx, builder, fd, arg_val, arg_ty_id, base);
     }
     // Bool.
     2 => {

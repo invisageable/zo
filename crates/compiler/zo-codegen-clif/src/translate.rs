@@ -25,6 +25,7 @@ use crate::types::{is_float, is_unsigned_int, pointer_ty, ty_id_to_clif};
 
 use zo_interner::{Interner, Symbol};
 use zo_sir::{BinOp, Insn, LoadSource, UnOp};
+use zo_token::Base;
 use zo_ty::TyId;
 use zo_value::ValueId;
 
@@ -53,6 +54,7 @@ pub(crate) fn translate_module(
   module: &mut ObjectModule,
   interner: &Interner,
   insns: &[Insn],
+  int_bases: &std::collections::HashMap<u32, Base>,
 ) -> String {
   let call_conv = module.target_config().default_call_conv;
   let ptr_ty = pointer_ty(module);
@@ -226,6 +228,7 @@ pub(crate) fn translate_module(
         libc_funcs: &mut libc_funcs,
         anon_data: &mut anon_data,
         ptr_ty,
+        int_bases,
       };
 
       translate_body(
