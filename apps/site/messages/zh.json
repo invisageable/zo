@@ -52,7 +52,7 @@
   "oss_stars": "星标",
   "oss_title": "## 开源",
   "prologue_description": "zo (读作 /zu:/，就像 “zoo”) 是一门实用、轻量、跨平台的通用编程语言。用一份源代码来发布、运行和构建<b class='green-100'>类型安全</b>的<b class='green-100'>桌面</b>、<b class='green-100'>移动</b>和<b class='green-100'>网页</b>应用。",
-  "prologue_punchline": "一门语言。一个编译器。一个二进制文件。<b class='green-100'>原生</b>或<b class='green-100'>网页</b> — <b class='green-100'>同一份源码</b>。",
+  "prologue_punchline": "一门语言。一个编译器。一个二进制文件。一个窗口。<b class='green-100'>全平台</b> — <b class='green-100'>同一份源码</b>。",
   "prologue_title": "zo 编程语言。",
   "purpose_description": "创作型开发者不应该在<b class='green-100'>简洁的 Ui 代码</b>和<b class='green-100'>高性能</b>之间做选择。API 各自为政，工具过于复杂，开发循环太慢。我们打造 zo 作为<b class='green-100'>粘合剂</b> — 一门统一、直观的语言，让你<b class='green-100'>瞬间</b>把创意变成稳定、跨平台的软件。",
   "purpose_quote_sentence": "为何忍受缓慢的编译器？让它们更快就是了。",

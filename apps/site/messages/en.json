@@ -52,7 +52,7 @@
   "oss_stars": "stars",
   "oss_title": "## oss",
   "prologue_description": "zo (pronounced /zu:/ just like “zoo”) is a practical, lightweight, cross-platform, general-purpose programming language. To ship, run and build <b class='green-100'>type-safe</b> <b class='green-100'>desktop</b>, <b class='green-100'>mobile</b> and <b class='green-100'>web</b> applications with one code source.",
-  "prologue_punchline": "One language. One compiler. One binary. <b class='green-100'>Native</b> or <b class='green-100'>Web</b> — <b class='green-100'>same source</b>.",
+  "prologue_punchline": "One language. One compiler. One binary. One window. <b class='green-100'>All platforms</b> — <b class='green-100'>same source</b>.",
   "prologue_title": "The zo programming language.",
   "purpose_description": "Creative developers shouldn't have to choose between <b class='green-100'>simple UI code</b> and <b class='green-100'>high performance</b>. APIs are disjointed, tools are overly complex, and the development loop is too slow. We built zo to be the <b class='green-100'>glue</b> — a single, intuitive language that lets you turn your creative thoughts into robust, cross-platform software <b class='green-100'>instantly</b>.",
   "purpose_quote_sentence": "Why accept slow compilers? Just make them faster.",

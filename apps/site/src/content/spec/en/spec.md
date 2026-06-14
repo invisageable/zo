@@ -4,8 +4,8 @@
 
 This reference manual is for the zo programming language.
 
-@author — invisageable
-@author — compilords
+@author — invisageable    
+@author — compilords    
 
 ## Disclaimer
 
@@ -328,7 +328,7 @@ exponent      = ( "e" | "E" ), [ "+" | "-" ], decimal_literal ;
 
 #### String and Character Literals
 
-A string literal is double-quoted UTF-8 text, and a string is immutable. A character literal is a single Unicode character between single quotes — `'a'`, `'🙂'` — of type `char`. Both accept escape sequences:
+A string literal is double-quoted UTF-8 text, and a string is immutable. A character literal is a single Unicode character between single quotes — `'a'`, `'👽'` — of type `char`. Both accept escape sequences:
 
   - `\n` `\r` `\t` `\\` `\"` `\'` `\0` — newline, carriage return, tab, backslash, the two quotes, and null.
   - `\a` `\b` `\e` `\f` `\v` — bell, backspace, escape, form feed, and vertical tab.
@@ -437,6 +437,10 @@ function_type = "Fn", "(", [ type, { ",", type } ], ")", "->", type ;
 ### Grammar
 
 The complete grammar is available as an [EBNF file](https://github.com/invisageable/zo/blob/main/crates/compiler/zo-notes/public/grammar/zo.ebnf).
+
+## Naming Convention
+
+...
 
 ## References
 

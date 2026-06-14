@@ -52,7 +52,7 @@
   "oss_stars": "スター",
   "oss_title": "## oss",
   "prologue_description": "zo (/zu:/、「zoo」と同じ発音) は、実用的で軽量、クロスプラットフォームの汎用プログラミング言語です。<b class='green-100'>型安全</b>な<b class='green-100'>デスクトップ</b>・<b class='green-100'>モバイル</b>・<b class='green-100'>ウェブ</b>アプリケーションを、単一のソースコードから出荷・実行・構築します。",
-  "prologue_punchline": "一つの言語。一つのコンパイラ。一つのバイナリ。<b class='green-100'>ネイティブ</b>か<b class='green-100'>ウェブ</b>か — <b class='green-100'>ソースは同じ</b>。",
+  "prologue_punchline": "一つの言語。一つのコンパイラ。一つのバイナリ。一つのウィンドウ。<b class='green-100'>すべてのプラットフォーム</b> — <b class='green-100'>ソースは同じ</b>。",
   "prologue_title": "zo プログラミング言語。",
   "purpose_description": "クリエイティブな開発者が<b class='green-100'>シンプルな Ui コード</b>と<b class='green-100'>高性能</b>のどちらかを選ばなくていいようにすべきだ。API はバラバラ、ツールは複雑すぎ、開発ループは遅すぎる。zo は<b class='green-100'>糊</b>として作られた — クリエイティブな考えを、堅牢でクロスプラットフォームなソフトウェアに<b class='green-100'>即座に</b>変える、単一かつ直感的な言語。",
   "purpose_quote_sentence": "なぜ遅いコンパイラを受け入れる？速くすればいいだけだ。",

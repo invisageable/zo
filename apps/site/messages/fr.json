@@ -52,7 +52,7 @@
   "oss_stars": "étoiles",
   "oss_title": "## oss",
   "prologue_description": "zo (prononcé /zu:/ comme « zoo ») est un langage de programmation pratique, léger, multiplateforme et généraliste. Pour livrer, exécuter et construire des applications <b class='green-100'>à typage sûr</b> pour le <b class='green-100'>desktop</b>, le <b class='green-100'>mobile</b> et le <b class='green-100'>web</b>, à partir d'une seule source de code.",
-  "prologue_punchline": "Un langage. Un compilateur. Un binaire. <b class='green-100'>Natif</b> ou <b class='green-100'>Web</b> — <b class='green-100'>même source</b>.",
+  "prologue_punchline": "Un langage. Un compilateur. Un binaire. Une fenêtre. <b class='green-100'>Toutes les plateformes</b> — <b class='green-100'>même source</b>.",
   "prologue_title": "Le langage de programmation zo.",
   "purpose_description": "Les développeurs créatifs ne devraient pas avoir à choisir entre du <b class='green-100'>code Ui simple</b> et des <b class='green-100'>performances élevées</b>. Les API sont décousues, les outils sont trop complexes et la boucle de développement est trop lente. Nous avons conçu zo pour être la <b class='green-100'>glue</b> — un langage unique et intuitif qui te permet de transformer tes pensées créatives en logiciels robustes et multi-plateformes <b class='green-100'>instantanément</b>.",
   "purpose_quote_sentence": "Pourquoi accepter des compilateurs lents ? Rendez-les plus rapides, c'est tout.",

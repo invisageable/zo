@@ -52,7 +52,7 @@
   "oss_stars": "Sterne",
   "oss_title": "## oss",
   "prologue_description": "zo (ausgesprochen /zu:/ wie „zoo“) ist eine praktische, leichtgewichtige, plattformübergreifende und universelle Programmiersprache. Zum Ausliefern, Ausführen und Erstellen <b class='green-100'>typsicherer</b> <b class='green-100'>Desktop</b>-, <b class='green-100'>Mobile</b>- und <b class='green-100'>Web</b>-Anwendungen aus einer einzigen Codequelle.",
-  "prologue_punchline": "Eine Sprache. Ein Compiler. Eine Binärdatei. <b class='green-100'>Nativ</b> oder <b class='green-100'>Web</b> — <b class='green-100'>derselbe Quellcode</b>.",
+  "prologue_punchline": "Eine Sprache. Ein Compiler. Eine Binärdatei. Ein Fenster. <b class='green-100'>Alle Plattformen</b> — <b class='green-100'>derselbe Quellcode</b>.",
   "prologue_title": "Die Programmiersprache zo.",
   "purpose_description": "Kreative Entwickler sollten nicht zwischen <b class='green-100'>einfachem Ui-Code</b> und <b class='green-100'>hoher Leistung</b> wählen müssen. APIs sind zerstückelt, Werkzeuge sind zu komplex, die Entwicklungsschleife ist zu langsam. Wir haben zo als den <b class='green-100'>Klebstoff</b> entwickelt — eine einzige, intuitive Sprache, mit der du deine kreativen Gedanken <b class='green-100'>sofort</b> in robuste, plattformübergreifende Software verwandelst.",
   "purpose_quote_sentence": "Warum sich mit langsamen Compilern abfinden? Macht sie einfach schneller.",

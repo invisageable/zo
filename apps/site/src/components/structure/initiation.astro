@@ -12,7 +12,7 @@ const version = await fetchLatestVersion();
   <Title class="initiation-title" as="h1">{m.initiation_title()}</Title>
   <Paragraph class="initiation-subtitle" content={m.initiation_subtitle()} />
   <Paragraph class="initiation-dedication" content={m.initiation_dedication()} />
-  <Paragraph class="initiation-translators" content={m.initiation_translators()} />
+  <!-- <Paragraph class="initiation-translators" content={m.initiation_translators()} /> -->
   <Paragraph class="initiation-authors" content=`${m.initiation_authors()}\n${m.initiation_edition({ version })}` />
   <Paragraph class="initiation-quote" content={m.initiation_quote()} />
   <Paragraph class="initiation-publisher" content={textTransform(m.initiation_publisher())} />
