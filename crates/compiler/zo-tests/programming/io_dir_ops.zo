@@ -1,0 +1,34 @@
+-- tests-run-pass: io directory ops — is_dir, copy, remove_dir_all,
+-- isatty. Exercises the runtime FFIs added for the CLI toolkit.
+
+load core::io;
+load core::file;
+load core::env;
+
+fun main() {
+  imu base: str = env::temp_dir() ++ "/zo_io_dir_ops";
+
+  -- Clean slate; the dir may not exist, so ignore the result.
+  io::remove_dir_all(base);
+
+  file::mkdir(base);
+  check(io::is_dir(base));
+  check(!io::is_dir(base ++ "/missing"));
+
+  -- Write a file, copy it, confirm the copy exists.
+  io::write_file(base ++ "/a.txt", "hello");
+  io::copy(base ++ "/a.txt", base ++ "/b.txt");
+  check(io::exists(base ++ "/b.txt"));
+
+  -- Recursive remove tears down the whole tree.
+  io::remove_dir_all(base);
+  check(!io::is_dir(base));
+
+  -- Under the test runner stdout is a pipe, never a terminal.
+  check(!io::isatty(1));
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

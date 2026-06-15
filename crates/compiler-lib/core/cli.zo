@@ -1,0 +1,177 @@
+-! Command-line argument parser. `load core::cli`.
+-!
+-! Declarative: register flags and options, parse `argv`, read
+-! typed. `help()` renders usage from the registered specs.
+-!
+-! ```
+-! imu app: Cli = Cli::new("greet", "say hello")
+-!   .flag("v", "verbose", "print more")
+-!   .option("n", "name", "who to greet");
+-!
+-! imu parsed: Parsed = app.parse(io::args());
+-! when parsed.has("verbose") ? showln(app.help()) : show("");
+-! ```
+
+
+-! One declared argument. A flag when `takes_value` is false,
+-! an option (consumes a value) when true.
+pub struct Spec {
+  long: str,         -- name without dashes, e.g. "verbose"
+  short: str,        -- single letter, "" when none
+  help: str,
+  takes_value: bool,
+}
+
+-! A command-line interface: name, about line, declared specs.
+pub struct Cli {
+  name: str,
+  about: str,
+  specs: []Spec,
+}
+
+-! Parse result. `present` holds the long names of seen flags,
+-! `values` holds `"long\tvalue"` pairs for options, and
+-! `positionals` holds the bare arguments in order.
+pub struct Parsed {
+  present: []str,
+  values: []str,
+  positionals: []str,
+}
+
+
+apply Cli {
+  -! A new CLI with no arguments registered.
+  pub fun new(name: str, about: str) -> Self {
+    Self { name = name, about = about, specs = [] }
+  }
+
+  -! Register a boolean flag (`-s` / `--long`).
+  pub fun flag(mut self, short: str, long: str, help: str) -> Self {
+    self.specs.push(
+      Spec { long = long, short = short, help = help, takes_value = false },
+    );
+
+    self
+  }
+
+  -! Register a value option (`-s val` / `--long val` / `--long=val`).
+  pub fun option(mut self, short: str, long: str, help: str) -> Self {
+    self.specs.push(
+      Spec { long = long, short = short, help = help, takes_value = true },
+    );
+
+    self
+  }
+
+  -- Resolve a `--long` or `-s` token to its spec index, or -1.
+  fun spec_of(self, token: str) -> int {
+    for i := 0..self.specs.len() {
+      imu spec: Spec = self.specs[i];
+      imu long_hit: bool = token == "--" ++ spec.long;
+      imu short_hit: bool = spec.short != "" && token == "-" ++ spec.short;
+
+      if long_hit || short_hit {
+        return i;
+      }
+    }
+
+    -1
+  }
+
+  -! Render the usage text from the registered specs.
+  pub fun help(self) -> str {
+    mut out: str = self.name ++ " — " ++ self.about ++ "\n\nOptions:\n";
+
+    for spec := self.specs {
+      imu head: str = when spec.short == ""
+        ? "      --" ++ spec.long
+        : "  -" ++ spec.short ++ ", --" ++ spec.long;
+
+      out = out ++ head ++ "    " ++ spec.help ++ "\n";
+    }
+
+    out
+  }
+
+  -! Parse `argv` into a `Parsed`. Unknown dashed tokens are
+  -! kept as positionals (lenient parsing).
+  pub fun parse(self, argv: []str) -> Parsed {
+    mut present: []str = [];
+    mut values: []str = [];
+    mut positionals: []str = [];
+    mut i: int = 0;
+
+    while i < argv.len() {
+      imu tok: str = argv[i];
+
+      if tok.starts_with("-") {
+        imu eq: int = tok.index_of("=");
+        imu key: str = when eq < 0 ? tok : tok[0..eq];
+        imu idx: int = self.spec_of(key);
+
+        if idx < 0 {
+          positionals.push(tok);
+        } else if self.specs[idx].takes_value {
+          imu name: str = self.specs[idx].long;
+
+          if eq < 0 {
+            i = i + 1;
+            imu next: str = when i < argv.len() ? argv[i] : "";
+
+            values.push(name ++ "\t" ++ next);
+          } else {
+            values.push(name ++ "\t" ++ tok[eq + 1..tok.len]);
+          }
+        } else {
+          present.push(self.specs[idx].long);
+        }
+      } else {
+        positionals.push(tok);
+      }
+
+      i = i + 1;
+    }
+
+    Parsed {
+      present = present,
+      values = values,
+      positionals = positionals,
+    }
+  }
+}
+
+
+apply Parsed {
+  -! True when flag or option `long` was given.
+  pub fun has(self, long: str) -> bool {
+    for p := self.present {
+      if p == long {
+        return true;
+      }
+    }
+
+    for kv := self.values {
+      if kv.starts_with(long ++ "\t") {
+        return true;
+      }
+    }
+
+    false
+  }
+
+  -! The value passed to option `long`, if any.
+  pub fun value(self, long: str) -> Option<str> {
+    for kv := self.values {
+      if kv.starts_with(long ++ "\t") {
+        return Option::Some(kv[long.len + 1..kv.len]);
+      }
+    }
+
+    Option::None
+  }
+
+  -! The bare (non-dashed) arguments, in order.
+  pub fun positionals(self) -> []str {
+    self.positionals
+  }
+}

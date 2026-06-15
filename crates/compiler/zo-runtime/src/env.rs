@@ -90,3 +90,32 @@ pub extern "C" fn zo_env_current_dir() -> CBytes {
     .and_then(|p| p.to_str().map(|s| stage_cbytes(&SCRATCH, s.as_bytes())))
     .unwrap_or_else(CBytes::empty)
 }
+
+/// Set the process working directory. `0` on success,
+/// `-errno` on failure. The path uses the zo-str (`*const u8`)
+/// contract shared with `io` — no `CStr` allocation.
+///
+/// # Safety
+///
+/// `path` must be a valid zo str header.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_env_set_current_dir(path: *const u8) -> i64 {
+  let Some(p) = (unsafe { crate::io::path_arg(path) }) else {
+    return -22; // EINVAL
+  };
+
+  match std::env::set_current_dir(&p) {
+    Ok(()) => 0,
+    Err(e) => crate::io::errno(e),
+  }
+}
+
+/// The OS temp directory ($TMPDIR / platform default); empty
+/// bytes when its path isn't valid UTF-8.
+#[unsafe(no_mangle)]
+pub extern "C" fn zo_env_temp_dir() -> CBytes {
+  std::env::temp_dir()
+    .to_str()
+    .map(|s| stage_cbytes(&SCRATCH, s.as_bytes()))
+    .unwrap_or_else(CBytes::empty)
+}

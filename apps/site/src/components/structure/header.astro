@@ -13,7 +13,7 @@ interface Props {
 const { class: className, id } = Astro.props;
 ---
 
-<header class:list={["header", className]} id={id}>
+<header class:list={["header", className]} id={id} role="banner">
   <Link class="header-btn header-btn--home f-cirka" href="/" label="zo" />
   <Link class="header-btn header-btn--initiation" href="/initiation" label={textTransform(m.header_initiation())} />
   <Link class="header-btn header-btn--spec" href="/spec" label={textTransform(m.header_spec())} />

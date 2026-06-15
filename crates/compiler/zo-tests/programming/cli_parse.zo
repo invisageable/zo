@@ -1,0 +1,35 @@
+-- tests-run-pass: core::cli parser — flags, options, positionals,
+-- and the `--name=value` form.
+
+load core::cli;
+
+fun main() {
+  imu app: Cli = Cli::new("greet", "say hello")
+    .flag("v", "verbose", "print more")
+    .option("n", "name", "who to greet");
+
+  imu parsed: Parsed = app.parse(["-v", "--name", "zo", "input.txt"]);
+  check(parsed.has("verbose"));
+  check(!parsed.has("missing"));
+
+  match parsed.value("name") {
+    Option::Some(got) => check@eq(got, "zo"),
+    Option::None => check(false),
+  }
+
+  imu pos: []str = parsed.positionals();
+  check@eq(pos.len(), 1);
+  check@eq(pos[0], "input.txt");
+
+  -- The `--name=value` form parses too.
+  imu joined: Parsed = app.parse(["--name=fast"]);
+  match joined.value("name") {
+    Option::Some(got) => check@eq(got, "fast"),
+    Option::None => check(false),
+  }
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE

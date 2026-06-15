@@ -14,6 +14,16 @@ use rustc_hash::FxHashMap as HashMap;
 // don't need to add zo-liveness directly.
 pub use zo_liveness::{compute_value_ids, visit_uses};
 
+/// A function's identity for per-function codegen maps:
+/// its name plus the pack that owns it. Mirrors the
+/// codegen's `(name, owning_pack)` BL-target key so two
+/// same-named functions in different packs — `io::copy`
+/// (returns `Result`) and `mem::copy` (returns void) —
+/// never collide. Keying these maps by the bare name
+/// alone leaked one function's struct-return shape onto
+/// the other's call sites.
+pub type FnKey = (Symbol, Option<Symbol>);
+
 /// Slots reserved per IO Result frame
 /// (`Result tag + heap ptr + scratch`).
 pub const IO_RESULT_FRAME_SLOTS: u32 = 3;
@@ -154,11 +164,11 @@ pub struct RegAlloc {
   pub value_ids: Vec<Option<ValueId>>,
   /// Per-function info, keyed by function start index.
   pub function_info: HashMap<usize, FunctionInfo>,
-  /// Function name → deep flat-slot count for every
+  /// `(name, owning_pack)` → deep flat-slot count for every
   /// struct-returning function. Exposed so the codegen
   /// can reuse the map for its call-site deep-copy loop
   /// instead of re-scanning the SIR a second time.
-  pub struct_return_fns: HashMap<Symbol, u32>,
+  pub struct_return_fns: HashMap<FnKey, u32>,
   /// Function name → per-variant substituted struct
   /// payload field info, for enum-returning functions.
   /// Each entry's outer `Vec` is indexed by variant
@@ -177,10 +187,10 @@ pub struct RegAlloc {
 /// to a struct.
 pub type EnumVariantStructFields = Vec<(u32, TyId)>;
 
-/// Function name → list of [`EnumVariantStructFields`],
+/// `(name, owning_pack)` → list of [`EnumVariantStructFields`],
 /// indexed by variant discriminant. See
 /// [`RegAlloc::enum_payload_struct_fields`] for the why.
-pub type EnumPayloadFields = HashMap<Symbol, Vec<EnumVariantStructFields>>;
+pub type EnumPayloadFields = HashMap<FnKey, Vec<EnumVariantStructFields>>;
 
 /// Inputs to [`RegAlloc::allocate`], bundled so the entry
 /// point takes one argument rather than a long borrow list.
@@ -346,7 +356,7 @@ impl RegAlloc {
 fn build_struct_return_map(
   insns: &[Insn],
   type_view: Option<(&[Ty], &TyTable)>,
-) -> (HashMap<Symbol, u32>, EnumPayloadFields) {
+) -> (HashMap<FnKey, u32>, EnumPayloadFields) {
   let mut map = HashMap::default();
   let mut payload_map: EnumPayloadFields = HashMap::default();
   // Caller → list of callees observed in the caller's
@@ -359,8 +369,8 @@ fn build_struct_return_map(
   // a TyId-keyed shortcut conflates `Result<X,int>` and
   // `Result<Y,int>` because zo doesn't intern
   // monomorphized enum TyIds.
-  let mut callees_of: HashMap<Symbol, Vec<Symbol>> = HashMap::default();
-  let mut cur_fn: Option<Symbol> = None;
+  let mut callees_of: HashMap<FnKey, Vec<FnKey>> = HashMap::default();
+  let mut cur_fn: Option<FnKey> = None;
   let mut cur_fn_return_ty: Option<TyId> = None;
   let mut last_ty: Option<TyId> = None;
   let mut last_fields: Option<u32> = None;
@@ -382,9 +392,12 @@ fn build_struct_return_map(
 
     match insn {
       Insn::FunDef {
-        name, return_ty, ..
+        name,
+        owning_pack,
+        return_ty,
+        ..
       } => {
-        cur_fn = Some(*name);
+        cur_fn = Some((*name, *owning_pack));
         cur_fn_return_ty = Some(*return_ty);
         last_ty = None;
         last_fields = None;
@@ -395,7 +408,7 @@ fn build_struct_return_map(
         // call (not a `StructConstruct`). FFI composite
         // returns share this path via the AAPCS lift.
         if let Some(slots) = struct_return_slots(*return_ty, type_view) {
-          map.insert(*name, slots);
+          map.insert((*name, *owning_pack), slots);
         }
       }
       Insn::StructConstruct { fields, ty_id, .. } => {
@@ -454,12 +467,15 @@ fn build_struct_return_map(
         });
         last_ty = None;
       }
-      Insn::Call { name, .. } => {
+      Insn::Call {
+        name, callee_pack, ..
+      } => {
         if let Some(fname) = cur_fn {
           let entry = callees_of.entry(fname).or_default();
+          let callee = (*name, *callee_pack);
 
-          if !entry.contains(name) {
-            entry.push(*name);
+          if !entry.contains(&callee) {
+            entry.push(callee);
           }
         }
       }
@@ -527,7 +543,7 @@ fn build_struct_return_map(
   while changed {
     changed = false;
 
-    let pairs: Vec<(Symbol, Symbol)> = callees_of
+    let pairs: Vec<(FnKey, FnKey)> = callees_of
       .iter()
       .flat_map(|(c, cs)| cs.iter().map(move |callee| (*c, *callee)))
       .collect();

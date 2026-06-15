@@ -1,0 +1,61 @@
+---
+import * as m from "../../paraglide/messages";
+import Title from "../atoms/title.astro";
+import preview3d from "../../assets/showcases/preview-zo-raylib-3d.gif";
+import previewArkanoid from "../../assets/showcases/preview-zo-raylib-arkanoid.gif";
+import previewAsteroids from "../../assets/showcases/preview-zo-raylib-asteroids.gif";
+import previewConway from "../../assets/showcases/preview-zo-raylib-conway.gif";
+import previewMandelbrot from "../../assets/showcases/preview-zo-raylib-mandelbrot.gif";
+import previewMouse from "../../assets/showcases/preview-zo-raylib-mouse.gif";
+
+const SHOWCASES = [
+  { src: preview3d.src, alt: "zo & raylib — 3D scene" },
+  { src: previewArkanoid.src, alt: "zo & raylib — Arkanoid" },
+  { src: previewAsteroids.src, alt: "zo & raylib — Asteroids" },
+  { src: previewConway.src, alt: "zo & raylib — Conway's Game of Life" },
+  { src: previewMandelbrot.src, alt: "zo & raylib — Mandelbrot set" },
+  { src: previewMouse.src, alt: "zo & raylib — mouse input" },
+];
+---
+
+<section data-section="showcase" class="showcase">
+  <Title as="h2">{m.showcase_title()}</Title>
+  <div class="showcase-gallery">
+    {
+      SHOWCASES.map((showcase) => (
+        <img
+          class="showcase-image"
+          src={showcase.src}
+          alt={showcase.alt}
+          loading="lazy"
+          decoding="async"
+        />
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .showcase {
+    .showcase-gallery {
+      display: grid;
+      grid-template-columns: repeat(1, minmax(0, 1fr));
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .showcase-image {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+  }
+
+  @media only screen and (min-width: 768px) {
+    .showcase {
+      .showcase-gallery {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  }
+</style>

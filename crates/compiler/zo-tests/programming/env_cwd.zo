@@ -1,0 +1,21 @@
+-- tests-run-pass: env working directory (set_current_dir) +
+-- temp_dir. Exercises the unified `str`-path env FFIs.
+
+load core::env;
+
+fun main() {
+  imu original: str = env::current_dir();
+  imu tmp: str = env::temp_dir();
+
+  check(tmp.len > 0);
+  check(env::set_current_dir(tmp));
+  check(env::current_dir().len > 0);
+
+  -- Restore the original working directory.
+  check(env::set_current_dir(original));
+
+  showln("DONE");
+}
+
+-- EXPECTED OUTPUT:
+-- DONE
