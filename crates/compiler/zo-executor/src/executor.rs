@@ -9342,23 +9342,49 @@ impl<'a> Executor<'a> {
                   if probe > idx {
                     // `<ArgTy>` consumed; probe sits on `>`.
                     next = probe + 1;
-                  } else if next < _end_idx
-                    && self.tree.nodes[next].token.is_ty()
+                  } else if next + 1 < _end_idx
+                    && self.tree.nodes[next + 1].token == Token::Lt
+                    && matches!(
+                      self.tree.nodes[next].token,
+                      t if t.is_ty()
+                        || t == Token::Ident
+                        || t == Token::SelfUpper
+                    )
                   {
-                    // Generic enum as parameter type (e.g.
-                    // `body: Option<str>`). The postfix
-                    // tree places the type arg directly
-                    // after the enum ident. Collect exactly
-                    // ONE type token — `collect_trailing_
-                    // generic_args` is too greedy (skips
-                    // commas and eats the next param's
-                    // name).
+                    // Single-arg generic parameter type. The
+                    // postfix tree lays it out as `base arg
+                    // Lt Gt`, so `next` is the type arg and
+                    // the trailing `Lt` marks it — a
+                    // non-generic param has no such marker, so
+                    // a following parameter's name is never
+                    // mistaken for an arg.
+                    //
+                    // Route by the base's kind: a generic
+                    // struct (`Vec<Point>`) records its
+                    // element in `local_struct_type_args`
+                    // (read by collection methods, so
+                    // `xs.get(i)` types as `Option<Point>`); a
+                    // generic enum (`Option<str>`) records its
+                    // payload in `var_return_type_args` (read
+                    // by `match`).
                     let arg_ty = self.resolve_type_token(next);
-                    let ty = self.ty_checker.resolve_ty(arg_ty);
 
-                    self
-                      .var_return_type_args
-                      .insert(param_name.as_u32(), vec![ty]);
+                    if matches!(
+                      self.ty_checker.kind_of(param_ty),
+                      Ty::Struct(_)
+                    ) {
+                      let elem = self.ty_checker.resolve_id(arg_ty);
+
+                      self
+                        .local_struct_type_args
+                        .insert(param_name.as_u32(), vec![elem]);
+                    } else {
+                      let ty = self.ty_checker.resolve_ty(arg_ty);
+
+                      self
+                        .var_return_type_args
+                        .insert(param_name.as_u32(), vec![ty]);
+                    }
 
                     next += 1;
                   }
