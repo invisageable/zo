@@ -1,13 +1,10 @@
+-- raylib — magenta circle tracks the mouse pointer:
+-- 
+-- @cmd  — zo build follow_mouse.zo && ./follow_mouse
+-- @note — Requires `brew install raylib` (macOS). SPACE or close exits.
+
 load core::c::*;
 load provider::raylib;
-
--- raylib — magenta circle tracks the mouse pointer every
--- frame inside an 800×600 window. Proves Vector2 by-value
--- passing + return through AAPCS HFA end-to-end.
--- @cmd — zo build follow_mouse.zo && ./follow_mouse
---
--- Requires `brew install raylib` (macOS). SPACE or close
--- exits.
 
 fun main() {
   raylib::init_window(800, 600, CStr::new("zo + raylib — follow mouse"));

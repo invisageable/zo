@@ -1,17 +1,11 @@
+-- misato — primitives showcase in one scene:
+-- 
+-- @cmd  — zo build primitives_showcase.zo && ./primitives_showcase
+-- @note — Requires `brew install raylib` (macOS). SPACE or close exits.
+
 load core::c::*;
 load core::graphics::misato::*;
 load provider::raylib::*;
-
--- misato — primitives showcase in one scene:
---   - PlaneGeometry  + MeshStandardMaterial (gray floor)
---   - BoxGeometry    + MeshNormalMaterial   (cube at -1.2)
---   - SphereGeometry + MeshNormalMaterial   (sphere at +1.2)
--- The cube + sphere are tinted face-by-normal (the
--- debug-material look). Camera at (4, 4, 6) → origin.
--- @cmd — zo build primitives_showcase.zo && ./primitives_showcase
---
--- Requires `brew install raylib` (macOS). SPACE or close
--- exits.
 
 fun main() {
   init_window(1024, 768, CStr::new("zo + misato — primitives showcase"));

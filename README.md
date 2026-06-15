@@ -71,12 +71,12 @@ Available Memory  — 9.4 GB
 ## gallery.
 
 <p align="center">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-3d.gif">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-arkanoid.gif">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-asteroids.gif">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-conway.gif">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-mandelbrot.gif">
-  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-mouse.gif">
+  <a href="crates/compiler/zo-tests/programming/misato/primitives_showcase.zo"><img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-3d.gif"></a>
+  <a href="crates/compiler/zo-tests/provider/raylib/arkanoid.zo"><img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-arkanoid.gif"></a>
+  <a href="crates/compiler/zo-tests/provider/raylib/asteroids.zo"><img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-asteroids.gif"></a>
+  <a href="crates/compiler/zo-tests/provider/raylib/life.zo"><img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-conway.gif"></a>
+  <a href="crates/compiler/zo-tests/provider/raylib/mandelbrot_pool.zo"><img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-mandelbrot.gif"></a>
+  <a href="crates/compiler/zo-tests/provider/raylib/follow_mouse.zo"><img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-mouse.gif"></a>
 </p>
 
 ## sponsors & supports.
