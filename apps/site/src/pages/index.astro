@@ -9,6 +9,7 @@ import Prologue from '../components/structure/prologue.astro';
 import Features from '../components/structure/features.astro';
 import Purpose from '../components/structure/purpose.astro';
 import Benchmarks from '../components/structure/benchmarks.astro';
+import Showcase from '../components/structure/showcase.astro';
 import Manifesto from '../components/structure/manifesto.astro';
 import Tools from '../components/structure/tools.astro';
 import Reachout from '../components/structure/reachout.astro';
@@ -25,6 +26,7 @@ const items = [
 	{ href: "#features", label: m.nav_features() },
 	{ href: "#purpose", label: m.nav_purpose() },
 	{ href: "#benchmarks", label: m.nav_benchmarks() },
+	{ href: "#showcase", label: "Showcase" },
 	{ href: "#manifesto", label: m.nav_manifesto() },
 	{ href: "#tools", label: m.nav_tools() },
 	// { href: "#talks", label: "Talks" },
@@ -45,6 +47,7 @@ const items = [
 		<Features />
 		<Purpose />
 		<Benchmarks />
+		<Showcase />
 		<Manifesto />
 		<Tools />
 		<Oss />
