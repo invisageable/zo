@@ -250,10 +250,13 @@ fn main() {
     &mut results,
   );
 
-  // zo-how-to tutorials — build + run + output check.
-  if howto_dir.exists() {
-    run_dir(&ctx, &howto_dir, Category::Pass, &mut results);
-  }
+  // zo-how-to examples, grouped by domain. `zo/` holds
+  // stdout programs (Pass — build + run + output check). The
+  // windowed groups build always and launch only under
+  // `--all` (WindowRun); `2d/` carries the raylib demos.
+  // `zsx/` and `3d/` join here once their programs build.
+  run_dir(&ctx, &howto_dir.join("zo"), Category::Pass, &mut results);
+  run_dir(&ctx, &howto_dir.join("2d"), Category::WindowRun, &mut results);
 
   // zo-usecases — multi-file projects (lib.zo + modules).
   // `pass/` projects must build + run cleanly; `fail/`
