@@ -13,7 +13,7 @@ use zo_emitter_arm::{
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_module_resolver::{AbstractDef, AbstractImpl};
 use zo_register_allocation::{
-  AllocInput, EmitTiming, EnumPayloadFields, IO_RESULT_FRAME_SLOTS,
+  AllocInput, EmitTiming, EnumPayloadFields, FnKey, IO_RESULT_FRAME_SLOTS,
   IO_SHARED_BUF_SLOTS, RegAlloc, RegisterClass, SpillKind,
   flat_struct_slots_of, resolve_ty,
 };
@@ -615,8 +615,9 @@ pub struct ARM64Gen<'a> {
   /// reused by every subsequent IO read in the function.
   /// Reset at each `FunDef`.
   io_shared_buf_offset: Option<u32>,
-  /// Functions that return structs: name -> field count.
-  struct_return_fns: HashMap<Symbol, u32>,
+  /// Functions that return structs:
+  /// `(name, owning_pack) -> field count`.
+  struct_return_fns: HashMap<FnKey, u32>,
   /// Per-variant substituted struct payload fields, for
   /// enum-returning functions. Indexed by discriminant.
   /// Read in the enum-deep-copy block to override the
@@ -3951,7 +3952,9 @@ impl<'a> ARM64Gen<'a> {
             // fields are flattened into adjacent caller
             // slots — without this, the field slot held a
             // pointer back into the freed callee frame.
-            if let Some(&deep_slots) = self.struct_return_fns.get(name) {
+            if let Some(&deep_slots) =
+              self.struct_return_fns.get(&(*name, *callee_pack))
+            {
               let dst_base = self.struct_base + self.next_struct_slot;
 
               // Walk the call's return type so we know
@@ -3989,7 +3992,7 @@ impl<'a> ARM64Gen<'a> {
                   // covers passthrough functions whose
                   // match arms route through a callee.
                   let payload_overrides =
-                    self.enum_payload_struct_fields.get(name);
+                    self.enum_payload_struct_fields.get(&(*name, *callee_pack));
                   let variants: Vec<EnumVariantInfo> = view
                     .ty_table
                     .enum_variants(e)

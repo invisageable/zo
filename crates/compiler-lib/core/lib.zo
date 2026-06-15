@@ -23,6 +23,7 @@ pub pack vec;
 -* loadables. *-
 
 pub pack c;
+pub pack cli;
 pub pack encoding;
 pub pack ease;
 pub pack env;

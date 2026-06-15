@@ -164,3 +164,49 @@ apply BufferedWriter {
     zo_bufio_writer_free(self.handle);
   }
 }
+
+
+-- Filesystem + terminal. Requires `load core::io`.
+
+ffi zo_io_remove_dir(path: str) -> int;
+
+ffi zo_io_remove_dir_all(path: str) -> int;
+
+ffi zo_io_copy(src: str, dst: str) -> int;
+
+ffi zo_io_is_dir(path: str) -> int;
+
+ffi zo_io_isatty(fd: int) -> int;
+
+
+-! Remove the empty directory at `path`. `Fail(errno)` on error.
+pub fun remove_dir(path: str) -> Result<int, int> {
+  imu rc: int = zo_io_remove_dir(path);
+
+  when rc < 0 ? Result::Fail(-rc) : Result::Pass(rc)
+}
+
+-! Remove `path` and everything beneath it. `Fail(errno)` on error.
+pub fun remove_dir_all(path: str) -> Result<int, int> {
+  imu rc: int = zo_io_remove_dir_all(path);
+
+  when rc < 0 ? Result::Fail(-rc) : Result::Pass(rc)
+}
+
+-! Copy file `src` to `dst`, binary-safe. `Pass(bytes_copied)`.
+pub fun copy(src: str, dst: str) -> Result<int, int> {
+  imu rc: int = zo_io_copy(src, dst);
+
+  when rc < 0 ? Result::Fail(-rc) : Result::Pass(rc)
+}
+
+-! True when `path` names a directory.
+pub fun is_dir(path: str) -> bool {
+  zo_io_is_dir(path) == 1
+}
+
+-! True when `fd` (0 stdin, 1 stdout, 2 stderr) is a terminal.
+-! Gate colored output and interactive prompts on this.
+pub fun isatty(fd: int) -> bool {
+  zo_io_isatty(fd) == 1
+}

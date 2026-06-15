@@ -148,5 +148,69 @@
     Result::Fail(_) => showln("read-err"),
   }
 
-  -- directory
+  exists(path);                  -- true
+  remove_file(path);             -- true
+
+  imu names: []str = read_dir("/some/dir");
   ```
+
+### directories
+
+  ```zo
+  load core::io;
+
+  io::is_dir("/some/dir");           -- true
+
+  io::copy("a.txt", "b.txt");        -- Result::Pass(bytes copied)
+
+  io::remove_dir("/empty/dir");      -- Result::Pass(0)
+  io::remove_dir_all("/whole/tree"); -- recursive teardown
+  ```
+
+  Each returns `Result::Fail(errno)` on failure.
+
+### terminal
+
+  ```zo
+  load core::io;
+
+  -- fd 0 stdin, 1 stdout, 2 stderr.
+  when io::isatty(1) ? showln("interactive") : showln("piped");
+  ```
+
+## environment
+
+  ```zo
+  load core::env;
+
+  env::current_dir();             -- "/work/dir"
+  env::set_current_dir("/tmp");   -- true
+  env::temp_dir();                -- the OS temp directory
+
+  env::get("HOME");               -- "/Users/me" ("" on miss)
+  env::set("KEY", "value");       -- true
+  env::remove("KEY");             -- true
+
+  imu all: []str = env::vars();   -- ["KEY=VALUE", ...]
+  ```
+
+## command-line
+
+  ```zo
+  load core::cli;
+  load core::io;
+
+  imu app: Cli = Cli::new("greet", "say hello")
+    .flag("v", "verbose", "print more")
+    .option("n", "name", "who to greet");
+
+  imu parsed: Parsed = app.parse(io::args());
+
+  parsed.has("verbose");          -- true when -v / --verbose given
+  parsed.value("name");           -- Option::Some("zo")
+  parsed.positionals();           -- bare arguments, in order
+  ```
+
+- `--name=zo`, `--name zo`, and `-n zo` all parse the same
+- unknown dashed tokens fall through to positionals
+- `app.help()` renders usage text from the registered specs

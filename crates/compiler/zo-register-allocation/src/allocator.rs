@@ -1,5 +1,5 @@
 use crate::{
-  ALLOCATABLE_FP, ALLOCATABLE_GP, EmitTiming, FunctionInfo, RegAlloc,
+  ALLOCATABLE_FP, ALLOCATABLE_GP, EmitTiming, FnKey, FunctionInfo, RegAlloc,
   RegisterClass, SpillKind, SpillOp, flat_struct_slots_of,
 };
 
@@ -228,11 +228,11 @@ pub struct AllocCtx<'a> {
   /// Interner for resolving function and runtime symbol
   /// names referenced by `Call` / extern bookkeeping.
   pub interner: &'a Interner,
-  /// `Symbol → struct-return field count` map, built
-  /// once per program by `build_struct_return_map`. Used
-  /// by the `Call` arm to budget caller frame slots
+  /// `(name, owning_pack) → struct-return field count` map,
+  /// built once per program by `build_struct_return_map`.
+  /// Used by the `Call` arm to budget caller frame slots
   /// without re-scanning the whole SIR per call.
-  pub struct_return_fns: &'a HashMap<Symbol, u32>,
+  pub struct_return_fns: &'a HashMap<FnKey, u32>,
   /// Struct element type of a `Vec` access, keyed by the
   /// `Call`'s `ValueId` (`Sir::vec_elem_tys`). The `Vec`
   /// budget arm reads it to size the struct scratch.
@@ -680,7 +680,12 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
       // `write_file` / `append_file`: 5 slots for
       // Result. Other Call variants check for
       // struct-returning callees in the catch-all.
-      Insn::Call { name, dst, .. } => {
+      Insn::Call {
+        name,
+        dst,
+        callee_pack,
+        ..
+      } => {
         let fn_name = interner.get(*name);
 
         // A struct element needs more scratch than the scalar
@@ -757,7 +762,8 @@ pub fn allocate_function(ctx: &AllocCtx<'_>, result: &mut RegAlloc) {
             // previous per-call full-SIR scan was
             // O(calls × insns) and dominated codegen
             // time on programs with many small calls.
-            if let Some(fields) = struct_return_fns.get(name) {
+            if let Some(fields) = struct_return_fns.get(&(*name, *callee_pack))
+            {
               struct_slots += *fields;
             }
           }

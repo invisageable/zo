@@ -225,3 +225,114 @@ pub unsafe extern "C-unwind" fn zo_io_read_dir(path: *const u8) -> *const u8 {
 
   crate::arr::alloc_ptr_array(&str_ptrs)
 }
+
+/// Map an `io::Error` to the zo FFI failure convention: the
+/// negated OS errno, or `-1` when none is available.
+pub(crate) fn errno(e: std::io::Error) -> i64 {
+  -(e.raw_os_error().unwrap_or(1) as i64)
+}
+
+/// Decode a zo `str` header to an owned `String`. `None` on a
+/// null header or non-UTF-8 bytes. Shared by every path-taking
+/// FFI in `io` and `env` so the `*const u8` (zo str) contract
+/// is uniform.
+///
+/// # Safety
+///
+/// `p` must be null or a valid zo str header.
+pub(crate) unsafe fn path_arg(p: *const u8) -> Option<String> {
+  if p.is_null() {
+    return None;
+  }
+
+  let bytes = unsafe { crate::str::str_bytes(p) };
+
+  std::str::from_utf8(bytes).ok().map(str::to_owned)
+}
+
+/// Remove the empty directory at `path`. `0` on success,
+/// `-errno` on failure.
+///
+/// # Safety
+///
+/// `path` must be a valid zo str header.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_io_remove_dir(path: *const u8) -> i64 {
+  let Some(p) = (unsafe { path_arg(path) }) else {
+    return -22; // EINVAL
+  };
+
+  match std::fs::remove_dir(&p) {
+    Ok(()) => 0,
+    Err(e) => errno(e),
+  }
+}
+
+/// Remove `path` and everything beneath it, recursively. `0`
+/// on success, `-errno` on failure.
+///
+/// # Safety
+///
+/// `path` must be a valid zo str header.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_io_remove_dir_all(path: *const u8) -> i64 {
+  let Some(p) = (unsafe { path_arg(path) }) else {
+    return -22;
+  };
+
+  match std::fs::remove_dir_all(&p) {
+    Ok(()) => 0,
+    Err(e) => errno(e),
+  }
+}
+
+/// Copy the file `src` to `dst`, binary-safe. Returns the
+/// number of bytes copied, or `-errno` on failure.
+///
+/// # Safety
+///
+/// `src` and `dst` must be valid zo str headers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_io_copy(
+  src: *const u8,
+  dst: *const u8,
+) -> i64 {
+  let (Some(s), Some(d)) = (unsafe { path_arg(src) }, unsafe { path_arg(dst) })
+  else {
+    return -22;
+  };
+
+  match std::fs::copy(&s, &d) {
+    Ok(n) => n as i64,
+    Err(e) => errno(e),
+  }
+}
+
+/// `1` when `path` names a directory, else `0`.
+///
+/// # Safety
+///
+/// `path` must be a valid zo str header.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn zo_io_is_dir(path: *const u8) -> i64 {
+  match unsafe { path_arg(path) } {
+    Some(p) if std::path::Path::new(&p).is_dir() => 1,
+    _ => 0,
+  }
+}
+
+/// `1` when `fd` (0 stdin, 1 stdout, 2 stderr) is a terminal,
+/// else `0`. Used to gate colored output and prompts.
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn zo_io_isatty(fd: i64) -> i64 {
+  use std::io::IsTerminal;
+
+  let is_tty = match fd {
+    0 => std::io::stdin().is_terminal(),
+    1 => std::io::stdout().is_terminal(),
+    2 => std::io::stderr().is_terminal(),
+    _ => false,
+  };
+
+  i64::from(is_tty)
+}
