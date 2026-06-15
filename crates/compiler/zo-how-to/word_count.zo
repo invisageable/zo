@@ -1,0 +1,64 @@
+load core::cli;
+
+fun count_words(text: str) -> int {
+  mut count: int = 0;
+  imu lines: []str = text.lines();
+
+  for line := lines {
+    imu words: []str = line.trim().split(" ");
+
+    for word := words {
+      if word != "" {
+        count += 1;
+      }
+    }
+  }
+
+  count
+}
+
+fun main() {
+  imu cli: Cli = Cli::new("wc", "count lines, words, and bytes")
+    .flag("l", "lines", "count lines")
+    .flag("w", "words", "count words")
+    .flag("c", "bytes", "count bytes");
+
+  imu parsed: Parsed = cli.parse(args());
+  imu files: []str = parsed.positionals();
+
+  if files.len() == 0 {
+    showln(cli.help());
+  } else {
+    imu want_lines: bool = parsed.has("lines");
+    imu want_words: bool = parsed.has("words");
+    imu want_bytes: bool = parsed.has("bytes");
+    imu want_all: bool = !want_lines && !want_words && !want_bytes;
+
+    for path := files {
+      match read_file(path) {
+        Result::Pass(text) => {
+          imu line_count: int = text.lines().len();
+          imu word_count: int = count_words(text);
+          imu byte_count: int = text.len;
+
+          mut report: str = "";
+
+          if want_all || want_lines {
+            report = report ++ line_count.to_str() ++ "\t";
+          }
+
+          if want_all || want_words {
+            report = report ++ word_count.to_str() ++ "\t";
+          }
+
+          if want_all || want_bytes {
+            report = report ++ byte_count.to_str() ++ "\t";
+          }
+
+          showln(report ++ path);
+        },
+        Result::Fail(_) => eshowln("wc: {path}: cannot read"),
+      }
+    }
+  }
+}
