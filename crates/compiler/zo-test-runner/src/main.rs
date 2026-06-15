@@ -114,7 +114,7 @@ fn main() {
   ensure_runtime_flavors(&root, &zo);
 
   let tests_dir = root.join("crates/compiler/zo-tests");
-  let howto_dir = root.join("crates/compiler/zo-how-zo");
+  let howto_dir = root.join("crates/compiler/zo-how-to");
 
   println!("zo: {}", zo.display());
 
