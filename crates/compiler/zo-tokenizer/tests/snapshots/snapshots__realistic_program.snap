@@ -325,6 +325,7 @@ tokens:
     - 0
 literals:
   int_literals: []
+  int_bases: []
   float_literals: []
   identifiers:
     - 25

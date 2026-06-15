@@ -288,6 +288,10 @@ literals:
     - 0
     - 1
     - 1
+  int_bases:
+    - Decimal
+    - Decimal
+    - Decimal
   float_literals: []
   identifiers:
     - 25
