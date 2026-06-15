@@ -49,6 +49,7 @@ ONE LANGUAGE. ONE COMPiLER. ONE BiNARY. ONE WiNDOW. ALL PLATFORMS — SAME SOURC
 
 ---
 
+
 DEV MACHiNE:
 
 ```
@@ -66,6 +67,17 @@ Available Memory  — 9.4 GB
 
 > [!CAUTION]
 > *For transparency: regarding Ai usage, we're using Ai to build zo based on our architecture and [specification](https://zo.compilords.house/spec) (made by humans). The compiler currently covers over 1500 unit and integration tests.*
+
+## gallery.
+
+<p align="center">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-3d.gif">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-arkanoid.gif">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-asteroids.gif">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-conway.gif">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-mandelbrot.gif">
+  <img width="324px" src="crates/compiler/zo-notes/public/assets/preview/preview-zo-raylib-mouse.gif">
+</p>
 
 ## sponsors & supports.
 
