@@ -155,11 +155,12 @@ body {
   backdrop-filter: saturate(180%) blur(20px);
 }
 
-/* Visually hidden but readable by crawlers + screen readers.
-   Industry-standard pattern. Used for the semantic <h1> on
-   the home page so the design's wordmark "zo" stays
-   uncluttered while AI/Google/Bing get the descriptive
-   headline they need for ranking. */
+/*
+  Visually hidden but readable by crawlers + screen readers. Industry-standard
+  pattern. Used for the semantic <h1> on the home page so the design's wordmark
+  "zo" stays uncluttered while AI/Google/Bing get the descriptive headline they
+  need for ranking.
+*/
 .sr-only {
   position: absolute;
   width: 1px;
@@ -214,6 +215,13 @@ p {
 a {
   color: var(--color-green-100);
   text-decoration: none;
+}
+
+.initiation pre,
+.spec pre,
+.news pre,
+.faq pre {
+  background: transparent !important;
 }
 
 .keyword {

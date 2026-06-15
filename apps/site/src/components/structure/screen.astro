@@ -2,16 +2,18 @@
 
 ---
 
-<div id="base-content" class="fold-source">
-  <slot />
-</div>
-<div id="fold-effect" class="screen">
-  <div class="wrapper-3d">
-    <div class="fold fold-before"></div>
-    <div class="fold fold-center"></div>
-    <div class="fold fold-after"></div>
+<main role="main">
+  <div id="base-content" class="fold-source">
+    <slot />
   </div>
-</div>
+  <div id="fold-effect" class="screen">
+    <div class="wrapper-3d">
+      <div class="fold fold-before"></div>
+      <div class="fold fold-center"></div>
+      <div class="fold fold-after"></div>
+    </div>
+  </div>
+</main>
 
 <script>
   import { renderer } from "../../core/renderer";
