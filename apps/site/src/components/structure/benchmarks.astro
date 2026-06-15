@@ -15,17 +15,14 @@ const benchmarks = [
   {
     compiler: "zo",
     hot: 60,
-    throughput: "~167K LoC/s",
   },
   {
     compiler: "clang",
     hot: 148,
-    throughput: "~67K LoC/s",
   },
   {
     compiler: "rustc",
     hot: 321,
-    throughput: "~31K LoC/s",
   },
 ];
 
@@ -33,7 +30,6 @@ const series: Series[] = benchmarks.map((benchmark) => ({
   label: benchmark.compiler,
   value: benchmark.hot,
   display: `${benchmark.hot}ms`,
-  inBar: benchmark.throughput,
 }));
 ---
 

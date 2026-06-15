@@ -15,7 +15,7 @@ declare custom implementation tracks across varying types via explicit implement
 
   apply Display for Point {
     fun display(self) -> str {
-      return self.x ++ ", " ++ self.y;
+      return self.x.to_str() ++ ", " ++ self.y.to_str();
     }
   }
   ```

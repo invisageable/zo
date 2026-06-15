@@ -25,6 +25,7 @@ fn make_sir(instructions: Vec<Insn>) -> Sir {
     next_label_id: 0,
     node_cursor: 0,
     vec_elem_tys: std::collections::HashMap::new(),
+    int_bases: std::collections::HashMap::new(),
   }
 }
 
@@ -148,6 +149,7 @@ fn diagnostic_points_at_use_site_and_move_site() {
     next_label_id: 0,
     node_cursor: 0,
     vec_elem_tys: std::collections::HashMap::new(),
+    int_bases: std::collections::HashMap::new(),
   };
 
   let _ = collect_errors();

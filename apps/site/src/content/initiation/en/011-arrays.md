@@ -24,7 +24,7 @@ arrays with a `mut` binding permits array extensions.
   mut arr: []int = [];
   arr.push(10);
 
-  imu last: int = arr.pop(); - Safely extracts 10
+  imu last: int = arr.pop(); -- Safely extracts 10
 
   -- The `[value...count]` expression triggers explicit
   -- array expansion routines.

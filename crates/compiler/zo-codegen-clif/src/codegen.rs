@@ -90,7 +90,12 @@ impl<'a> CliftGen<'a> {
   pub fn generate_asm(&mut self, sir: &Sir) -> String {
     let mut module = Self::new_module(self.target);
 
-    translate::translate_module(&mut module, self.interner, &sir.instructions)
+    translate::translate_module(
+      &mut module,
+      self.interner,
+      &sir.instructions,
+      &sir.int_bases,
+    )
   }
 }
 
@@ -107,6 +112,7 @@ impl<'a> Backend for CliftGen<'a> {
       &mut module,
       self.interner,
       &sir.instructions,
+      &sir.int_bases,
     );
 
     let product = module.finish();

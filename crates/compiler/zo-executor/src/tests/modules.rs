@@ -1,5 +1,8 @@
-use crate::tests::common::{assert_sir_stream, assert_sir_structure};
+use crate::tests::common::{
+  assert_execution_error, assert_sir_stream, assert_sir_structure,
+};
 
+use zo_error::ErrorKind;
 use zo_interner::Symbol;
 use zo_sir::{ImportKind, Insn};
 use zo_span::Span;
@@ -241,20 +244,31 @@ fn test_nested_pack_function_is_mangled() {
 }
 
 #[test]
-fn test_pack_dotted_call_resolves_to_mangled_name() {
-  // `p.hello()` at the call-site must resolve to the
-  // mangled callee `p::hello` — not the bare `hello`,
-  // which is not a declared function.
-  assert_sir_structure(
+fn test_pack_dotted_call_is_rejected() {
+  // `p.hello()` reaches a pack item through `.`. A pack is
+  // a namespace, not a value, so the grammar resolves it
+  // only with `::` — the dot form is a hard error.
+  assert_execution_error(
     r#"pack p { fun hello() {} }
 fun main() { p.hello(); }"#,
+    ErrorKind::PackDotAccess,
+  );
+}
+
+#[test]
+fn test_pack_path_call_resolves_to_mangled_name() {
+  // `p::hello()` at the call-site resolves to the mangled
+  // callee `p::hello` — the grammar-faithful pack path.
+  assert_sir_structure(
+    r#"pack p { fun hello() {} }
+fun main() { p::hello(); }"#,
     |insns| {
       let has_mangled_call =
         insns.iter().any(|i| matches!(i, Insn::Call { .. }));
 
       assert!(
         has_mangled_call,
-        "expected a Call insn for p.hello(), got: {insns:#?}"
+        "expected a Call insn for p::hello(), got: {insns:#?}"
       );
     },
   );

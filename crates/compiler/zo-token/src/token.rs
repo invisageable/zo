@@ -119,7 +119,6 @@ pub enum Token {
   Colon,
   Arrow,      // ->
   FatArrow,   // =>
-  PipeArrow,  // |>
   Underscore, // _
   Hash,       // #
   Dollar,     // $
@@ -521,11 +520,55 @@ pub enum InterpSegment {
   Variable(Symbol),
 }
 
+/// Display base for an integer literal — how `showln` prints
+/// it. The stored value is always decimal; the `b#`/`o#`/`x#`
+/// modifiers only change the formatting base.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum Base {
+  /// Binary (`b#`) — base 2.
+  Binary,
+  /// Octal (`o#`) — base 8.
+  Octal,
+  /// Decimal — the default, base 10.
+  Decimal,
+  /// Hexadecimal (`x#`) — base 16.
+  Hexadecimal,
+}
+
+impl Base {
+  /// The numeric radix (2, 8, 10, 16).
+  #[inline(always)]
+  pub fn radix(self) -> u32 {
+    match self {
+      Self::Binary => 2,
+      Self::Octal => 8,
+      Self::Decimal => 10,
+      Self::Hexadecimal => 16,
+    }
+  }
+
+  /// Map a modifier prefix byte (`b`/`o`/`x`) to its base.
+  #[inline(always)]
+  pub fn from_prefix(byte: u8) -> Option<Self> {
+    match byte {
+      b'b' => Some(Self::Binary),
+      b'o' => Some(Self::Octal),
+      b'x' => Some(Self::Hexadecimal),
+      _ => None,
+    }
+  }
+}
+
 /// Storage for literal values extracted during tokenization
 /// The tokenizer stores parsed literal values
 #[derive(Serialize)]
 pub struct LiteralStore {
   pub int_literals: Vec<u64>,
+  /// Display base per int literal, index-aligned with
+  /// `int_literals`: `Base::Decimal` by default, or the
+  /// `b#`/`o#`/`x#` base. The value stays decimal; only how
+  /// `showln` prints it changes.
+  pub int_bases: Vec<Base>,
   pub float_literals: Vec<f64>,
   pub identifiers: Vec<Symbol>,
   pub bytes_literals: Vec<u8>,
@@ -561,6 +604,7 @@ impl LiteralStore {
       identifiers: Vec::new(),
       string_literals: Vec::new(),
       int_literals: Vec::new(),
+      int_bases: Vec::new(),
       float_literals: Vec::new(),
       char_literals: Vec::new(),
       bytes_literals: Vec::new(),
@@ -573,6 +617,7 @@ impl LiteralStore {
   pub fn with_capacity(cap: usize) -> Self {
     Self {
       int_literals: Vec::with_capacity(cap / 5),
+      int_bases: Vec::with_capacity(cap / 5),
       float_literals: Vec::with_capacity(cap / 20),
       identifiers: Vec::with_capacity(cap),
       bytes_literals: Vec::with_capacity(cap / 100),
@@ -607,6 +652,7 @@ impl LiteralStore {
   /// `splice_one`), so tail-truncate is enough.
   pub fn truncate_to(&mut self, baseline: LiteralStoreBaseline) {
     self.int_literals.truncate(baseline.ints);
+    self.int_bases.truncate(baseline.ints);
     self.float_literals.truncate(baseline.floats);
     self.identifiers.truncate(baseline.idents);
     self.bytes_literals.truncate(baseline.bytes);
@@ -645,9 +691,19 @@ impl LiteralStore {
 
   #[inline(always)]
   pub fn push_int(&mut self, val: u64) -> u32 {
+    self.push_int_base(val, Base::Decimal)
+  }
+
+  /// Push an int literal with an explicit display base
+  /// (`Base::Decimal` default, or the `b#`/`o#`/`x#` base).
+  /// Stored index-aligned with the value so `showln` can
+  /// format the literal in that base.
+  #[inline(always)]
+  pub fn push_int_base(&mut self, val: u64, base: Base) -> u32 {
     let idx = self.int_literals.len() as u32;
 
     self.int_literals.push(val);
+    self.int_bases.push(base);
 
     idx
   }

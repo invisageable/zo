@@ -19,7 +19,7 @@ use zo_sir::{
 };
 use zo_span::Span;
 use zo_template_optimizer::TemplateOptimizer;
-use zo_token::{InterpSegment, LiteralStore, Token};
+use zo_token::{Base, InterpSegment, LiteralStore, Token};
 use zo_tree::{NodeHeader, NodeValue, Tree};
 use zo_ty::{Annotation, FloatWidth, Mutability, SelfKind, Ty, TyId};
 use zo_ty_checker::TyChecker;
@@ -4441,6 +4441,14 @@ impl<'a> Executor<'a> {
           self.sir.next_value_id += 1;
 
           let sir_value = self.sir.emit(Insn::ConstInt { dst, value, ty_id });
+
+          // Carry a `b#`/`o#`/`x#` display base to the showln
+          // site so codegen formats the value in that base.
+          let base = self.literals.int_bases[lit_idx as usize];
+          if base != Base::Decimal {
+            self.sir.int_bases.insert(dst.0, base);
+          }
+
           let value_id = self.values.store_int(value);
 
           self.value_stack.push(value_id);
@@ -15096,6 +15104,27 @@ impl<'a> Executor<'a> {
     let entry = self.find_enum(enum_name);
 
     if entry.is_none() {
+      // Pack call reached by a `::` path: the leaf fun
+      // registers under its FULL `inner::inner2::hello`
+      // mangling in `fun_by_name`, never `pack_fun_by_name`.
+      // The adjacent-pair mangle below only ever sees the
+      // immediate pair (`inner2::hello`) with no pack-context
+      // prefixing, so it misses both a deeper chain
+      // (`inner::inner2::hello`) and a relative one
+      // (`inner2::hello` called from inside `pack inner`,
+      // which prefixes to `inner::inner2::hello`). In either
+      // case the leaf ident would escape this skip and the
+      // Ident handler would flag it `E0301`. `resolve_chain_to_fun`
+      // does the full-chain + prefix lookup (it requires two
+      // segments); on success, skip the `::` + leaf exactly
+      // like the adjacent-pair case.
+      if let Some(parts) = self.walk_colon_chain(idx + 1)
+        && self.resolve_chain_to_fun(&parts).is_some()
+      {
+        self.skip_until = idx + 2;
+        return;
+      }
+
       // Not an enum — try method call (apply).
       // Build mangled name: Type::method.
       let type_str = self.interner.get(enum_name).to_owned();
@@ -21145,6 +21174,21 @@ impl<'a> Executor<'a> {
       return None;
     }
 
+    self.resolve_chain_to_fun(&parts)
+  }
+
+  /// Resolve a pack path's segments (root..=leaf, e.g.
+  /// `[inner, inner2, hello]`) to the fully-qualified mangled
+  /// callee symbol, trying the path as written and then under
+  /// each enclosing pack-context prefix. Shared by the `.` and
+  /// `::` call resolvers so both reach locally-declared nested
+  /// packs, whose funs register in `fun_by_name` under the full
+  /// `a::b::c` mangling rather than in `pack_fun_by_name`.
+  fn resolve_chain_to_fun(&self, parts: &[Symbol]) -> Option<Symbol> {
+    if parts.len() < 2 {
+      return None;
+    }
+
     let raw_parts: Vec<String> = parts
       .iter()
       .map(|s| self.interner.get(*s).to_owned())
@@ -21518,6 +21562,14 @@ impl<'a> Executor<'a> {
       // call directly — none of the receiver-as-`self`
       // paths apply, there is no implicit argument.
       if let Some(mangled) = self.resolve_pack_dotted_call(lparen_idx) {
+        // `pack.fn()` reaches a pack item through `.`. The
+        // grammar resolves a pack path only with `::` — a
+        // pack is a namespace, not a value — so report at the
+        // offending dot. Still execute the resolved call to
+        // keep the value stack balanced while we collect
+        // further diagnostics; the reported error fails the
+        // compile before codegen.
+        self.report(ErrorKind::PackDotAccess, self.tree.spans[lparen_idx - 1]);
         self.execute_call(mangled, lparen_idx, rparen_idx);
 
         return;
@@ -21608,53 +21660,74 @@ impl<'a> Executor<'a> {
                   self.tree.nodes[fun_idx - 2].token,
                   Token::Ident | Token::SelfUpper,
                 ) {
-                // `Self::method(..)` inside an `apply Type {}` block
-                // resolves to the same `Type::method` symbol as the
-                // explicit form. The first segment is `Self` when
-                // the prior token is `SelfUpper`; substitute the
-                // apply'd type's symbol before mangling.
-                let type_sym = match self.tree.nodes[fun_idx - 2].token {
-                  Token::SelfUpper => self.apply_context,
-                  _ => match self.node_value(fun_idx - 2) {
-                    Some(NodeValue::Symbol(s)) => Some(s),
-                    _ => None,
-                  },
-                };
+                // Full-chain resolution FIRST, to reach a fun in a
+                // locally-declared nested pack
+                // (`inner::inner2::hello()`). Unlike the dot
+                // resolver, the adjacent-pair logic below only ever
+                // sees the immediate parent (`inner2`), so it mangles
+                // `inner2::hello` and misses the real symbol the fun
+                // registered under — the full `inner::inner2::hello`
+                // in `fun_by_name`. `walk_colon_chain` rebuilds the
+                // whole root-to-leaf chain; `resolve_chain_to_fun`
+                // then matches it (as written, then under each
+                // enclosing pack-context prefix). It returns `None`
+                // for `Self::method` (the chain root is `SelfUpper`,
+                // not an `Ident`) and for loaded packs whose full
+                // `a::b` isn't in `fun_by_name`, so both correctly
+                // fall through to the adjacent-pair logic.
+                if let Some(parts) = self.walk_colon_chain(fun_idx)
+                  && let Some(mangled) = self.resolve_chain_to_fun(&parts)
+                {
+                  mangled
+                } else {
+                  // `Self::method(..)` inside an `apply Type {}`
+                  // block resolves to the same `Type::method` symbol
+                  // as the explicit form. The first segment is `Self`
+                  // when the prior token is `SelfUpper`; substitute
+                  // the apply'd type's symbol before mangling.
+                  let type_sym = match self.tree.nodes[fun_idx - 2].token {
+                    Token::SelfUpper => self.apply_context,
+                    _ => match self.node_value(fun_idx - 2) {
+                      Some(NodeValue::Symbol(s)) => Some(s),
+                      _ => None,
+                    },
+                  };
 
-                if let Some(type_sym) = type_sym {
-                  // Cross-module qualified call first:
-                  // `alpha::process()` lands in
-                  // `pack_fun_by_name` keyed by
-                  // `(alpha, process)` so two modules
-                  // can declare the same bare name
-                  // without the last-write-wins
-                  // collapse the bare `fun_by_name`
-                  // would otherwise force. The hint
-                  // rides one call deep into
-                  // `execute_call` to stamp
-                  // `Insn::Call.callee_pack` for
-                  // codegen label disambiguation.
-                  if self.has_fun_in_pack(type_sym, fun_name) {
-                    self.pending_callee_pack = Some(type_sym);
-                    fun_name
-                  } else {
-                    let ts = self.interner.get(type_sym).to_owned();
-                    let ms = self.interner.get(fun_name).to_owned();
-                    let mangled = format!("{ts}::{ms}");
-                    let mangled_sym = self.interner.intern(&mangled);
-
-                    if self.has_fun(mangled_sym) {
-                      mangled_sym
-                    } else if self.pack_names.contains(&type_sym)
-                      && self.has_fun(fun_name)
-                    {
+                  if let Some(type_sym) = type_sym {
+                    // Cross-module qualified call first:
+                    // `alpha::process()` lands in
+                    // `pack_fun_by_name` keyed by
+                    // `(alpha, process)` so two modules
+                    // can declare the same bare name
+                    // without the last-write-wins
+                    // collapse the bare `fun_by_name`
+                    // would otherwise force. The hint
+                    // rides one call deep into
+                    // `execute_call` to stamp
+                    // `Insn::Call.callee_pack` for
+                    // codegen label disambiguation.
+                    if self.has_fun_in_pack(type_sym, fun_name) {
+                      self.pending_callee_pack = Some(type_sym);
                       fun_name
                     } else {
-                      mangled_sym
+                      let ts = self.interner.get(type_sym).to_owned();
+                      let ms = self.interner.get(fun_name).to_owned();
+                      let mangled = format!("{ts}::{ms}");
+                      let mangled_sym = self.interner.intern(&mangled);
+
+                      if self.has_fun(mangled_sym) {
+                        mangled_sym
+                      } else if self.pack_names.contains(&type_sym)
+                        && self.has_fun(fun_name)
+                      {
+                        fun_name
+                      } else {
+                        mangled_sym
+                      }
                     }
+                  } else {
+                    fun_name
                   }
-                } else {
-                  fun_name
                 }
               } else if fun_idx >= 2
                 && self.tree.nodes[fun_idx - 1].token == Token::Dot

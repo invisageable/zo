@@ -4,7 +4,7 @@ Custom structures package operations into meaningful domain boundaries. The `str
 
 ## struct
 
-Every field inside a `struct` definition must declare an explicit fallback assignment metric. The compiler enforces default initialization rules to maintain optimizations throughout compilation phases.
+A field can declare a default value with `=`. Fields without one are set when you construct the value.
 
   ```zo
   struct Point {

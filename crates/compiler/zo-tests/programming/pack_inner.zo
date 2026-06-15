@@ -6,13 +6,13 @@ pack inner {
   }
 
   fun hello() {
-    inner2.hello();
+    inner2::hello();
   }
 }
 
 fun main() {
-  inner.hello();
-  inner.inner2.hello();
+  inner::hello();
+  inner::inner2::hello();
 
   showln("DONE");
 }

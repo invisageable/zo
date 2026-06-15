@@ -57,7 +57,7 @@ iT WiLL PRiNTS:
 `run` YOUR PROGRAM iN A NATiVE WiNDOW<sup>`winit`</sup> OR A LiGHTWEiGHT WEBViEW<sup>`wry`</sup> DEPENDiNG OF THE TARGET. `crates/compiler/zo-tests/templating` AND RUN:
 
   ```sh
-  zo -- run zsx-hello.zo
+  zo -- run zsx_hello.zo
   ```
 
 THAT'S iT, YOU SHOULD SEE A NATiVE APP ON YOUR SCREEN.

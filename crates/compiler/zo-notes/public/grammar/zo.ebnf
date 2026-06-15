@@ -184,14 +184,15 @@ expr = ternary_expr ;
 
 ternary_expr = or_expr, [ "when", or_expr, "?", expr, ":", expr ] ;
 or_expr = and_expr, { "||", and_expr } ;
-and_expr = eq_expr, { "&&", eq_expr } ;
+and_expr = range_expr, { "&&", range_expr } ;
+range_expr = eq_expr, [ ( ".." | "..=" ), eq_expr ] ;
 eq_expr = cmp_expr, { ( "==" | "!=" ), cmp_expr } ;
 cmp_expr = bit_or_expr, { ( "<" | ">" | "<=" | ">=" ), bit_or_expr } ;
 bit_or_expr = bit_xor_expr, { "|", bit_xor_expr } ;
 bit_xor_expr = bit_and_expr, { "^", bit_and_expr } ;
 bit_and_expr = shift_expr, { "&", shift_expr } ;
 shift_expr = add_expr, { ( "<<" | ">>" ), add_expr } ;
-add_expr = mul_expr, { ( "+" | "-" ), mul_expr } ;
+add_expr = mul_expr, { ( "+" | "++" | "-" ), mul_expr } ;
 mul_expr = cast_expr, { ( "*" | "/" | "%" ), cast_expr } ;
 cast_expr = unary_expr, [ "as", type ] ;
 
@@ -313,11 +314,13 @@ type = primitive_type
      | "Self"
      ;
 
-primitive_type = "int" | "s8" | "s16" | "s32" | "s64"
-               | "uint" | "u8" | "u16" | "u32" | "u64"
-               | "float" | "f32" | "f64"
-               | "bool" | "bytes" | "char" | "str"
-               ;
+primitive_type = boolean_type | numeric_type | text_type ;
+boolean_type = "bool" ;
+numeric_type = integer_type | float_type ;
+integer_type = "int" | "uint" | "s8" | "s16" | "s32" | "s64"
+             | "u8" | "u16" | "u32" | "u64" ;
+float_type = "float" | "f32" | "f64" ;
+text_type = "str" | "char" | "bytes" ;
 
 (* Compiler-intrinsic parametric types for structured
    concurrency. Instantiated by `spawn` / `channel()`,
@@ -375,18 +378,32 @@ exponent = ( "e" | "E" ), [ "+" | "-" ], decimal_literal ;
 bool_literal = "true" | "false" ;
 
 char_literal = "'", ( char_escape | ? any unicode character except '\' and newline ? ), "'" ;
-bytes_literal = "`", char_escape , "`" ;
+bytes_literal = "`", { bytes_char }, "`" ;
+bytes_char = char_escape | ? any unicode character except '`', '\' and newline ? ;
 
-string_literal = '"', { string_char }, '"' ;
-string_char = char_escape | ? any unicode character except '"', '\' and newline ? ;
+string_literal = '"', { string_char | "{", expr, "}" }, '"' ;
+string_char = char_escape | ? any unicode character except '"', '\', '{', '}' and newline ? ;
 
-raw_string_literal = "$", '"', ? any character sequence ?, '"' ;
+raw_string_literal = "$", '"', { ? any character except '"' ? }, '"' ;
 
-char_escape = "\", ( "n" | "r" | "t" | "\" | "'" | '"' | "0" | "x", hex_digit, hex_digit ) ;
+char_escape = "\", ( "n" | "r" | "t" | "\" | "'" | '"' | "0"
+            | "a" | "b" | "e" | "f" | "v" | "{" | "}"
+            | "x", hex_digit, hex_digit
+            | "u", "{", hex_digit, { hex_digit }, "}" ) ;
 
 (* ===== Identifiers ===== *)
 
-identifier = letter, { letter | digit | "_" } ;
+identifier = ( letter | "_" ), { letter | digit | "_" } ;
+
+(* ===== Keywords ===== *)
+
+keyword = "abstract" | "and" | "any" | "apply" | "as" | "await"
+        | "break" | "continue" | "else" | "enum" | "false" | "ffi"
+        | "fn" | "Fn" | "for" | "fun" | "group" | "if" | "imu" | "is"
+        | "load" | "loop" | "match" | "mut" | "nursery" | "own" | "pack"
+        | "pub" | "raw" | "return" | "select" | "self" | "Self" | "spawn"
+        | "state" | "struct" | "supervise" | "test" | "true" | "type"
+        | "val" | "wasm" | "when" | "while" | primitive_type ;
 
 (* ===== Character Classes ===== *)
 
@@ -398,8 +415,9 @@ hex_digit = ? '0'..'9' | 'a'..'f' | 'A'..'F' ? ;
 
 (* ===== Comments ===== *)
 
-comment = line_comment | block_comment ;
+comment = line_comment | doc_comment | block_comment ;
 line_comment = "--", { ? any character except newline ? }, ? newline ? ;
+doc_comment = "-!", { ? any character except newline ? }, ? newline ? ;
 block_comment = "-*", { ? any character sequence not containing "*-" ? }, "*-" ;
 
 (* ===== Whitespace ===== *)
