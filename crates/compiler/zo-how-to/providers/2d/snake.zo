@@ -2,10 +2,10 @@ load core::c::*;
 load core::random;
 load provider::raylib;
 
-val CELL: int = 24;
-val COLS: int = 25;
-val ROWS: int = 25;
-val WIDTH: int = 600;
+val CELL: int = 20;
+val COLS: int = 40;
+val ROWS: int = 30;
+val WIDTH: int = 800;
 val HEIGHT: int = 600;
 val FPS: int = 60;
 val STEP: float = 0.11;
@@ -31,9 +31,9 @@ struct Cell {
 fun spawn_snake() -> Vec<Cell> {
   mut body: Vec<Cell> = Vec::new();
 
-  body.push(Cell { x = 10, y = 12 });
-  body.push(Cell { x = 11, y = 12 });
-  body.push(Cell { x = 12, y = 12 });
+  body.push(Cell { x = 18, y = 15 });
+  body.push(Cell { x = 19, y = 15 });
+  body.push(Cell { x = 20, y = 15 });
 
   body
 }
@@ -178,8 +178,8 @@ fun main() {
       raylib::draw_text(label, 8, 8, 20, COLOR_TEXT);
 
       if game_over {
-        raylib::draw_text(CStr::new("GAME OVER"), 190, 270, 40, COLOR_FOOD);
-        raylib::draw_text(CStr::new("PRESS ENTER"), 214, 322, 20, COLOR_TEXT);
+        raylib::draw_text(CStr::new("GAME OVER"), 290, 270, 40, COLOR_FOOD);
+        raylib::draw_text(CStr::new("PRESS ENTER"), 314, 322, 20, COLOR_TEXT);
       }
     raylib::end_drawing();
   }

@@ -1,0 +1,9 @@
+fun main() {
+  mut count: int = 0;
+  imu counter: </> ::= <>
+    <input type="number" value={count}>
+    <button onclick={fn() => count += 1}>count</button>
+  </>;
+
+  #render counter;
+}

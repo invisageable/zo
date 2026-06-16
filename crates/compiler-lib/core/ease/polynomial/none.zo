@@ -16,7 +16,7 @@ load core::easing::curve::Curve;
 pub struct None {}
 
 apply Curve for None {
-  fun y(&self, _progress: f32) -> f32 {
+  fun y(self, _progress: f32) -> f32 {
     1.0
   }
 }
