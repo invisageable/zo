@@ -57,13 +57,19 @@ function indentBlock(source) {
 // comments; strip the prefix. The block is removed from the code so the
 // rendered source never shows the trailer.
 function splitOutput(raw) {
-  const idx = raw.indexOf("-- EXPECTED OUTPUT:");
+  const expectedIdx = raw.indexOf("-- EXPECTED OUTPUT:");
+  const stdinIdx = raw.indexOf("-- @stdin:");
 
-  if (idx === -1) return { code: raw, output: null };
+  // The shown code stops at the first trailing test directive
+  // (`-- @stdin:` or `-- EXPECTED OUTPUT:`) — both are runner-only and
+  // shouldn't appear in the code pane.
+  const markers = [expectedIdx, stdinIdx].filter((idx) => idx !== -1);
+  const code = markers.length ? raw.slice(0, Math.min(...markers)) : raw;
 
-  const code = raw.slice(0, idx);
+  if (expectedIdx === -1) return { code, output: null };
+
   const output = raw
-    .slice(idx)
+    .slice(expectedIdx)
     .split("\n")
     .slice(1)
     .map((line) => line.replace(/^\s*--\s?/, ""))
