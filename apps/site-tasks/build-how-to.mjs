@@ -186,12 +186,13 @@ async function collectExamples() {
   return examples;
 }
 
-const examples = await collectExamples();
-
 // Rebuild both trees from scratch so deleted/renamed examples and their
-// images never linger.
+// images never linger. Clear BEFORE collecting — collectExamples copies
+// sibling images into PUBLIC, so wiping it afterwards would delete them.
 await rm(OUT, { recursive: true, force: true });
 await rm(PUBLIC, { recursive: true, force: true });
+
+const examples = await collectExamples();
 
 for (const example of examples) {
   const dir = example.group

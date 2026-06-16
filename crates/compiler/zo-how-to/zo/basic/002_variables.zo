@@ -1,3 +1,14 @@
--- Immutable bindings (imu) vs. mutable bindings (mut).
+fun main() {
+  imu language: str = "zo";
+  mut version: int = 0;
 
-fun main() {}
+  version = 1;
+  version += 1;
+
+  showln(language);
+  showln(version);
+}
+
+-- EXPECTED OUTPUT:
+-- zo
+-- 2
