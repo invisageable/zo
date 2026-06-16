@@ -1,0 +1,189 @@
+load core::c::*;
+load core::random;
+load provider::raylib;
+
+val CELL: int = 20;
+val COLS: int = 40;
+val ROWS: int = 30;
+val WIDTH: int = 800;
+val HEIGHT: int = 600;
+val FPS: int = 60;
+val STEP: float = 0.11;
+val SEED: int = 0x5EED;
+
+val KEY_RIGHT: int = 262;
+val KEY_LEFT: int = 263;
+val KEY_DOWN: int = 264;
+val KEY_UP: int = 265;
+val KEY_ENTER: int = 257;
+
+val COLOR_BG: int = 0xFF1A1A1A;
+val COLOR_SNAKE: int = 0xFF3EFDCC;
+val COLOR_HEAD: int = 0xFF7CFFE4;
+val COLOR_FOOD: int = 0xFF4D4DFF;
+val COLOR_TEXT: int = 0xFFFFFFFF;
+
+struct Cell {
+  x: int,
+  y: int,
+}
+
+fun spawn_snake() -> Vec<Cell> {
+  mut body: Vec<Cell> = Vec::new();
+
+  body.push(Cell { x = 18, y = 15 });
+  body.push(Cell { x = 19, y = 15 });
+  body.push(Cell { x = 20, y = 15 });
+
+  body
+}
+
+fun hits_body(body: Vec<Cell>, x: int, y: int) -> bool {
+  for i := 0..body.len() {
+    match body.get(i) {
+      Option::Some(cell) => {
+        if cell.x == x && cell.y == y {
+          return true;
+        }
+      }
+      Option::None => {}
+    }
+  }
+
+  false
+}
+
+fun head_of(body: Vec<Cell>) -> Cell {
+  match body.get(body.len() - 1) {
+    Option::Some(cell) => cell,
+    Option::None => Cell { x = 0, y = 0 },
+  }
+}
+
+fun main() {
+  raylib::init_window(WIDTH, HEIGHT, CStr::new("zo snake"));
+  raylib::set_target_fps(FPS);
+
+  mut rng: Rng = Rng::new(SEED);
+  mut body: Vec<Cell> = spawn_snake();
+  mut dir_x: int = 1;
+  mut dir_y: int = 0;
+  mut food: Cell = Cell { x = 0, y = 0 };
+  mut need_food: bool = true;
+  mut timer: float = 0.0;
+  mut score: int = 0;
+  mut game_over: bool = false;
+
+  loop {
+    if raylib::window_should_close() { break }
+
+    imu dt: float = raylib::get_frame_time();
+
+    while need_food {
+      imu fx: int = rng.range(0, COLS);
+      imu fy: int = rng.range(0, ROWS);
+
+      if !hits_body(body, fx, fy) {
+        food = Cell { x = fx, y = fy };
+        need_food = false;
+      }
+    }
+
+    if !game_over {
+      if raylib::is_key_pressed(KEY_UP) && dir_y == 0 {
+        dir_x = 0;
+        dir_y = -1;
+      }
+
+      if raylib::is_key_pressed(KEY_DOWN) && dir_y == 0 {
+        dir_x = 0;
+        dir_y = 1;
+      }
+
+      if raylib::is_key_pressed(KEY_LEFT) && dir_x == 0 {
+        dir_x = -1;
+        dir_y = 0;
+      }
+
+      if raylib::is_key_pressed(KEY_RIGHT) && dir_x == 0 {
+        dir_x = 1;
+        dir_y = 0;
+      }
+
+      timer += dt;
+
+      if timer >= STEP {
+        timer -= STEP;
+
+        imu head: Cell = head_of(body);
+        imu nx: int = head.x + dir_x;
+        imu ny: int = head.y + dir_y;
+        imu off_board: bool = nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS;
+
+        if off_board || hits_body(body, nx, ny) {
+          game_over = true;
+        } else {
+          body.push(Cell { x = nx, y = ny });
+
+          if nx == food.x && ny == food.y {
+            score += 1;
+            need_food = true;
+          } else {
+            body.remove(0);
+          }
+        }
+      }
+    } else if raylib::is_key_pressed(KEY_ENTER) {
+      body.free();
+      body = spawn_snake();
+      dir_x = 1;
+      dir_y = 0;
+      score = 0;
+      need_food = true;
+      game_over = false;
+    }
+
+    raylib::begin_drawing();
+      raylib::clear_background(COLOR_BG);
+
+      raylib::draw_rectangle(
+        food.x * CELL,
+        food.y * CELL,
+        CELL,
+        CELL,
+        COLOR_FOOD,
+      );
+
+      for i := 0..body.len() {
+        match body.get(i) {
+          Option::Some(cell) => {
+            imu color: int = when i == body.len() - 1
+              ? COLOR_HEAD
+              : COLOR_SNAKE;
+
+            raylib::draw_rectangle(
+              cell.x * CELL + 1,
+              cell.y * CELL + 1,
+              CELL - 2,
+              CELL - 2,
+              color,
+            );
+          }
+          Option::None => {}
+        }
+      }
+
+      imu label: CStr = CStr::new("score " ++ score.to_str());
+
+      raylib::draw_text(label, 8, 8, 20, COLOR_TEXT);
+
+      if game_over {
+        raylib::draw_text(CStr::new("GAME OVER"), 290, 270, 40, COLOR_FOOD);
+        raylib::draw_text(CStr::new("PRESS ENTER"), 314, 322, 20, COLOR_TEXT);
+      }
+    raylib::end_drawing();
+  }
+
+  body.free();
+  raylib::close_window();
+}

@@ -109,7 +109,7 @@ pub enum Easing {
 }
 
 apply Curve for Easing {
-  fun y(&self, p: f32) -> f32 {
+  fun y(self, p: f32) -> f32 {
     match self {
       Self::None => polynomial::none::None.y(p),
       -- Self::Linear => polynomial::linear::Linear.y(p),

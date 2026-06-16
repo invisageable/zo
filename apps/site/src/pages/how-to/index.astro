@@ -1,0 +1,132 @@
+---
+import { getHowToTree, getHowToNavItems } from "../../core/how-to";
+import type { HowToCategory } from "../../core/how-to";
+import Base from "../../layouts/base.astro";
+import NavBar, { type Item } from "../../components/navigation/navbar.astro";
+import Header from "../../components/structure/header.astro";
+import Screen from "../../components/structure/screen.astro";
+
+const title = "zo — How-to.";
+const description = "Browse, sample, and modify real zo programs.";
+
+const tree = await getHowToTree();
+const items: Item[] = await getHowToNavItems();
+
+// A category is "flat" when it has no named groups (files sit directly
+// in it). Flat categories pack into one shared column row; grouped ones
+// lay their groups out as columns under the category name.
+const isFlat = (category: HowToCategory) =>
+  category.groups.every((group) => group.name === null);
+
+const grouped = tree.filter((category) => !isFlat(category));
+const flat = tree.filter(isFlat);
+---
+
+<Base title={title} description={description}>
+  <NavBar items={items} />
+  <Header class="header--fixed header--active blur" id="top-bar" />
+  <Screen>
+    <section class="how-to">
+      <h1 class="how-to__title f-cirka">how-to</h1>
+
+      {grouped.map((category) => <div class="how-to__category" id={category.name}>
+        <h2 class="how-to__domain f-cirka">{category.name}</h2>
+        <div class="how-to__columns">
+          {category.groups.map((group) => <div
+            class="how-to__column"
+            id={group.name ? `${category.name}-${group.name}` : undefined}>
+            {group.name && <h3 class="how-to__column-title f-cirka">{group.name}</h3>}
+            <ul class="how-to__list">
+              {group.examples.map((example) => <li class="how-to__item">
+                <a class="how-to__link f-cirka" href={`/how-to/${example.slug}`}>
+                  {example.title}
+                </a>
+              </li>)}
+            </ul>
+          </div>)}
+        </div>
+      </div>)}
+
+      {flat.length > 0 && <div class="how-to__category how-to__category--flat">
+        <div class="how-to__columns">
+          {flat.map((category) => <div class="how-to__column" id={category.name}>
+            <h2 class="how-to__domain f-cirka">{category.name}</h2>
+            <ul class="how-to__list">
+              {category.groups
+                .flatMap((group) => group.examples)
+                .map((example) => <li class="how-to__item">
+                  <a class="how-to__link f-cirka" href={`/how-to/${example.slug}`}>
+                    {example.title}
+                  </a>
+                </li>)}
+            </ul>
+          </div>)}
+        </div>
+      </div>}
+    </section>
+  </Screen>
+</Base>
+
+<style is:global>
+  .how-to {
+    width: 100%;
+    max-width: var(--container-max-width, 1100px);
+    margin: 0 auto;
+    padding: 24px 0;
+  }
+
+  .how-to__title {
+    font-size: 2rem;
+    margin: 0 0 28px;
+  }
+
+  .how-to__category { margin-bottom: 36px; }
+
+  .how-to__domain {
+    font-weight: 700;
+    font-size: 1.25rem;
+    margin: 0 0 14px;
+  }
+
+  .how-to__columns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px 56px;
+  }
+
+  .how-to__column { min-width: 150px; }
+
+  .how-to__column-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin: 0 0 8px;
+    opacity: 0.75;
+  }
+
+  .how-to__category--flat
+  .how-to__domain {
+    margin: 0 0 10px;
+  }
+
+  .how-to__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .how-to__item { padding: 3px 0; }
+
+  .how-to__link {
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s ease;
+  }
+
+  .how-to__link:hover {
+    border-bottom-color: var(--green-100, currentColor);
+  }
+
+  @media (max-width: 768px) {
+    .how-to__columns { gap: 14px 32px; }
+  }
+</style>

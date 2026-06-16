@@ -1,0 +1,27 @@
+-- fun todo(task: str, delete: bool, on_click: Fn()) {
+--   <li class="list-group-item">
+--     {task}
+--     <input type="checkbox" checked={delete} @change={on_click} />
+--   </li>
+-- }
+
+-- fun prompt(on_click: Fn()) {
+--   <>
+--     <button type="button" @click={on_click}>Add</button>
+--     <input type="text">
+--   </>
+-- }
+
+-- fun main() {
+--   mut todos := Vec::new();
+
+--   imu app: </> ::= <>
+--     <fieldset>
+--       <legend>Todo List:</legend>
+--       <ul>{todos.map(fn(t) => <todo task={} on_click={} />)}</ul>
+--     </fieldset>
+--     <prompt />
+--   </>;
+-- }
+
+fun main() {}

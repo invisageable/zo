@@ -16,6 +16,7 @@ const { class: className, id } = Astro.props;
 <header class:list={["header", className]} id={id} role="banner">
   <Link class="header-btn header-btn--home f-cirka" href="/" label="zo" />
   <Link class="header-btn header-btn--initiation" href="/initiation" label={textTransform(m.header_initiation())} />
+  <Link class="header-btn header-btn--how-to" href="/how-to" label={textTransform(m.header_how_to())} />
   <Link class="header-btn header-btn--spec" href="/spec" label={textTransform(m.header_spec())} />
   <Link class="header-btn header-btn--news" href="/news" label={textTransform(m.header_news())} />
   <LocaleSwitcher />
@@ -124,6 +125,7 @@ const { class: className, id } = Astro.props;
   }
 
   .header--inline .header-btn--home,
+  .header--inline .header-btn--how-to,
   .header--inline .header-btn--spec,
   .header--inline .header-btn--news,
   .header--inline .locale-switcher-wrap {

@@ -1,0 +1,109 @@
+---
+import { render } from "astro:content";
+import { loadHowTo, getHowToNavItems } from "../../core/how-to";
+import Base from "../../layouts/base.astro";
+import NavBar, { type Item } from "../../components/navigation/navbar.astro";
+import Header from "../../components/structure/header.astro";
+import Screen from "../../components/structure/screen.astro";
+import Editor from "../../components/interactive/editor.astro";
+
+const slug = Astro.params.slug;
+const examples = await loadHowTo();
+const example = examples.find((candidate) => candidate.slug === slug);
+
+if (!example) {
+  return Astro.redirect("/how-to");
+}
+
+const crumb = example.group
+  ? `${example.category} / ${example.group}`
+  : example.category;
+
+const { Content } = await render(example.entry);
+const items: Item[] = await getHowToNavItems();
+
+const title = `zo — ${example.title}.`;
+const description = `A zo ${crumb} example: ${example.title}.`;
+---
+
+<Base title={title} description={description}>
+  <NavBar items={items} />
+  <Header class="header--fixed header--active blur" id="top-bar" />
+  <Screen>
+    <article class="example">
+      <header class="example__head">
+        <a class="example__back f-cirka" href="/how-to">← how-to</a>
+        <h1 class="example__title f-cirka">{example.title}</h1>
+        <p class="example__crumb f-cirka">{crumb}</p>
+      </header>
+
+      <div class="example__split">
+        <div class="example__code">
+          <Editor code={example.entry.data.code} />
+        </div>
+        <div class="example__doc">
+          <Content />
+        </div>
+      </div>
+    </article>
+  </Screen>
+</Base>
+
+<style is:global>
+  .example {
+    width: 100%;
+    max-width: var(--container-max-width, 1200px);
+    margin: 0 auto;
+    padding: 24px 0;
+  }
+
+  .example__back {
+    display: inline-block;
+    margin-bottom: 12px;
+    text-decoration: none;
+    opacity: 0.7;
+  }
+
+  .example__back:hover { opacity: 1; }
+
+  .example__title {
+    font-size: 1.75rem;
+    margin: 0 0 2px;
+  }
+
+  .example__title::before { content: "# "; }
+
+  .example__crumb {
+    margin: 0 0 24px;
+    opacity: 0.6;
+  }
+
+  /* Always grid so `order` controls the mobile stack. */
+  .example__split {
+    display: grid;
+    gap: 24px;
+    align-items: start;
+  }
+
+  .example__code pre {
+    margin: 0;
+    padding: 16px;
+    overflow-x: auto;
+    background: #000;
+    border-radius: 8px;
+  }
+
+  /* Mobile / narrow: stack — explanation on top, code below — so code
+     is never squeezed into an unreadable column. */
+  @media (max-width: 1023px) {
+    .example__doc { order: 1; }
+    .example__code { order: 2; }
+  }
+
+  /* Desktop: side-by-side, code left, explanation right. */
+  @media (min-width: 1024px) {
+    .example__split {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+  }
+</style>

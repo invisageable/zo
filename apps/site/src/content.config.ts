@@ -1,9 +1,6 @@
 import { defineCollection, z } from "astro:content";
 import { glob } from "astro/loaders";
 
-// Multi-locale layout: every entry lives under <locale>/.
-// Entry `id` becomes "<locale>/<slug>", which downstream code splits to
-// match the active request locale (with fallback to baseLocale).
 const news = defineCollection({
   loader: glob({
     pattern: "*/S0*/S0*.md",
@@ -46,4 +43,18 @@ const faq = defineCollection({
   }),
 });
 
-export const collections = { news, initiation, spec, faq };
+const howto = defineCollection({
+  loader: glob({
+    pattern: "**/*.md",
+    base: "./src/content/how-to",
+  }),
+  schema: z.object({
+    category: z.string(),
+    group: z.string().optional(),
+    title: z.string().optional(),
+    order: z.number().optional(),
+    code: z.string(),
+  }),
+});
+
+export const collections = { news, initiation, spec, faq, howto };

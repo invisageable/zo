@@ -114,7 +114,7 @@ fn main() {
   ensure_runtime_flavors(&root, &zo);
 
   let tests_dir = root.join("crates/compiler/zo-tests");
-  let howto_dir = root.join("crates/compiler/zo-how-zo");
+  let howto_dir = root.join("crates/compiler/zo-how-to");
 
   println!("zo: {}", zo.display());
 
@@ -250,9 +250,34 @@ fn main() {
     &mut results,
   );
 
-  // zo-how-to tutorials — build + run + output check.
-  if howto_dir.exists() {
-    run_dir(&ctx, &howto_dir, Category::Pass, &mut results);
+  // zo-how-to examples (category/[group]/name.zo). `zo` programs emit
+  // stdout — Pass (build + run + output check). `zsx` and `providers`
+  // are windowed (UI / raylib) with an event loop, so Pass-running them
+  // hangs; they build always and launch only under `--all` (WindowRun),
+  // matching the provider/raylib demos. `run_dir` is non-recursive, so
+  // scan each category root plus its one level of group subdirs.
+  for (category, kind) in [
+    ("zo", Category::Pass),
+    ("zsx", Category::WindowRun),
+    ("providers", Category::WindowRun),
+  ] {
+    let category_dir = howto_dir.join(category);
+
+    run_dir(&ctx, &category_dir, kind, &mut results);
+
+    if let Ok(entries) = fs::read_dir(&category_dir) {
+      let mut groups = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+
+      groups.sort();
+
+      for group in groups {
+        run_dir(&ctx, &group, kind, &mut results);
+      }
+    }
   }
 
   // zo-usecases — multi-file projects (lib.zo + modules).

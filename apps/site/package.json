@@ -6,13 +6,15 @@
     "node": "24.x"
   },
   "scripts": {
+    "predev": "npm run zo:howto",
     "dev": "astro dev",
-    "prebuild": "npm run zo:install && npm run zo:docs",
+    "prebuild": "npm run zo:install && npm run zo:docs && npm run zo:howto",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
     "zo:install": "cp ../../tasks/zo-install.sh public/install.sh",
-    "zo:docs": "node ../site-tasks/build-llms-full.mjs"
+    "zo:docs": "node ../site-tasks/build-llms-full.mjs",
+    "zo:howto": "node ../site-tasks/build-how-to.mjs"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.3",

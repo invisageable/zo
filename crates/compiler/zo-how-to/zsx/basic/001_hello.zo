@@ -1,0 +1,6 @@
+fun main() {
+  imu name: str = "hacker";
+  imu hello: </> ::= <h1>hello, {name}!</h1>;
+
+  #render hello;
+}

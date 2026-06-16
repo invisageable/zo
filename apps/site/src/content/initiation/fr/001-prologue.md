@@ -5,8 +5,8 @@ title: Prologue
 
 # prologue
 
-[tsh-tsh]
-
+[tsh-tsh]   
+    
 Qu'attendons-nous pour améliorer notre experience en tant que développeur ? Pourquoi devoir attendre plusieurs secondes voire minutes avant d'avoir un retour sur l'exactitude de notre programme ne dérange-t-il personne ?
 
 La qualité de nos outils et infrastructures actuels frôle la médiocrité. Heureusement certains acteurs, réfractaires à cette fumisterie ambiante, continuent perpétuellement de perfectionner notre ecosystème. Accepter leur médiocrité c'est se soumettre face aux diktats de commités d'exécution qui nous imposent leurs produits par vague de marketing intensif.

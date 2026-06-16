@@ -1,0 +1,6 @@
+-- cli commands: add, toggle done, delete, delete all, quit.
+-- cli get the command + todo content.
+-- dispatch actions.
+-- each commands as an equivalent function.
+
+fun main() {}
