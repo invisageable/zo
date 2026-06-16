@@ -1,0 +1,378 @@
+load core::c::*;
+load core::random::*;
+load provider::raylib;
+
+-- The screen width.
+val WIDTH: float = 800.0;
+-- The screen height.
+val HEIGHT: float = 600.0;
+
+-- The frame per second number.
+val FPS: int = 60;
+
+-- The black color.
+val COLOR_BLACK: int = 0xFF000000;
+-- The blue color.
+val COLOR_BLUE: int = 0xFFEFD966;
+-- The green color.
+val COLOR_GREEN: int = 0xFF3EFDCC;
+-- The grey color.
+val COLOR_GREY: int = 0xFFAAAAAA;
+-- The white color.
+val COLOR_WHITE: int = 0xFFFFFFFF;
+
+-- raylib `KEY_*` codes.
+val KEY_SPACE: int = 32;
+val KEY_ENTER: int = 257;
+val KEY_RIGHT: int = 262;
+val KEY_LEFT: int = 263;
+val KEY_DOWN: int = 264;
+val KEY_UP: int = 265;
+
+struct Size {
+  width: int,
+  height: int,
+}
+
+struct Position {
+  x: float,
+  y: float,
+}
+
+struct Velocity {
+  x: float,
+  y: float,
+}
+
+struct Laser {
+  position: Position,
+  speed: float,
+  color: int,
+}
+
+struct Ship {
+  position: Position,
+  speed: float,
+  alive: bool,
+  color: int,
+  size: Size,
+}
+
+struct Asteroid {
+  position: Position,
+  velocity: Velocity,
+  size: float,
+  color: int,
+}
+
+struct Text {
+  content: CStr,
+  position: Position,
+  font_size: int,
+  color: int,
+}
+
+-- Squared distance between two points — avoids a `sqrt`, compared against a
+-- squared radius at the call site.
+fun squared_distance(
+  first_x: float,
+  first_y: float,
+  second_x: float,
+  second_y: float,
+) -> float {
+  imu delta_x: float = first_x - second_x;
+  imu delta_y: float = first_y - second_y;
+
+  delta_x * delta_x + delta_y * delta_y
+}
+
+-- Wrap a coordinate around `[0, limit)` so a body that drifts off one edge
+-- reappears on the opposite one.
+fun wrap(value: float, limit: float) -> float {
+  if value < 0.0 {
+    value + limit
+  } else if value > limit {
+    value - limit
+  } else {
+    value
+  }
+}
+
+-- Draw a `Text` label with `draw_text` at its position.
+fun draw_label(label: Text) {
+  raylib::draw_text(
+    label.content,
+    label.position.x as int,
+    label.position.y as int,
+    label.font_size,
+    label.color,
+  );
+}
+
+-- The ship's starting state: centered low, full speed, alive.
+fun new_ship() -> Ship {
+  Ship {
+    position = Position { x = 384.0, y = 520.0 },
+    speed = 320.0,
+    alive = true,
+    color = COLOR_GREEN,
+    size = Size { width = 30, height = 30 },
+  }
+}
+
+-- A fresh asteroid field in the upper screen, away from the ship's start, with
+-- small drift velocities. Reused for the first round and every restart, so the
+-- layout is the same each time.
+fun spawn_asteroids() -> Vec<Asteroid> {
+  mut asteroids: Vec<Asteroid> = Vec::new();
+  mut rng: Rng = Rng::new(42);
+
+  for i := 0..6 {
+    asteroids.push(Asteroid {
+      position = Position {
+        x = rng.range(0, WIDTH as int) as float,
+        y = rng.range(0, 280) as float,
+      },
+      velocity = Velocity {
+        x = (rng.range(0, 7) as float) - 3.0,
+        y = (rng.range(0, 7) as float) - 3.0,
+      },
+      size = 30.0,
+      color = COLOR_GREY,
+    });
+  }
+
+  asteroids
+}
+
+fun main() {
+  raylib::init_window(WIDTH as int, HEIGHT as int, CStr::new("zo asteroids"));
+  raylib::set_target_fps(FPS);
+
+  mut ship: Ship = new_ship();
+  mut lasers: Vec<Laser> = Vec::new();
+  mut asteroids: Vec<Asteroid> = spawn_asteroids();
+
+  loop {
+    if raylib::window_should_close() { break }
+
+    imu delta_time: float = raylib::get_frame_time();
+    imu step: float = ship.speed * delta_time;
+
+    if ship.alive && asteroids.len() > 0 {
+      imu ship_half: float = (ship.size.width as float) / 2.0;
+
+      if raylib::is_key_down(KEY_LEFT) { ship.position.x -= step }
+      if raylib::is_key_down(KEY_RIGHT) { ship.position.x += step }
+      if raylib::is_key_down(KEY_UP) { ship.position.y -= step }
+      if raylib::is_key_down(KEY_DOWN) { ship.position.y += step }
+
+      -- fire a laser from the ship's nose.
+      if raylib::is_key_pressed(KEY_SPACE) {
+        imu shot: Laser = Laser {
+          position = Position {
+            x = ship.position.x + ship_half,
+            y = ship.position.y,
+          },
+          speed = 10.0,
+          color = COLOR_WHITE,
+        };
+
+        lasers.push(shot);
+      }
+
+      -- advance lasers upward; drop the ones off the top.
+      for laser_index := 0..lasers.len() {
+        match lasers.get(laser_index) {
+          Option::Some(laser) => {
+            imu next_y: float = laser.position.y - laser.speed;
+
+            if next_y < 0.0 {
+              lasers.remove(laser_index);
+            } else {
+              imu moved: Laser = Laser {
+                position = Position { x = laser.position.x, y = next_y },
+                speed = laser.speed,
+                color = laser.color,
+              };
+
+              lasers.set(laser_index, moved);
+            }
+          }
+          Option::None => {}
+        }
+      }
+
+      -- drift asteroids and wrap them at the edges.
+
+      for asteroid_index := 0..asteroids.len() {
+        match asteroids.get(asteroid_index) {
+          Option::Some(asteroid) => {
+            imu moved: Asteroid = Asteroid {
+              position = Position {
+                x = wrap(asteroid.position.x + asteroid.velocity.x, WIDTH),
+                y = wrap(asteroid.position.y + asteroid.velocity.y, HEIGHT),
+              },
+              velocity = asteroid.velocity,
+              size = asteroid.size,
+              color = asteroid.color,
+            };
+
+            asteroids.set(asteroid_index, moved);
+          }
+          Option::None => {}
+        }
+      }
+
+      -- laser hits asteroid: remove both.
+      mut collision_index: int = 0;
+
+      while collision_index < asteroids.len() {
+        mut hit: bool = false;
+
+        match asteroids.get(collision_index) {
+          Option::Some(asteroid) => {
+            mut laser_hit_index: int = 0;
+
+            while laser_hit_index < lasers.len() {
+              match lasers.get(laser_hit_index) {
+                Option::Some(laser) => {
+                  imu hit_distance: float = squared_distance(
+                    laser.position.x,
+                    laser.position.y,
+                    asteroid.position.x,
+                    asteroid.position.y,
+                  );
+
+                  if hit_distance < asteroid.size * asteroid.size {
+                    hit = true;
+                  }
+                }
+                Option::None => {}
+              }
+
+              if hit {
+                lasers.remove(laser_hit_index);
+                break;
+              } else {
+                laser_hit_index += 1;
+              }
+            }
+
+            -- asteroid touches the ship: end the game.
+            imu ship_distance: float = squared_distance(
+              ship.position.x + ship_half,
+              ship.position.y + ship_half,
+              asteroid.position.x,
+              asteroid.position.y,
+            );
+
+            imu reach: float = asteroid.size + ship_half;
+
+            if ship_distance < reach * reach {
+              ship.alive = false;
+            }
+          }
+          Option::None => {}
+        }
+
+        if hit {
+          asteroids.remove(collision_index);
+        } else {
+          collision_index += 1;
+        }
+      }
+    } else if raylib::is_key_pressed(KEY_ENTER) {
+      -- refresh the game.
+      ship = new_ship();
+      lasers.free();
+      lasers = Vec::new();
+      asteroids.free();
+      asteroids = spawn_asteroids();
+    }
+
+    raylib::begin_drawing();
+      raylib::clear_background(COLOR_BLACK);
+
+      -- asteroids: grey filled circles.
+
+      for asteroid_index := 0..asteroids.len() {
+        match asteroids.get(asteroid_index) {
+          Option::Some(asteroid) => {
+            raylib::draw_circle(
+              asteroid.position.x as int,
+              asteroid.position.y as int,
+              asteroid.size,
+              asteroid.color,
+            );
+          }
+          Option::None => {}
+        }
+      }
+
+      -- lasers: small white dots.
+
+      for laser_index := 0..lasers.len() {
+        match lasers.get(laser_index) {
+          Option::Some(laser) => {
+            raylib::draw_circle(
+              laser.position.x as int,
+              laser.position.y as int,
+              3.0,
+              laser.color,
+            );
+          }
+          Option::None => {}
+        }
+      }
+
+      -- ship: a green rectangle.
+      raylib::draw_rectangle(
+        ship.position.x as int,
+        ship.position.y as int,
+        ship.size.width,
+        ship.size.height,
+        ship.color,
+      );
+
+      imu over: bool = !ship.alive;
+      imu won: bool = asteroids.len() == 0;
+
+      if over {
+        imu label: Text = Text {
+          content = CStr::new("GAME OVER"),
+          position = Position { x = 300.0, y = 260.0 },
+          font_size = 40,
+          color = COLOR_BLUE,
+        };
+
+        draw_label(label);
+      } else if won {
+        imu label: Text = Text {
+          content = CStr::new("YOU WIN"),
+          position = Position { x = 323.0, y = 260.0 },
+          font_size = 40,
+          color = COLOR_BLUE,
+        };
+
+        draw_label(label);
+      }
+
+      if over || won {
+        imu hint: Text = Text {
+          content = CStr::new("PRESS ENTER"),
+          position = Position { x = 312.0, y = 312.0 },
+          font_size = 20,
+          color = COLOR_WHITE,
+        };
+
+        draw_label(hint);
+      }
+      raylib::draw_fps(10, 10);
+    raylib::end_drawing();
+  }
+
+  lasers.free();
+  asteroids.free();
+  raylib::close_window();
+}

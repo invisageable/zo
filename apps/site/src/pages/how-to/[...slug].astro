@@ -6,6 +6,7 @@ import NavBar, { type Item } from "../../components/navigation/navbar.astro";
 import Header from "../../components/structure/header.astro";
 import Screen from "../../components/structure/screen.astro";
 import Editor from "../../components/interactive/editor.astro";
+import Reachout from "../../components/structure/reachout.astro";
 
 const slug = Astro.params.slug;
 const examples = await loadHowTo();
@@ -46,6 +47,7 @@ const description = `A zo ${crumb} example: ${example.title}.`;
         </div>
       </div>
     </article>
+    <Reachout />
   </Screen>
 </Base>
 
@@ -69,6 +71,7 @@ const description = `A zo ${crumb} example: ${example.title}.`;
   .example__title {
     font-size: 1.75rem;
     margin: 0 0 2px;
+    text-transform: capitalize;
   }
 
   .example__title::before { content: "# "; }

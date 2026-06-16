@@ -1,0 +1,3 @@
+-- Reading rows and mapping columns directly into type-safe zo structs.
+
+fun main() {}
