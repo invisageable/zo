@@ -21,6 +21,7 @@ const crumb = example.group
   : example.category;
 
 const { Content } = await render(example.entry);
+const { code, output, image } = example.entry.data;
 const items: Item[] = await getHowToNavItems();
 
 const title = `zo — ${example.title}.`;
@@ -39,8 +40,24 @@ const description = `A zo ${crumb} example: ${example.title}.`;
       </header>
 
       <div class="example__split">
-        <div class="example__code">
-          <Editor code={example.entry.data.code} />
+        <div class="example__main">
+          <div class="example__code">
+            <span class="example__code-label f-cirka">program</span>
+            <Editor code={code} />
+          </div>
+
+          {image
+            ? <img
+                class="example__image"
+                src={image}
+                alt={`${example.title} preview`}
+              />
+            : output
+              ? <div class="example__output">
+                  <span class="example__output-label f-cirka">output</span>
+                  <pre class="example__output-pre f-iosevka">{output}</pre>
+                </div>
+              : null}
         </div>
         <div class="example__doc">
           <Content />
@@ -88,19 +105,56 @@ const description = `A zo ${crumb} example: ${example.title}.`;
     align-items: start;
   }
 
-  .example__code pre {
-    margin: 0;
-    padding: 16px;
-    overflow-x: auto;
+  /* Left column: code stacked over its result (output / image). */
+  .example__main {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  /* Code and output share one labeled dark-panel look: a small
+     uppercase header (`program` / `output`) over the content. */
+  .example__code,
+  .example__output {
     background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .example__code-label,
+  .example__output-label {
+    display: block;
+    padding: 6px 12px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.5;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .example__code pre,
+  .example__output-pre {
+    margin: 0;
+    padding: 12px;
+    overflow-x: auto;
+    background: transparent;
+    white-space: pre;
+  }
+
+  /* Preview image for visual examples. */
+  .example__image {
+    display: block;
+    width: 100%;
+    height: auto;
     border-radius: 8px;
   }
 
-  /* Mobile / narrow: stack — explanation on top, code below — so code
-     is never squeezed into an unreadable column. */
+  /* Mobile / narrow: stack — explanation on top, then code + result —
+     so code is never squeezed into an unreadable column. */
   @media (max-width: 1023px) {
     .example__doc { order: 1; }
-    .example__code { order: 2; }
+    .example__main { order: 2; }
   }
 
   /* Desktop: side-by-side, code left, explanation right. */

@@ -1,12 +1,20 @@
 // Generates the `how-to` content collection from the single source of
-// truth at `crates/compiler/zo-how-to/`. Each example is a `.zo` (code)
-// plus an optional sibling `.md` (explanation). The site never reads the
-// crate directly — this prebuild step mirrors every example into
-// `apps/site/src/content/how-to/<category>/<group?>/<name>.md`, embedding
-// the raw code as a YAML literal block scalar and the explanation as the
-// body. Run from `prebuild`.
+// truth at `crates/compiler/zo-how-to/`. Each example is a `.zo` (code),
+// an optional sibling `.md` (explanation), an optional
+// `-- EXPECTED OUTPUT:` block (stdout programs), and an optional sibling
+// image (visual programs). The site never reads the crate directly —
+// this prebuild step mirrors everything into
+// `apps/site/src/content/how-to/...` and copies sibling images into
+// `public/how-to/...`. Run from `prebuild` / `predev`.
 
-import { readdir, readFile, writeFile, mkdir, rm } from "node:fs/promises";
+import {
+  readdir,
+  readFile,
+  writeFile,
+  mkdir,
+  rm,
+  copyFile,
+} from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,14 +22,17 @@ import { fileURLToPath } from "node:url";
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const HOWTO = join(ROOT, "..", "..", "crates", "compiler", "zo-how-to");
 const OUT = join(ROOT, "..", "site", "src", "content", "how-to");
+const PUBLIC = join(ROOT, "..", "site", "public", "how-to");
 
 // Subdirs that may sit next to sources but aren't examples (build
 // artifacts, shared fixtures) — never walked.
 const SKIP_DIRS = new Set(["deps", "samples"]);
 
+// Sibling preview formats for visual examples, in preference order.
+const IMAGE_EXTS = ["gif", "webp", "png", "jpg", "jpeg", "svg"];
+
 // `001_hello` -> { order: 1, name: "hello" }. No prefix keeps the bare
-// stem and sorts last. The prefix is for on-disk ordering only; it never
-// reaches the slug or title.
+// stem and sorts last.
 function parsePrefix(stem) {
   const match = stem.match(/^(\d+)_(.+)$/);
 
@@ -30,10 +41,10 @@ function parsePrefix(stem) {
   return { order: Number.POSITIVE_INFINITY, name: stem };
 }
 
-// Indent every line by 2 spaces so the raw `.zo` is a valid YAML literal
-// block scalar — consistent indentation greater than the `code:` key is
-// all YAML needs, so blank lines and `--` comments can't break the parse.
-function indentCode(source) {
+// Indent every line by 2 spaces so a multi-line string is a valid YAML
+// literal block scalar — consistent indent is all YAML needs, so blank
+// lines and `--` comments can't break the parse.
+function indentBlock(source) {
   return source
     .replace(/\s+$/, "")
     .split("\n")
@@ -41,8 +52,30 @@ function indentCode(source) {
     .join("\n");
 }
 
+// Split a `.zo` into its code and the `-- EXPECTED OUTPUT:` block (the
+// same directive the test runner verifies). The output lines are `-- `
+// comments; strip the prefix. The block is removed from the code so the
+// rendered source never shows the trailer.
+function splitOutput(raw) {
+  const idx = raw.indexOf("-- EXPECTED OUTPUT:");
+
+  if (idx === -1) return { code: raw, output: null };
+
+  const code = raw.slice(0, idx);
+  const output = raw
+    .slice(idx)
+    .split("\n")
+    .slice(1)
+    .map((line) => line.replace(/^\s*--\s?/, ""))
+    .join("\n")
+    .replace(/^\n+/, "")
+    .replace(/\n+$/, "");
+
+  return { code, output: output.length ? output : null };
+}
+
 // Lifts a `title:` from the explanation's optional frontmatter and
-// returns the body without it. Tiny on purpose — only `title` matters.
+// returns the body without it.
 function splitExplanation(raw) {
   if (!raw.startsWith("---\n")) return { title: null, body: raw.trim() };
 
@@ -61,8 +94,25 @@ function humanize(name) {
   return name.replace(/[_-]+/g, " ");
 }
 
-// Collect `{ category, group, name, order, title, code, body }` for every
-// `.zo` under each category root and its one level of group subdirs.
+// A sibling `<stem>.<ext>` image, copied to `public/how-to/<rel>.<ext>`
+// and returned as a site URL. `null` when none exists.
+async function siblingImage(dir, stem, rel) {
+  for (const ext of IMAGE_EXTS) {
+    const source = join(dir, `${stem}.${ext}`);
+
+    if (existsSync(source)) {
+      const dest = join(PUBLIC, `${rel}.${ext}`);
+
+      await mkdir(dirname(dest), { recursive: true });
+      await copyFile(source, dest);
+
+      return `/how-to/${rel}.${ext}`;
+    }
+  }
+
+  return null;
+}
+
 async function collectExamples() {
   const examples = [];
 
@@ -96,7 +146,13 @@ async function collectExamples() {
     for (const source of sources) {
       const stem = source.file.slice(0, -".zo".length);
       const { order, name } = parsePrefix(stem);
-      const code = await readFile(join(source.dir, source.file), "utf8");
+      const rel = source.group
+        ? `${category}/${source.group}/${name}`
+        : `${category}/${name}`;
+
+      const { code, output } = splitOutput(
+        await readFile(join(source.dir, source.file), "utf8"),
+      );
 
       const explanationPath = join(source.dir, `${stem}.md`);
       let title = null;
@@ -111,6 +167,8 @@ async function collectExamples() {
         body = explanation.body;
       }
 
+      const image = await siblingImage(source.dir, stem, rel);
+
       examples.push({
         category,
         group: source.group,
@@ -118,6 +176,8 @@ async function collectExamples() {
         order,
         title: title ?? humanize(name),
         code,
+        output,
+        image,
         body,
       });
     }
@@ -128,8 +188,10 @@ async function collectExamples() {
 
 const examples = await collectExamples();
 
-// Rebuild from scratch so deleted/renamed examples never linger.
+// Rebuild both trees from scratch so deleted/renamed examples and their
+// images never linger.
 await rm(OUT, { recursive: true, force: true });
+await rm(PUBLIC, { recursive: true, force: true });
 
 for (const example of examples) {
   const dir = example.group
@@ -144,8 +206,11 @@ for (const example of examples) {
     example.group ? `group: ${example.group}` : null,
     `title: ${JSON.stringify(example.title)}`,
     Number.isFinite(example.order) ? `order: ${example.order}` : null,
+    example.image ? `image: ${JSON.stringify(example.image)}` : null,
     "code: |",
-    indentCode(example.code),
+    indentBlock(example.code),
+    example.output ? "output: |" : null,
+    example.output ? indentBlock(example.output) : null,
     "---",
     "",
     example.body,

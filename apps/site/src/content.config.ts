@@ -54,6 +54,8 @@ const howto = defineCollection({
     title: z.string().optional(),
     order: z.number().optional(),
     code: z.string(),
+    output: z.string().optional(),
+    image: z.string().optional(),
   }),
 });
 

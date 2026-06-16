@@ -1,3 +1,20 @@
--- Conditional branching as statements and expressions.
+fun main() {
+  imu hour: int = 14;
 
-fun main() {}
+  if hour < 12 {
+    showln("good morning");
+  } else if hour < 18 {
+    showln("good afternoon");
+  } else {
+    showln("good evening");
+  }
+
+  imu temperature: int = 30;
+  imu label: str = if temperature >= 25 { "hot" } else { "mild" };
+
+  showln(label);
+}
+
+-- EXPECTED OUTPUT:
+-- good afternoon
+-- hot
