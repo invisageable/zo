@@ -129,7 +129,7 @@ impl LayoutTree {
     );
 
     let mut builder = Builder::new(author);
-    let children = builder.children(commands, None);
+    let children = builder.children(commands, None, ComputedStyle::ROOT);
 
     // Synthetic root: a flex container whose direction follows the
     // inline-vs-block nature of its children (ports the desktop
@@ -555,6 +555,7 @@ impl Builder {
     &mut self,
     cmds: &[UiCommand],
     parent: Option<usize>,
+    parent_style: ComputedStyle,
   ) -> Vec<NodeId> {
     let mut children = Vec::new();
 
@@ -570,15 +571,17 @@ impl Builder {
           self.cursor += 1;
         }
 
-        // Free-standing text (`{count}`) → a measured leaf with root
-        // typography (no tag to key the cascade on, no author patch).
+        // Free-standing text (`{count}`) → a measured leaf carrying its
+        // container's inherited typography (CSS font/colour inherit), so
+        // `<div class="card">{face}</div>` renders `face` at the card's
+        // font size, not the 16px root.
         UiCommand::Text(text) => {
           let idx = self.cursor;
           let text = text.clone();
           let node = self.leaf(LeafPlacement {
             idx,
             text,
-            style: ComputedStyle::ROOT,
+            style: parent_style.inherited(),
             author: StylePatch::EMPTY,
             interactions: InteractionAuthors::default(),
             size: None,
@@ -665,7 +668,7 @@ impl Builder {
                 } else {
                   parent
                 };
-                let kids = self.children(cmds, inner);
+                let kids = self.children(cmds, inner, style);
 
                 self
                   .tree
@@ -681,7 +684,7 @@ impl Builder {
               let kids = if self_closing {
                 Vec::new()
               } else {
-                self.children(cmds, parent)
+                self.children(cmds, parent, style)
               };
               let node = self
                 .tree
