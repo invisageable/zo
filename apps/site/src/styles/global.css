@@ -203,6 +203,11 @@ section::after {
   height: calc(33vh - (1.7em * 2));
 }
 
+code,
+pre {
+  font-size: 0.875rem;
+}
+
 code {
   font-family: var(--font-iosevka);
 }
