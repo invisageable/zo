@@ -374,9 +374,27 @@ fn selector_key(selector: &str) -> (String, Option<Interaction>, bool) {
   (key, state, known)
 }
 
-/// Parse a CSS length (`16px`, `8`) into pixels. The unit suffix is
-/// dropped; only `px` is modelled at v1.
+/// The root font size, in pixels — the base `em`/`rem` resolve
+/// against. Matches `ComputedStyle::default`'s 16px.
+const ROOT_FONT_PX: f32 = 16.0;
+
+/// Parse a CSS length (`16px`, `8`, `12em`, `1.5rem`) into pixels.
+/// `px` and unitless are absolute; `em`/`rem` scale the 16px root font
+/// size — a v1 approximation, since there's no per-element `em` base
+/// (a nested `em` resolves against root, not its parent). Without this,
+/// `font-size: 12em` failed to parse and silently fell back to 16px.
 fn parse_length(value: &str) -> Option<f32> {
+  let value = value.trim();
+
+  // `rem` ends in `em`, so test it first.
+  if let Some(rem) = value.strip_suffix("rem") {
+    return rem.trim().parse::<f32>().ok().map(|n| n * ROOT_FONT_PX);
+  }
+
+  if let Some(em) = value.strip_suffix("em") {
+    return em.trim().parse::<f32>().ok().map(|n| n * ROOT_FONT_PX);
+  }
+
   value.trim_end_matches("px").trim().parse().ok()
 }
 
@@ -680,6 +698,15 @@ mod tests {
         left: 4.0,
       })
     );
+  }
+
+  #[test]
+  fn length_units() {
+    // `px` and unitless are absolute; `em`/`rem` scale the 16px root.
+    assert_eq!(parse_length("16px"), Some(16.0));
+    assert_eq!(parse_length("8"), Some(8.0));
+    assert_eq!(parse_length("12em"), Some(192.0));
+    assert_eq!(parse_length("1.5rem"), Some(24.0));
   }
 
   #[test]

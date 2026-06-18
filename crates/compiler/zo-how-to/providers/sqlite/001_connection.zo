@@ -1,0 +1,3 @@
+-- Opening an on-disk database via Sqlite::open and closing handles.
+
+fun main() {}

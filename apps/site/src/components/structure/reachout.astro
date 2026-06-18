@@ -41,6 +41,7 @@ const socials = [
             class="socials-item"
             href={social.link}
             label={social.name}
+            target="_blank"
           />)
         }
       </div>
@@ -56,6 +57,11 @@ const socials = [
 <Paragraph
   class="ai-llm"
   content="For Ai agents: <a href='llms.txt'>llms.txt</a> (curated index) and <a href='docs/llms-full.txt'>llms-full.txt</a> (full docs)."
+/>
+
+<Paragraph
+  class="privacy"
+  content=" Privacy: No cookies, no ads, no tracking. It's like you were never here."
 />
 
 <script>
@@ -139,16 +145,20 @@ const socials = [
     }
   }
 
+  :global(.privacy),
   :global(.human-faq),
   :global(.ai-llm) {
     margin: 32px 0;
     font-size: calc(var(--base) * 3);
   }
 
+  :global(.privacy),
+  :global(.ai-llm),
   :global(.human-faq) {
     margin-bottom: 8px;
   }
 
+  :global(.privacy),
   :global(.ai-llm) {
     margin-top: 8px;
   }

@@ -297,6 +297,24 @@ impl ComputedStyle {
     border_radius: 0.0,
     box_shadow: None,
   };
+
+  /// A child's starting style: the root box defaults carrying only the
+  /// inherited typography from `self`. CSS inheritance — font and
+  /// colour cross the box boundary; background, border, and layout do
+  /// not — so a bare `{text}` node renders at its container's font, not
+  /// the 16px root default.
+  pub fn inherited(&self) -> Self {
+    Self {
+      font_family: self.font_family,
+      font_size: self.font_size,
+      font_weight: self.font_weight,
+      font_style: self.font_style,
+      text_align: self.text_align,
+      line_height: self.line_height,
+      color: self.color,
+      ..Self::ROOT
+    }
+  }
 }
 
 impl Default for ComputedStyle {

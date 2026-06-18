@@ -1,0 +1,3 @@
+-- Generating to_json() methods automatically using %% serialize 
+
+fun main() {}

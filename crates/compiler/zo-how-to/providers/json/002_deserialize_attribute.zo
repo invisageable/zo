@@ -1,0 +1,3 @@
+-- Generating from_json() methods automatically using %% deserialize
+
+fun main() {}

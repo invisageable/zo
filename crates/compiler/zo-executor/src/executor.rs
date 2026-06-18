@@ -8296,6 +8296,27 @@ impl<'a> Executor<'a> {
             note(sym, &mut written);
           }
         }
+        // A method call on a mutable receiver (`rng.range(…)`) can
+        // mutate it in place through `mut self`, so the receiver counts
+        // as written — otherwise the handler captures it by copy (the
+        // mutation is lost) or, for a struct receiver, the capture
+        // register is never set and the method dereferences garbage.
+        // In the postorder tree a method call lays out as
+        // `receiver method Dot LParen …`, so at the `Dot` the receiver
+        // is two nodes back and a following `LParen` marks it a call
+        // (not a field read). Over-approximates (a read-only method
+        // counts too); a redundant reactive slot is harmless.
+        Token::Dot
+          if idx >= body_start + 2
+            && idx + 1 < body_end
+            && self.tree.nodes[idx - 2].token == Token::Ident
+            && self.tree.nodes[idx - 1].token == Token::Ident
+            && self.tree.nodes[idx + 1].token == Token::LParen =>
+        {
+          if let Some(NodeValue::Symbol(sym)) = self.node_value(idx - 2) {
+            note(sym, &mut written);
+          }
+        }
         // Indexed write (`arr[i] = v`, `arr[i] += v`): the target
         // ident sits before the bracket pair. Walk back over the
         // matching brackets so `arr` counts as written — without

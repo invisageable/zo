@@ -1,0 +1,35 @@
+val WIDTH: int = 800;
+val HEIGHT: int = 600;
+val MAX_ITER: int = 100;
+
+fun main() {
+  imu width_f := WIDTH as float;
+  imu height_f := HEIGHT as float;
+
+  mut checksum: int = 0;
+
+  for y := 0..HEIGHT {
+    for x := 0..WIDTH {
+      imu cr := (x as float) / width_f * 3.0 - 2.0;
+      imu ci := (y as float) / height_f * 2.24 - 1.12;
+
+      mut zr: float = 0.0;
+      mut zi: float = 0.0;
+      mut iter: int = 0;
+
+      while zr * zr + zi * zi <= 4.0 && iter < MAX_ITER {
+        imu temp := zr * zr - zi * zi + cr;
+        zi = 2.0 * zr * zi + ci;
+        zr = temp;
+        iter += 1;
+      }
+
+      checksum += iter;
+    }
+  }
+
+  showln(checksum);
+}
+
+-- EXPECTED OUTPUT:
+-- 13167508

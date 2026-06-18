@@ -82,60 +82,8 @@ impl Build {
     source_files: &[(&PathBuf, String)],
     source: &Path,
   ) -> Result<(), Error> {
-    let app = self.app_path(source);
-
-    let Some(name) = app.file_stem().and_then(|s| s.to_str()) else {
-      eprintln!("Error: cannot derive an app name from {}", app.display());
-
-      std::process::exit(crate::constants::EXIT_CODE_USAGE);
-    };
-
-    compiler.set_webviewing(Webviewing::Yes);
-
-    let (semantic, tokenization, parsing, session, file_table) =
-      compiler.analyze_source(&source_files[0].1, source);
-
-    // Collect referenced local images before the analysis is consumed —
-    // resolved against the source's directory, the same base the
-    // in-process run path uses.
-    let base_dir = source.parent().unwrap_or_else(|| Path::new("."));
-    let assets = webview_assets(&semantic.sir, &session.interner, base_dir);
-
-    let analyzed = Analyzed {
-      semantic,
-      tokenization,
-      parsing,
-      session,
-      file_table,
-    };
-
-    let staging = std::env::temp_dir()
-      .join(format!("zo_build_webview_{}", std::process::id()));
-    let binary = staging.join(name);
-
-    let _ = std::fs::create_dir_all(&staging);
-
-    compiler.compile_analyzed(&analyzed, self.args.target.into(), &binary)?;
-
-    let runtime_dylib = staging.join("deps").join("libzo_runtime.dylib");
-    let bundle_id = zo_bundler::bundle_id(name);
-
-    let spec = macos::BundleSpec {
-      binary: &binary,
-      runtime_dylib: &runtime_dylib,
-      app_dir: &app,
-      name,
-      bundle_id: &bundle_id,
-      assets: &assets,
-    };
-
-    if let Err(error) = macos::bundle(&spec) {
-      eprintln!("Error bundling webview app: {error}");
-
-      std::process::exit(crate::constants::EXIT_CODE_BUNDLE);
-    }
-
-    let _ = std::fs::remove_dir_all(&staging);
+    let app =
+      bundle_webview_app(compiler, &self.args, source, &source_files[0].1)?;
 
     if !self.args.quiet {
       eprintln!("zo — built {}", app.display());
@@ -143,21 +91,89 @@ impl Build {
 
     Ok(())
   }
+}
 
-  /// Where the `.app` lands: `-o` names it, else
-  /// `<--out-dir>/<source-stem>.app`, else next to the source.
-  fn app_path(&self, source: &Path) -> PathBuf {
-    let base = match (&self.args.output, self.args.out_dir.as_deref()) {
-      (Some(out), _) => out.clone(),
-      (None, Some(dir)) => {
-        let stem = source.file_stem().unwrap_or(source.as_os_str());
-        dir.join(stem)
-      }
-      (None, None) => source.with_extension(""),
-    };
+/// Compile the program for the webview runtime and package it into a
+/// double-clickable `.app`, returning the bundle's path. Shared by
+/// `build --target webview` and `run --target webview`. Sets the
+/// `webviewing` flag and analyzes here (the webview codegen differs),
+/// so the caller passes raw source rather than a prior analysis.
+pub(crate) fn bundle_webview_app(
+  compiler: &mut Compiler,
+  args: &args::Args,
+  source: &Path,
+  source_code: &str,
+) -> Result<PathBuf, Error> {
+  let app = webview_app_path(args, source);
 
-    base.with_extension("app")
+  let Some(name) = app.file_stem().and_then(|s| s.to_str()) else {
+    eprintln!("Error: cannot derive an app name from {}", app.display());
+
+    std::process::exit(crate::constants::EXIT_CODE_USAGE);
+  };
+
+  compiler.set_webviewing(Webviewing::Yes);
+
+  let (semantic, tokenization, parsing, session, file_table) =
+    compiler.analyze_source(source_code, source);
+
+  // Collect referenced local images before the analysis is consumed —
+  // resolved against the source's directory.
+  let base_dir = source.parent().unwrap_or_else(|| Path::new("."));
+  let assets = webview_assets(&semantic.sir, &session.interner, base_dir);
+
+  let analyzed = Analyzed {
+    semantic,
+    tokenization,
+    parsing,
+    session,
+    file_table,
+  };
+
+  let staging = std::env::temp_dir()
+    .join(format!("zo_build_webview_{}", std::process::id()));
+  let binary = staging.join(name);
+
+  let _ = std::fs::create_dir_all(&staging);
+
+  compiler.compile_analyzed(&analyzed, args.target.into(), &binary)?;
+
+  let runtime_dylib = staging.join("deps").join("libzo_runtime.dylib");
+  let bundle_id = zo_bundler::bundle_id(name);
+
+  let spec = macos::BundleSpec {
+    binary: &binary,
+    runtime_dylib: &runtime_dylib,
+    app_dir: &app,
+    name,
+    bundle_id: &bundle_id,
+    assets: &assets,
+  };
+
+  if let Err(error) = macos::bundle(&spec) {
+    eprintln!("Error bundling webview app: {error}");
+
+    std::process::exit(crate::constants::EXIT_CODE_BUNDLE);
   }
+
+  let _ = std::fs::remove_dir_all(&staging);
+
+  Ok(app)
+}
+
+/// Where the `.app` lands: `-o` names it, else
+/// `<--out-dir>/<source-stem>.app`, else next to the source.
+fn webview_app_path(args: &args::Args, source: &Path) -> PathBuf {
+  let base = match (&args.output, args.out_dir.as_deref()) {
+    (Some(out), _) => out.clone(),
+    (None, Some(dir)) => {
+      let stem = source.file_stem().unwrap_or(source.as_os_str());
+      dir.join(stem)
+    }
+    (None, None) => source.with_extension(""),
+  };
+
+  base.with_extension("app")
 }
 
 /// The program's referenced local image files — `<img>` srcs and CSS

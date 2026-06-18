@@ -1,0 +1,3 @@
+-- Writing SQL schemas (creating tables) directly via .exec().
+
+fun main() {}

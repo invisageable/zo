@@ -1,0 +1,14 @@
+-! `main` is where every zo program starts.
+fun main() {
+  -- A line comment: a quick note on one line.
+
+  -*
+    A block comment spans multiple lines — handy for longer
+    notes or temporarily switching off a chunk of code.
+  *-
+
+  showln("JOiN THE DEVOLUTiON.");
+}
+
+-- EXPECTED OUTPUT:
+-- JOiN THE DEVOLUTiON.

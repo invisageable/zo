@@ -1,0 +1,20 @@
+fun main() {
+  imu count: int = 42;
+  imu pi: float = 3.14;
+  imu ready: bool = true;
+  imu letter: char = 'z';
+  imu name: str = "zo";
+
+  showln(count);
+  showln(pi);
+  showln(ready);
+  showln(letter);
+  showln(name);
+}
+
+-- EXPECTED OUTPUT:
+-- 42
+-- 3.14
+-- true
+-- z
+-- zo

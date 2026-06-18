@@ -1,6 +1,87 @@
--- cli commands: add, toggle done, delete, delete all, quit.
--- cli get the command + todo content.
--- dispatch actions.
--- each commands as an equivalent function.
+struct Todo {
+  text: str,
+  done: bool,
+}
 
-fun main() {}
+fun add(mut todos: Vec<Todo>, text: str) {
+  todos.push(Todo { text = text, done = false });
+}
+
+fun toggle(mut todos: Vec<Todo>, index: int) {
+  match todos.get(index) {
+    Option::Some(todo) => {
+      todos.set(index, Todo { text = todo.text, done = !todo.done });
+    }
+    Option::None => {}
+  }
+}
+
+fun delete(mut todos: Vec<Todo>, index: int) {
+  todos.remove(index);
+}
+
+fun render(todos: Vec<Todo>) {
+  for i := 0..todos.len() {
+    match todos.get(i) {
+      Option::Some(todo) => {
+        imu box: str = when todo.done ? "[x]" : "[ ]";
+
+        showln(i.to_str() ++ " " ++ box ++ " " ++ todo.text);
+      }
+      Option::None => {}
+    }
+  }
+}
+
+fun index_of(argument: str) -> int {
+  match argument.parse_int() {
+    Option::Some(value) => value,
+    Option::None => -1,
+  }
+}
+
+fun main() {
+  mut todos: Vec<Todo> = Vec::new();
+  mut running: bool = true;
+
+  while running {
+    match readln() {
+      Result::Pass(input) => {
+        imu line: str = input.trim();
+        imu space: int = line.index_of(" ");
+        imu command: str = when space < 0 ? line : line[0..space];
+        imu argument: str = when space < 0 ? "" : line[space + 1..line.len];
+
+        if command == "add" {
+          add(todos, argument);
+        } else if command == "toggle" {
+          toggle(todos, index_of(argument));
+        } else if command == "delete" {
+          delete(todos, index_of(argument));
+        } else if command == "list" {
+          render(todos);
+        } else if command == "quit" {
+          running = false;
+        }
+      }
+      Result::Fail(_) => {
+        running = false;
+      }
+    }
+  }
+
+  todos.free();
+}
+
+-- @stdin:
+-- add learn zo
+-- add build a ui
+-- add ship it
+-- toggle 0
+-- delete 1
+-- list
+-- quit
+
+-- EXPECTED OUTPUT:
+-- 0 [x] learn zo
+-- 1 [ ] ship it

@@ -37,6 +37,16 @@ static STR_STATE: OnceLock<Mutex<Vec<Vec<u8>>>> = OnceLock::new();
 /// `STR_STATE`; a given slot is only ever one kind.
 static ARR_STATE: OnceLock<Mutex<Vec<Vec<String>>>> = OnceLock::new();
 
+/// The struct-typed reactive state — the raw bytes of one struct
+/// value per slot, backing a `mut S` (a user struct) that a handler
+/// captures and mutates through a `mut self` method (e.g. a `Rng` the
+/// handler advances with `rng.range(…)`). Unlike a scalar, the value
+/// has no UI binding; `zo_state_get_struct` hands back a *stable*
+/// pointer into the slot so the method mutates it in place and the
+/// next event sees the advanced state. Slots share the one id space
+/// with `STATE` / `STR_STATE` / `ARR_STATE`.
+static STRUCT_STATE: OnceLock<Mutex<Vec<Vec<u8>>>> = OnceLock::new();
+
 /// Slots written since the last drain. A state write marks its
 /// slot here; `drain_dirty` empties it after each event so the
 /// runtime refreshes only the bindings that actually changed.
@@ -52,6 +62,10 @@ fn str_state() -> &'static Mutex<Vec<Vec<u8>>> {
 
 fn arr_state() -> &'static Mutex<Vec<Vec<String>>> {
   ARR_STATE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn struct_state() -> &'static Mutex<Vec<Vec<u8>>> {
+  STRUCT_STATE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 fn dirty() -> &'static Mutex<DirtySet> {
@@ -266,6 +280,12 @@ pub extern "C" fn zo_state_init(count: u32) {
     arr_state.resize_with(count as usize, Vec::new);
   }
 
+  let mut struct_state = struct_state().lock().unwrap();
+
+  if struct_state.len() < count as usize {
+    struct_state.resize_with(count as usize, Vec::new);
+  }
+
   // Size the dirty set in lockstep (grow-only) so every
   // declared slot has a bit before the first write.
   dirty().lock().unwrap().ensure(count as usize);
@@ -353,6 +373,49 @@ pub extern "C" fn zo_state_get_str(slot: u32) -> *const u8 {
   match str_state.get(slot as usize) {
     Some(buf) => buf.as_ptr(),
     None => EMPTY.as_ptr(),
+  }
+}
+
+/// Write the 8 bytes of `val` into struct slot `slot` — the seed
+/// write for a reactive `mut S` whose value lives in a register
+/// (a struct up to 8 bytes, like `Rng { bits }`, which AAPCS64
+/// returns by value). `main`'s `mut rng = Rng::new(seed)` lowers
+/// to this so the cell owns the bytes before any event reads them;
+/// the slot's address (from `zo_state_get_struct`) is then handed
+/// to the `mut self` method, which mutates these bytes in place.
+#[unsafe(no_mangle)]
+pub extern "C" fn zo_state_set_struct_word(slot: u32, val: i64) {
+  {
+    let mut struct_state = struct_state().lock().unwrap();
+    let Some(slot_buf) = struct_state.get_mut(slot as usize) else {
+      return;
+    };
+
+    slot_buf.clear();
+    slot_buf.extend_from_slice(&val.to_le_bytes());
+  }
+
+  dirty().lock().unwrap().mark(slot);
+}
+
+/// Return a *stable* pointer to struct slot `slot`'s bytes. Unlike a
+/// scalar read, the caller mutates the struct in place through this
+/// pointer — a `mut self` method (`rng.range(…)`) writes the slot's
+/// fields directly, so the next event sees the advanced state. The
+/// slot Vec is pre-sized and never reallocated between events (only
+/// `set_struct` resizes it, and that runs in `main` before any
+/// event), so the pointer stays valid for the handler's duration.
+/// Out-of-range / unseeded reads return a static zeroed buffer so a
+/// stray dereference reads zeros instead of crashing.
+#[unsafe(no_mangle)]
+pub extern "C" fn zo_state_get_struct(slot: u32) -> *const u8 {
+  static EMPTY: [u8; 16] = [0; 16];
+
+  let struct_state = struct_state().lock().unwrap();
+
+  match struct_state.get(slot as usize) {
+    Some(buf) if !buf.is_empty() => buf.as_ptr(),
+    _ => EMPTY.as_ptr(),
   }
 }
 
@@ -1455,6 +1518,41 @@ mod tests {
     let bytes = unsafe { read_length_prefixed(q) };
 
     assert_eq!(bytes, b"");
+  }
+
+  #[test]
+  fn state_struct_round_trip_and_in_place_mutation() {
+    let _serial = state_lock();
+    zo_state_init(303);
+
+    // Seed slot 302 with an 8-byte struct value (a single `i64`
+    // field, like `Rng { bits }`).
+    let seed: i64 = 20260616;
+
+    zo_state_set_struct_word(302, seed);
+
+    // The read returns a stable pointer into the slot; mutating
+    // through it (as a `mut self` method does) must persist to the
+    // next read — that is what keeps a reactive `Rng` advancing
+    // across events.
+    let p = zo_state_get_struct(302) as *mut i64;
+
+    assert_eq!(unsafe { p.read_unaligned() }, seed);
+
+    let advanced = seed ^ (seed << 13);
+
+    unsafe { p.write_unaligned(advanced) };
+
+    let again = zo_state_get_struct(302) as *const i64;
+
+    assert_eq!(
+      unsafe { again.read_unaligned() },
+      advanced,
+      "a mutation through the slot pointer must persist",
+    );
+
+    // Out-of-range reads return a non-null zeroed buffer.
+    assert_eq!(unsafe { *zo_state_get_struct(99999) }, 0);
   }
 
   #[test]

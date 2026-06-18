@@ -5,6 +5,8 @@ import Base from "../../layouts/base.astro";
 import NavBar, { type Item } from "../../components/navigation/navbar.astro";
 import Header from "../../components/structure/header.astro";
 import Screen from "../../components/structure/screen.astro";
+import Paragraph from "../../components/atoms/paragraph.astro";
+import Reachout from "../../components/structure/reachout.astro";
 
 const title = "zo — How-to.";
 const description = "Browse, sample, and modify real zo programs.";
@@ -63,7 +65,12 @@ const flat = tree.filter(isFlat);
           </div>)}
         </div>
       </div>}
+      <Paragraph
+        class="how-to__note"
+        content="New to zo? The <a href='/initiation'>initiation</a> covers the fundamentals these programs build on."
+      />
     </section>
+    <Reachout />
   </Screen>
 </Base>
 
@@ -101,6 +108,7 @@ const flat = tree.filter(isFlat);
     font-size: 0.95rem;
     margin: 0 0 8px;
     opacity: 0.75;
+    text-transform: capitalize;
   }
 
   .how-to__category--flat
@@ -120,10 +128,17 @@ const flat = tree.filter(isFlat);
     text-decoration: none;
     border-bottom: 1px solid transparent;
     transition: border-color 0.15s ease;
+    text-transform: capitalize;
   }
 
   .how-to__link:hover {
     border-bottom-color: var(--green-100, currentColor);
+  }
+
+  /* Closing footnote: separated from the catalog, muted. */
+  .how-to__note {
+    margin-top: 32px;
+    font-size: 0.95rem;
   }
 
   @media (max-width: 768px) {

@@ -1,3 +1,6 @@
 fun main() {
   showln("hello, hacker!");
 }
+
+-- EXPECTED OUTPUT:
+-- hello, hacker!

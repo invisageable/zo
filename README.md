@@ -12,7 +12,7 @@ zo (pronounced `/zuː/` just like "zoo") iS A PRACTiCAL, LiGHTWEiGHT, CROSS-PLAT
 
 **JOiN THE DEVOLUTiON.**
 
-[home](https://zo.compilords.house) — [install](./crates/compiler/zo-notes/public/guidelines/01-install.md) — [initiation](https://zo.compilords.house/initiation) — [spec](https://zo.compilords.house/spec) — [news](https://zo.compilords.house/news) — [benchmark](crates/compiler/zo-benches) — [discord](https://discord.gg/JaNc4Nk5xw)
+[home](https://zo.compilords.house) — [install](./crates/compiler/zo-notes/public/guidelines/01-install.md) — [initiation](https://zo.compilords.house/initiation) — [how-to](https://zo.compilords.house/how-to) — [spec](https://zo.compilords.house/spec) — [news](https://zo.compilords.house/news) — [benchmark](crates/compiler/zo-benches) — [discord](https://discord.gg/JaNc4Nk5xw)
 
 ## usage.
 
