@@ -1,1 +1,78 @@
-fun main() {}
+load core::random;
+
+$: {
+  .card {
+    font-size: 12em;
+  }
+}
+
+enum Card {
+  Ace,
+  Two,
+  Three,
+  Four,
+  Five,
+  Six,
+  Seven,
+  Eight,
+  Nine,
+  Ten,
+  Jack,
+  Queen,
+  King,
+}
+
+-- A uniform random card — zo's take on Elm's `Random.uniform`.
+fun card_of(n: int) -> Card {
+  match n {
+    0 => Card::Ace,
+    1 => Card::Two,
+    2 => Card::Three,
+    3 => Card::Four,
+    4 => Card::Five,
+    5 => Card::Six,
+    6 => Card::Seven,
+    7 => Card::Eight,
+    8 => Card::Nine,
+    9 => Card::Ten,
+    10 => Card::Jack,
+    11 => Card::Queen,
+    _ => Card::King,
+  }
+}
+
+-- Elm's `viewCard`: each rank to its glyph. The Knight (🂬) has
+-- no rank in a 52-card deck, so Queen jumps straight to 🂭.
+fun glyph(card: Card) -> str {
+  match card {
+    Card::Ace => "🂡",
+    Card::Two => "🂢",
+    Card::Three => "🂣",
+    Card::Four => "🂤",
+    Card::Five => "🂥",
+    Card::Six => "🂦",
+    Card::Seven => "🂧",
+    Card::Eight => "🂨",
+    Card::Nine => "🂩",
+    Card::Ten => "🂪",
+    Card::Jack => "🂫",
+    Card::Queen => "🂭",
+    Card::King => "🂮",
+  }
+}
+
+fun main() {
+  mut rng: Rng = Rng::new(20260616);
+  mut face: str = glyph(Card::Three);
+
+  imu card_view: </> ::= <div class="card">{face}</div>;
+
+  imu app: </> ::= <>
+    <button @click={fn() => face = glyph(card_of(rng.range(0, 13)))}>
+      Draw
+    </button>
+    <card_view />
+  </>;
+
+  #render app;
+}

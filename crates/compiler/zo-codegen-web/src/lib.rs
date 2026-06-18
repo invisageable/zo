@@ -10,6 +10,7 @@
 //! reuses [`WebGen`] for its live rendering.
 
 mod reactive;
+mod transpile;
 
 use reactive::ReactiveJs;
 

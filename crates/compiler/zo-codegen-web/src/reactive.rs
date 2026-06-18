@@ -7,6 +7,8 @@
 //! **compile-time binding graph** — a write fires only the bindings its
 //! slot drives. No signals, no whole-stream diff, no re-render.
 
+use crate::transpile::{FnTranspiler, js_name};
+
 use zo_interner::{Interner, Symbol};
 use zo_sir::{
   BinOp, Insn, ListItemCmd, LoadSource, Sir, TemplateBindings, UnOp,
@@ -47,6 +49,8 @@ impl<'a> ReactiveJs<'a> {
     // lists are unreliable: a second closure over the same var records
     // none.
     let mut_vars = self.mut_vars();
+    // User functions the handlers call — they ship as JS alongside.
+    let mut handler_roots: Vec<Symbol> = Vec::new();
 
     for cmd in commands {
       let UiCommand::Event {
@@ -69,12 +73,37 @@ impl<'a> ReactiveJs<'a> {
         for var in written {
           push_unique(&mut state_vars, var);
         }
+
+        if let Some((start, end, _)) = self.closure_body(handler) {
+          for insn in &self.sir.instructions[start..end] {
+            if let Insn::Call { name, .. } = insn {
+              push_unique(&mut handler_roots, *name);
+            }
+          }
+        }
       }
     }
 
     if handlers.is_empty() {
       return None;
     }
+
+    // Transpile every user function the handlers and reactive
+    // initialisers reach (`glyph`, `card_of`, the `Rng` methods) to JS.
+    // `None` → a reachable call has no transpilable body (an FFI): fall
+    // back to a static page rather than emit a call to a function that
+    // doesn't exist in the browser.
+    let transpiler = FnTranspiler::new(self.sir, self.interner);
+    let main_range = transpiler.main_range();
+    let mut roots = handler_roots;
+
+    if let Some(range) = main_range {
+      for sym in transpiler.init_roots(range) {
+        push_unique(&mut roots, sym);
+      }
+    }
+
+    let functions = transpiler.emit_reachable(&roots)?;
 
     // The compile-time binding graph: each reactive var → the DOM patch
     // ops its writes drive. Op encodings: `["t",cmd]` text content,
@@ -134,7 +163,8 @@ impl<'a> ReactiveJs<'a> {
       ));
     }
 
-    let state_init = self.state_init(&state_vars, &array_vars);
+    let state_init =
+      self.state_init(&state_vars, &array_vars, &transpiler, main_range);
     let binds = self.binding_object(&ops);
     let computed = fn_table(&computed);
     let lists = fn_table(&lists);
@@ -146,6 +176,7 @@ impl<'a> ReactiveJs<'a> {
 
     Some(format!(
       "(function(){{\
+       {functions}\
        var state={{{state_init}}};\
        var binds={{{binds}}};\
        var computed={{{computed}}};\
@@ -166,8 +197,7 @@ impl<'a> ReactiveJs<'a> {
        document.addEventListener('click',function(e){{\
        var b=e.target.closest&&e.target.closest('button[data-id]');\
        if(b&&handlers[b.dataset.id])handlers[b.dataset.id](e);}});\
-       for(var c in computed){{var ce=q(c);if(ce)ce.textContent=computed[c]();}}\
-       for(var l in lists){{var le=q(l);if(le)le.innerHTML=lists[l]();}}\
+       for(var s in binds)fire(s);\
        }})();"
     ))
   }
@@ -175,14 +205,20 @@ impl<'a> ReactiveJs<'a> {
   /// `"var":initial, …` for the state object. A var in `array_vars`
   /// (a list's backing `[]T`) seeds to an empty array; the rest take
   /// their scalar `VarDef` initial.
-  fn state_init(&self, vars: &[Symbol], array_vars: &[Symbol]) -> String {
+  fn state_init(
+    &self,
+    vars: &[Symbol],
+    array_vars: &[Symbol],
+    transpiler: &FnTranspiler,
+    main_range: Option<(usize, usize)>,
+  ) -> String {
     vars
       .iter()
       .map(|v| {
         let init = if array_vars.contains(v) {
           "[]".to_string()
         } else {
-          self.initial(*v)
+          self.initial(*v, transpiler, main_range)
         };
 
         format!("{}:{init}", js_str(self.interner.get(*v)))
@@ -293,6 +329,10 @@ impl<'a> ReactiveJs<'a> {
 
     let mut js = String::new();
     let mut dirty: Vec<Symbol> = Vec::new();
+    // State vars the handler reads (not necessarily writes) — they must
+    // be seeded so `state[…]` exists, e.g. a captured `rng` the body
+    // threads through `Rng::range`.
+    let mut reads: Vec<Symbol> = Vec::new();
 
     for insn in &self.sir.instructions[start..end] {
       match insn {
@@ -322,6 +362,10 @@ impl<'a> ReactiveJs<'a> {
             dst.0,
             js_str(self.interner.get(*sym)),
           ));
+
+          if !reads.contains(sym) {
+            reads.push(*sym);
+          }
         }
         // A captured reactive var reads through its `Param` slot —
         // e.g. an array a handler mutates before its list binding is
@@ -340,6 +384,10 @@ impl<'a> ReactiveJs<'a> {
             dst.0,
             js_str(self.interner.get(*sym)),
           ));
+
+          if !reads.contains(sym) {
+            reads.push(*sym);
+          }
         }
         Insn::BinOp {
           dst, op, lhs, rhs, ..
@@ -384,6 +432,23 @@ impl<'a> ReactiveJs<'a> {
             dirty.push(*owner);
           }
         }
+        // A call to a user function — `glyph`, `card_of`, a `Rng`
+        // method. The callee ships as JS via the function transpiler
+        // (reachability is gathered alongside in `emit`), so the handler
+        // just invokes it by its `js_name`.
+        Insn::Call {
+          dst, name, args, ..
+        } => {
+          let passed: Vec<String> =
+            args.iter().map(|v| format!("v{}", v.0)).collect();
+
+          js.push_str(&format!(
+            "var v{}={}({});",
+            dst.0,
+            js_name(self.interner, *name),
+            passed.join(","),
+          ));
+        }
         // The closure body ends at its `Return`. The body range can
         // run to EOF for the last closure (no following `FunDef`), so
         // stop here rather than walk into the template instructions.
@@ -399,7 +464,17 @@ impl<'a> ReactiveJs<'a> {
       js.push_str(&format!("fire({});", js_str(self.interner.get(*var))));
     }
 
-    Some((js, dirty))
+    // Seed every state var the handler touches — writes (which also
+    // fire) and reads alike.
+    let mut seed = dirty;
+
+    for sym in reads {
+      if !seed.contains(&sym) {
+        seed.push(sym);
+      }
+    }
+
+    Some((js, seed))
   }
 
   /// A closure's body range `[start, end)` plus its param symbols in
@@ -523,41 +598,34 @@ impl<'a> ReactiveJs<'a> {
     None
   }
 
-  /// The JS literal for a state var's initial value.
-  fn initial(&self, var: Symbol) -> String {
-    for insn in &self.sir.instructions {
-      let Insn::VarDef {
+  /// A state var's initial value as a JS expression. Resolved within
+  /// `main`'s range (where the reactive `VarDef`s live), through the
+  /// function transpiler so a non-literal initialiser — `face =
+  /// glyph(Card::Three)` — becomes a real call (`f$..glyph([2])`), not
+  /// the `0` an int-only scan would leave. Falls back to `0` when the
+  /// initialiser can't be lowered.
+  fn initial(
+    &self,
+    var: Symbol,
+    transpiler: &FnTranspiler,
+    main_range: Option<(usize, usize)>,
+  ) -> String {
+    let Some(range) = main_range else {
+      return "0".to_string();
+    };
+
+    for insn in &self.sir.instructions[range.0..range.1] {
+      if let Insn::VarDef {
         name,
         init: Some(init),
         ..
       } = insn
-      else {
-        continue;
-      };
-
-      if *name != var {
-        continue;
+        && *name == var
+      {
+        return transpiler
+          .init_expr(init.0, range)
+          .unwrap_or_else(|| "0".to_string());
       }
-
-      for prev in &self.sir.instructions {
-        match prev {
-          Insn::ConstInt { dst, value, .. } if dst == init => {
-            return format!("{}", *value as i64);
-          }
-          Insn::ConstFloat { dst, value, .. } if dst == init => {
-            return format!("{value}");
-          }
-          Insn::ConstBool { dst, value, .. } if dst == init => {
-            return format!("{value}");
-          }
-          Insn::ConstString { dst, symbol, .. } if dst == init => {
-            return js_str(self.interner.get(*symbol));
-          }
-          _ => {}
-        }
-      }
-
-      return "0".to_string();
     }
 
     "0".to_string()
@@ -593,7 +661,7 @@ fn add_op(ops: &mut Vec<(Symbol, Vec<String>)>, var: Symbol, op: String) {
 }
 
 /// The JS operator for a zo binary op.
-fn binop_js(op: &BinOp) -> &'static str {
+pub(crate) fn binop_js(op: &BinOp) -> &'static str {
   match op {
     BinOp::Add | BinOp::Concat => "+",
     BinOp::Sub => "-",
@@ -617,7 +685,7 @@ fn binop_js(op: &BinOp) -> &'static str {
 }
 
 /// The JS operator for a zo unary op.
-fn unop_js(op: &UnOp) -> &'static str {
+pub(crate) fn unop_js(op: &UnOp) -> &'static str {
   match op {
     UnOp::Neg => "-",
     UnOp::Not => "!",
@@ -627,7 +695,7 @@ fn unop_js(op: &UnOp) -> &'static str {
 
 /// Escape `s` as a JS string literal (incl. `<`/`>` to keep it safe
 /// inside an inline `<script>`).
-fn js_str(s: &str) -> String {
+pub(crate) fn js_str(s: &str) -> String {
   let mut out = String::with_capacity(s.len() + 2);
 
   out.push('"');

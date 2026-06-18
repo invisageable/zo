@@ -245,6 +245,13 @@ const SYM_STATE_SET_STR: &str = "_zo_state_set_str";
 // the runtime's `ARR_STATE`; `arr.push(x)` lowers to this.
 const SYM_STATE_ARR_PUSH: &str = "_zo_state_arr_push";
 const SYM_STATE_ARR_SET: &str = "_zo_state_arr_set";
+// Struct-typed reactive slots (a `mut S` a handler mutates through a
+// `mut self` method, e.g. `Rng`) live in the runtime's `STRUCT_STATE`.
+// The get returns the slot's *address* — handed to the method as its
+// receiver so it mutates the cell in place; the set seeds the bytes
+// from a by-value (<= 8 byte) struct register.
+const SYM_STATE_GET_STRUCT: &str = "_zo_state_get_struct";
+const SYM_STATE_SET_STRUCT_WORD: &str = "_zo_state_set_struct_word";
 
 /// Synthetic-symbol base for per-list item-recipe blobs embedded
 /// in `template_data`. Sits below the enum-synthetic base
@@ -2300,6 +2307,78 @@ impl<'a> ARM64Gen<'a> {
       }
     }
 
+    // Unbound reactive mutables: a `mut` an event handler reaches that
+    // has no UI binding — e.g. a captured `Rng` the handler advances
+    // with `rng.range(…)`. The executor keeps such a mutable free (a
+    // `Load Local`, not a capture param) only for event handlers, so it
+    // must route through state; here it gets a slot so the load/store
+    // rewrites fire. Scoped strictly to event-handler closures — a
+    // concurrency or `.map` closure captures by value, and slotting its
+    // locals would wrongly route them through state.
+    let mut event_handlers: HashSet<&str> = HashSet::default();
+
+    for insn in insns.iter() {
+      if let Insn::Template { commands, .. } = insn {
+        for cmd in commands {
+          if let UiCommand::Event { handler, .. } = cmd {
+            event_handlers.insert(handler.as_str());
+          }
+        }
+      }
+    }
+
+    let mut unbound_reactive: Vec<Symbol> = Vec::new();
+    let mut in_handler = false;
+    let mut inner: HashSet<Symbol> = HashSet::default();
+
+    for (i, insn) in insns.iter().enumerate() {
+      match insn {
+        Insn::FunDef { name, kind, .. } => {
+          in_handler = matches!(kind, FunctionKind::Closure { .. })
+            && event_handlers.contains(self.interner.get(*name));
+
+          if in_handler {
+            inner.clear();
+
+            // A var declared OR written inside the closure is local to
+            // it — including synthetic temps a `match` stores
+            // (`__match_scrut__`, `__match_result__`), which carry no
+            // `VarDef`. Only a var stored *elsewhere* (main) and merely
+            // read here is an outer reactive mutable like `rng`.
+            for body in &insns[i + 1..] {
+              match body {
+                Insn::FunDef { .. } => break,
+                Insn::VarDef { name, .. }
+                | Insn::ConstDef { name, .. }
+                | Insn::Store { name, .. } => {
+                  inner.insert(*name);
+                }
+                _ => {}
+              }
+            }
+          }
+        }
+        Insn::Load {
+          src: LoadSource::Local(sym),
+          ..
+        }
+        | Insn::Store { name: sym, .. }
+          if in_handler
+            && !inner.contains(sym)
+            && sym_first_store_ty.contains_key(sym)
+            && !self.reactive_slots.contains_key(sym)
+            && !unbound_reactive.contains(sym) =>
+        {
+          unbound_reactive.push(*sym);
+        }
+        _ => {}
+      }
+    }
+
+    for sym in unbound_reactive {
+      self.reactive_slot_for(sym);
+    }
+
     // Pre-pass companion: find every function whose body
     // touches a reactive symbol. The inserted state-helper
     // `bl`s clobber X30, so those functions need a
@@ -3151,7 +3230,15 @@ impl<'a> ARM64Gen<'a> {
             && !self.reactive_arr_slots.contains(sym)
           {
             if let Some(dst_reg) = self.alloc_reg(*dst) {
-              self.emit_state_load(dst_reg, state_slot, ty_id.0 == STR_TYPE_ID);
+              if self.is_struct_ty(*ty_id) {
+                self.emit_state_load_struct(dst_reg, state_slot);
+              } else {
+                self.emit_state_load(
+                  dst_reg,
+                  state_slot,
+                  ty_id.0 == STR_TYPE_ID,
+                );
+              }
             }
 
             return;
@@ -4326,7 +4413,11 @@ impl<'a> ARM64Gen<'a> {
             None => return,
           };
 
-          self.emit_state_store(slot, value_reg, ty_id.0 == STR_TYPE_ID);
+          if self.is_struct_ty(*ty_id) {
+            self.emit_state_store_struct(slot, value_reg);
+          } else {
+            self.emit_state_store(slot, value_reg, ty_id.0 == STR_TYPE_ID);
+          }
 
           return;
         }
@@ -9481,6 +9572,39 @@ impl<'a> ARM64Gen<'a> {
     } else {
       SYM_STATE_SET
     });
+  }
+
+  /// Emit `mov w0, slot; bl _zo_state_get_struct; mov dst, x0` — the
+  /// read side of a reactive struct `mut`. Unlike a scalar, this
+  /// returns the slot's *address*: the value is handed to a `mut self`
+  /// method as its receiver (and to field reads as the base), so the
+  /// method mutates the cell in place. Mirrors how a struct local
+  /// loads its stack-slot address rather than a value.
+  fn emit_state_load_struct(&mut self, dst: Register, slot: u32) {
+    self.ensure_runtime_dylib_registered();
+    self.emitter.emit_mov_imm(X0, slot as u16);
+    self.emit_extern_call(SYM_STATE_GET_STRUCT);
+
+    if dst != X0 {
+      self.emitter.emit_mov_reg(dst, X0);
+    }
+  }
+
+  /// Emit `mov x1, value; mov w0, slot; bl _zo_state_set_struct_word`
+  /// — the write side of a reactive struct `mut` whose value fits a
+  /// register (a struct up to 8 bytes, AAPCS64-returned by value, like
+  /// `Rng`). Seeds the cell from `main`'s initialiser so the slot owns
+  /// the bytes before any event reads them. Mirrors `emit_state_store`'s
+  /// X1-first ordering.
+  fn emit_state_store_struct(&mut self, slot: u32, value: Register) {
+    self.ensure_runtime_dylib_registered();
+
+    if value != X1 {
+      self.emitter.emit_mov_reg(X1, value);
+    }
+
+    self.emitter.emit_mov_imm(X0, slot as u16);
+    self.emit_extern_call(SYM_STATE_SET_STRUCT_WORD);
   }
 
   /// Emit `mov x1, value; mov w0, slot; bl _zo_state_arr_push` —
