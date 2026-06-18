@@ -916,8 +916,9 @@ mod tests {
       js.contains("state[\"items\"].push(v1);fire(\"items\");"),
       "{js}"
     );
-    // Computed and list slots get an initial paint on load, so a
-    // non-empty first frame renders before any event fires.
-    assert!(js.contains("for(var l in lists)"), "{js}");
+    // Every binding (text, attr, computed, list) gets an initial paint
+    // on load via one fire pass, so a non-empty first frame renders
+    // before any event — here the list slot's `["l",5]` op runs on load.
+    assert!(js.contains("for(var s in binds)fire(s)"), "{js}");
   }
 }

@@ -86,7 +86,11 @@ impl Run {
 
     let temp_path = run_dir.join("a.out");
 
-    compiler.compile_analyzed(&analyzed, self.args.target.into(), &temp_path)?;
+    compiler.compile_analyzed(
+      &analyzed,
+      self.args.target.into(),
+      &temp_path,
+    )?;
 
     // Run with cwd set to the source file's parent so relative paths in
     // `read_file(...)` etc. resolve against the program's own directory

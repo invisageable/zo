@@ -149,8 +149,11 @@ impl<'a> FnTranspiler<'a> {
     }
 
     let args: Vec<String> = (0..body.params).map(|i| format!("a{i}")).collect();
-    let mut out =
-      format!("function {}({}){{", js_name(self.interner, sym), args.join(","));
+    let mut out = format!(
+      "function {}({}){{",
+      js_name(self.interner, sym),
+      args.join(",")
+    );
 
     if !locals.is_empty() {
       let decls: Vec<String> = locals.iter().map(|n| format!("l{n}")).collect();
@@ -227,7 +230,10 @@ impl<'a> FnTranspiler<'a> {
         base, index, value, ..
       } => format!("v{}[{index}]=v{};", base.0, value.0),
       Insn::EnumConstruct {
-        dst, variant, fields, ..
+        dst,
+        variant,
+        fields,
+        ..
       } => {
         let mut parts = vec![variant.to_string()];
         parts.extend(fields.iter().map(|f| format!("v{}", f.0)));
@@ -277,7 +283,11 @@ impl<'a> FnTranspiler<'a> {
   /// literals, enum/struct construction, and calls, recursively:
   /// `face = glyph(Card::Three)` becomes `f$..glyph([2])`. `None` when
   /// the chain hits an instruction it can't lower.
-  pub(crate) fn init_expr(&self, vid: u32, range: (usize, usize)) -> Option<String> {
+  pub(crate) fn init_expr(
+    &self,
+    vid: u32,
+    range: (usize, usize),
+  ) -> Option<String> {
     for insn in &self.sir.instructions[range.0..range.1] {
       match insn {
         Insn::ConstInt { dst, value, .. } if dst.0 == vid => {
@@ -293,7 +303,10 @@ impl<'a> FnTranspiler<'a> {
           return Some(js_str(self.interner.get(*symbol)));
         }
         Insn::EnumConstruct {
-          dst, variant, fields, ..
+          dst,
+          variant,
+          fields,
+          ..
         } if dst.0 == vid => {
           let mut parts = vec![variant.to_string()];
 
