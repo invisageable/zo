@@ -2,6 +2,8 @@
 pub(crate) const TOKENIZER_NAME: &str = "tokenizer";
 /// The name of the syntax analysis phase.
 pub(crate) const PARSER_NAME: &str = "parser";
+/// The name of the module-resolution / preload phase.
+pub(crate) const RESOLVER_NAME: &str = "resolver";
 /// The name of the semantic analysis phase.
 pub(crate) const ANALYZER_NAME: &str = "analyzer";
 /// The name of the code generation phase.

@@ -58,7 +58,7 @@ const RUNTIME_UI_DYLIB: &str = "libzo_runtime_ui.so";
 /// success signal — every windowed program is an infinite
 /// frame loop, so an early exit means it crashed during init
 /// (missing dylib, bad symbol, bogus Mach-O header, etc.).
-const WINDOW_KILL_AFTER: Duration = Duration::from_secs(2);
+const WINDOW_KILL_AFTER: Duration = Duration::from_secs(3);
 
 /// Test category — determines how to run and what to expect.
 #[derive(Clone, Copy)]

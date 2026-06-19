@@ -2,7 +2,7 @@ load core::c::*;
 load core::graphics::misato::*;
 load provider::raylib::*;
 
--- misato — 1000 1×1×1 orange cubes in a 10×10×10 grid
+-- misato — 1000 1×1×1 normal-shaded cubes in a 10×10×10 grid
 -- centered at origin (spacing 1.5; spans ~[-7, +7] per
 -- axis). Camera at (25, 20, 25) → origin. FPS printed to
 -- stdout once per second; should sit at 60.
@@ -19,10 +19,8 @@ fun main() {
     .look_at(0.0, 0.0, 0.0);
 
   imu geom := BoxGeometry::new(1.0, 1.0, 1.0);
-  imu mat := MeshStandardMaterial::new(0xFF8000FF);   -- orange
+  imu mat := MeshNormalMaterial::new();
 
-  -- 10×10×10 grid centered at origin (spacing 1.5; offset
-  -- shifts indices [0..10] into [-7.5, +6.0]).
   for i := 0..10 {
     for j := 0..10 {
       for k := 0..10 {
@@ -32,6 +30,7 @@ fun main() {
         imu x: float = fi * 1.5 - 7.5;
         imu y: float = fj * 1.5 - 7.5;
         imu z: float = fk * 1.5 - 7.5;
+
         imu cube := Mesh::at(geom, mat, x, y, z);
         scene.add(cube);
       }

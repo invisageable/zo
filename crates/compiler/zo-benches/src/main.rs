@@ -179,6 +179,7 @@ fn main() {
            {diff_pct:+.0}%) [{status}]",
           current = fmt_dur(*current_ns),
           baseline = fmt_dur(baseline_ns),
+          diff_pct = diff_pct * 100.0,
         );
       } else {
         println!("  {name}: {} (no baseline)", fmt_dur(*current_ns));
@@ -418,6 +419,13 @@ fn time_runtime(binary: &PathBuf, runs: usize, argv: &str, with_rss: bool) {
   if !times.is_empty() {
     let avg = times.iter().sum::<u64>() / times.len() as u64;
     println!("  Runtime avg: {}", fmt_dur(avg));
+
+    // The cold first run is dyld + page-in warmup, not steady
+    // state. Exclude it for the warm number, matching the
+    // compile-side `Hot avg` and the README's warm runtime table.
+    if let Some(hot) = hot_avg(&times) {
+      println!("  Runtime hot avg: {}", fmt_dur(hot));
+    }
   }
 
   if !peaks.is_empty() {
@@ -952,6 +960,10 @@ fn time_gleam_runtime(proj_dir: &Path, module: &str, runs: usize) {
     let avg = times.iter().sum::<u64>() / times.len() as u64;
 
     println!("  Runtime avg: {}", fmt_dur(avg));
+
+    if let Some(hot) = hot_avg(&times) {
+      println!("  Runtime hot avg: {}", fmt_dur(hot));
+    }
   }
 }
 

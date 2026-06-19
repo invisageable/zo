@@ -1,5 +1,6 @@
 use crate::constants::{
-  ANALYZER_NAME, CODEGEN_NAME, LINKER_NAME, PARSER_NAME, TOKENIZER_NAME,
+  ANALYZER_NAME, CODEGEN_NAME, LINKER_NAME, PARSER_NAME, RESOLVER_NAME,
+  TOKENIZER_NAME,
 };
 
 use crate::stage::Stage;
@@ -831,6 +832,8 @@ impl Compiler {
     let mut parsing = parser.parse();
     self.profiler.end_phase(PARSER_NAME);
 
+    self.profiler.start_phase(RESOLVER_NAME);
+
     let mut ctx = DfsCtx::new();
 
     ctx.register_file(file_path.to_path_buf(), source.to_string());
@@ -1124,6 +1127,8 @@ impl Compiler {
         .module_table_per_path
         .insert(folder_path.clone(), combined);
     }
+
+    self.profiler.end_phase(RESOLVER_NAME);
 
     // Analyze with imported symbols pre-loaded.
     self.profiler.start_phase(ANALYZER_NAME);

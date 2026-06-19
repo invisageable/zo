@@ -25,10 +25,10 @@ exclude = [
   ".todo.md",
 ]
 
-resolver = '2'
+resolver = "3"
 
 [workspace.package]
-authors = ["the compilords team"]
+authors = ["The compilords Team"]
 edition = "2024"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/invisageable/zo"

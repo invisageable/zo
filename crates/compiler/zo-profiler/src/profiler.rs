@@ -27,6 +27,8 @@ pub struct Profiler {
   artifacts_count: usize,
   /// Number of artifacts linked.
   artifacts_linked: usize,
+  /// Wall-clock start, set when the first phase begins.
+  wall_start: Option<Instant>,
 }
 
 impl Profiler {
@@ -42,11 +44,15 @@ impl Profiler {
       inferences_count: 0,
       artifacts_count: 0,
       artifacts_linked: 0,
+      wall_start: None,
     }
   }
 
   /// Adds a new start timing a phase.
   pub fn start_phase(&mut self, phase_name: &str) {
+    // The first phase marks the start of compilation — anchor the
+    // wall clock here so work outside any phase still counts.
+    self.wall_start.get_or_insert_with(Instant::now);
     self.active_phases.insert(phase_name.into(), Instant::now());
   }
 
@@ -64,13 +70,15 @@ impl Profiler {
     self.phase_times.get(phase_name).copied()
   }
 
-  /// Gets total frontend time (tokenizer + parser + analyzer).
+  /// Gets total frontend time (tokenizer + parser + resolver +
+  /// analyzer).
   pub fn frontend_time(&self) -> Duration {
     let tokenizer = self.phase_time("tokenizer").unwrap_or(Duration::ZERO);
     let parser = self.phase_time("parser").unwrap_or(Duration::ZERO);
+    let resolver = self.phase_time("resolver").unwrap_or(Duration::ZERO);
     let analyzer = self.phase_time("analyzer").unwrap_or(Duration::ZERO);
 
-    tokenizer + parser + analyzer
+    tokenizer + parser + resolver + analyzer
   }
 
   /// Gets total backend time (codegen phases)
@@ -81,9 +89,17 @@ impl Profiler {
     codegen + linker
   }
 
-  /// Gets total compilation time.
+  /// Gets the summed time of all measured phases.
   pub fn total_time(&self) -> Duration {
     self.phase_times.values().sum()
+  }
+
+  /// Gets wall-clock compile time, from the first phase to now.
+  pub fn wall_time(&self) -> Duration {
+    match self.wall_start {
+      Some(start) => start.elapsed(),
+      None => self.total_time(),
+    }
   }
 
   /// Format time duration with appropriate unit
@@ -196,7 +212,7 @@ impl Profiler {
     buffer.str("│");
     buffer.newline();
 
-    let total_time = self.total_time();
+    let total_time = self.wall_time();
     let total_secs = total_time.as_secs_f64();
     let frontend_time = self.frontend_time();
     let percentage = self.percentage(frontend_time, total_secs);
@@ -242,6 +258,17 @@ impl Profiler {
         buffer.str(" nodes.");
         buffer.newline();
       }
+    }
+
+    if let Some(resolver_time) = self.phase_time("resolver") {
+      let percentage = self.percentage(resolver_time, total_secs);
+
+      buffer.str("│   ├── ⏺ [zo@resolver] time — ");
+      buffer.str(&self.format_time(resolver_time));
+      buffer.str(" (");
+      buffer.str(&self.format_percent(percentage));
+      buffer.str("%).");
+      buffer.newline();
     }
 
     if let Some(analyzer_time) = self.phase_time("analyzer") {
@@ -308,6 +335,19 @@ impl Profiler {
         buffer.str(" files.");
         buffer.newline();
       }
+    }
+
+    let untracked = total_time.saturating_sub(self.total_time());
+
+    if untracked > Duration::from_micros(1) {
+      let percentage = self.percentage(untracked, total_secs);
+
+      buffer.str("├── ⏺ [zo@untracked] time — ");
+      buffer.str(&self.format_time(untracked));
+      buffer.str(" (");
+      buffer.str(&self.format_percent(percentage));
+      buffer.str("%).");
+      buffer.newline();
     }
 
     buffer.str("└── ✓ [zo@total] time — ");

@@ -23,12 +23,8 @@ fun main() {
     .set_position(25.0, 20.0, 25.0)
     .look_at(0.0, 0.0, 0.0);
 
-  imu mat := MeshStandardMaterial::new(0xFF8000FF);   -- orange
+  imu mat := MeshNormalMaterial::new();
 
-  -- 10×10×10 grid centered at origin (spacing 1.5; offset
-  -- shifts indices [0..10] into [-7.5, +6.0]).
-  -- Each cube gets its OWN BoxGeometry — 1000 unique GPU
-  -- mesh uploads. Sizes vary with grid coords.
   for i := 0..10 {
     for j := 0..10 {
       for k := 0..10 {
@@ -40,9 +36,6 @@ fun main() {
         imu y: float = fj * 1.5 - 7.5;
         imu z: float = fk * 1.5 - 7.5;
 
-        -- Per-cube size variance: small in the centre,
-        -- bigger toward the edges. (i-4.5) ranges [-4.5,
-        -- +4.5]; multiplying gives a smooth gradient.
         imu di: float = fi - 4.5;
         imu dj: float = fj - 4.5;
         imu dk: float = fk - 4.5;
