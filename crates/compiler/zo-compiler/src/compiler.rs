@@ -1293,7 +1293,8 @@ impl Compiler {
 
     // TODO: move all these stages in analyzer.
     Dce::new(&mut semantic.sir, dce_roots, &session.interner).eliminate();
-    Inline::new(&mut semantic.sir, self.release).inline();
+    Inline::new(&mut semantic.sir, &mut session.interner, self.release)
+      .inline();
     Ownership::new(&mut semantic.sir, &session.interner, &session.ty_checker)
       .check();
 

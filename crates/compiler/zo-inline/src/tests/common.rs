@@ -82,6 +82,70 @@ pub fn double_and_caller(interner: &mut Interner) -> (Sir, Symbol) {
   (make_sir(insns), double)
 }
 
+/// A branchy `max(a, b)` if/else candidate and a `main` calling it.
+pub fn max_and_caller(interner: &mut Interner) -> (Sir, Symbol) {
+  let max = interner.intern("max");
+  let main = interner.intern("main");
+
+  let insns = vec![
+    fundef(max, 2),
+    Insn::Load {
+      dst: ValueId(1),
+      src: LoadSource::Param(0),
+      ty_id: TyId(1),
+    },
+    Insn::Load {
+      dst: ValueId(2),
+      src: LoadSource::Param(1),
+      ty_id: TyId(1),
+    },
+    Insn::BinOp {
+      dst: ValueId(3),
+      op: BinOp::Gt,
+      lhs: ValueId(1),
+      rhs: ValueId(2),
+      ty_id: TyId(1),
+    },
+    Insn::BranchIfNot {
+      cond: ValueId(3),
+      target: 1,
+    },
+    Insn::Load {
+      dst: ValueId(4),
+      src: LoadSource::Param(0),
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: Some(ValueId(4)),
+      ty_id: TyId(1),
+    },
+    Insn::Label { id: 1 },
+    Insn::Load {
+      dst: ValueId(5),
+      src: LoadSource::Param(1),
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: Some(ValueId(5)),
+      ty_id: TyId(1),
+    },
+    fundef(main, 0),
+    Insn::Call {
+      dst: ValueId(11),
+      name: max,
+      callee_pack: None,
+      args: vec![ValueId(10), ValueId(20)],
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: None,
+      ty_id: TyId(1),
+    },
+  ];
+
+  (make_sir(insns), max)
+}
+
 /// Count `Call`s to `name`.
 pub fn calls(sir: &Sir, name: Symbol) -> usize {
   sir

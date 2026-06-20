@@ -1,11 +1,12 @@
 //! SIR→SIR function inlining for `--release` builds.
 //!
-//! Replaces a call to a small pure-leaf function with its body.
+//! Replaces a call to a small pure function with its body.
 
-use zo_interner::Symbol;
+use zo_interner::{Interner, Symbol};
 use zo_sir::{Insn, LoadSource, Sir};
 use zo_span::Span;
-use zo_value::{FunctionKind, ValueId};
+use zo_ty::{Mutability, TyId};
+use zo_value::{FunctionKind, Pubness, ValueId};
 
 use rustc_hash::FxHashMap as HashMap;
 
@@ -20,16 +21,24 @@ pub enum Release {
 }
 
 /// Largest callee body, in SIR instructions, eligible to inline.
-const INLINE_MAX_INSNS: usize = 8;
+const INLINE_MAX_INSNS: usize = 16;
+
+/// How a callee's return value reaches the call's `dst`.
+enum ReturnMode {
+  /// A single straight-line return.
+  Direct(Option<ValueId>),
+  /// Branches or multiple returns, carrying the return type.
+  Slot(TyId),
+}
 
 /// A callee cleared for inlining.
 struct Candidate {
-  /// Body instructions, without the `FunDef` or `Return`.
+  /// Body instructions, without the `FunDef`.
   body: Vec<Insn>,
   /// Declared parameter count.
   param_count: usize,
-  /// The returned value, `None` for a void function.
-  ret: Option<ValueId>,
+  /// How the return value reaches the call site.
+  ret: ReturnMode,
   /// ValueId stride to reserve per inlined copy.
   value_span: u32,
   /// Label stride to reserve per inlined copy.
@@ -37,15 +46,24 @@ struct Candidate {
 }
 
 /// The SIR→SIR function inliner.
-pub struct Inline<'sir> {
-  sir: &'sir mut Sir,
+pub struct Inline<'a> {
+  sir: &'a mut Sir,
+  interner: &'a mut Interner,
   release: Release,
 }
 
-impl<'sir> Inline<'sir> {
+impl<'a> Inline<'a> {
   /// Creates an inliner over `sir`.
-  pub fn new(sir: &'sir mut Sir, release: Release) -> Self {
-    Self { sir, release }
+  pub fn new(
+    sir: &'a mut Sir,
+    interner: &'a mut Interner,
+    release: Release,
+  ) -> Self {
+    Self {
+      sir,
+      interner,
+      release,
+    }
   }
 
   /// Inlines every eligible call site.
@@ -175,52 +193,114 @@ impl<'sir> Inline<'sir> {
   ) {
     let mut body = candidate.body.clone();
     let value_base = self.sir.next_value_id;
-    let label_base = self.sir.next_label_id;
 
     Sir::offset_value_ids(&mut body, value_base);
-    Sir::offset_labels(&mut body, label_base);
+    Sir::offset_labels(&mut body, self.sir.next_label_id);
 
     self.sir.next_value_id += candidate.value_span;
     self.sir.next_label_id += candidate.label_span;
 
-    let mut param_map: HashMap<u32, ValueId> = HashMap::default();
+    let param_map = bind_params(&mut body, args);
 
-    for insn in body.iter_mut() {
-      if let Insn::Load {
-        src: LoadSource::Param(i),
-        dst: param_dst,
-        ..
-      } = insn
-        && let Some(&arg) = args.get(*i as usize)
-      {
-        param_map.insert(param_dst.0, arg);
-        *insn = Insn::Nop;
+    match candidate.ret {
+      ReturnMode::Direct(ret) => {
+        if let Some(ret) = ret {
+          let renumbered = ret.0 + value_base;
+          let final_ret = param_map
+            .get(&renumbered)
+            .copied()
+            .unwrap_or(ValueId(renumbered));
+
+          subst.insert(dst.0, final_ret);
+        }
+
+        for insn in body {
+          new_insns.push(insn);
+          new_spans.push(span);
+        }
+      }
+      ReturnMode::Slot(ret_ty) => {
+        // A fresh local merges the return values from each branch;
+        // mem2reg promotes it back to a register during codegen.
+        let slot = self.interner.intern(&format!("__inline_ret_{}__", dst.0));
+        let merge = self.sir.next_label_id;
+
+        self.sir.next_label_id += 1;
+
+        new_insns.push(Insn::VarDef {
+          name: slot,
+          ty_id: ret_ty,
+          init: None,
+          mutability: Mutability::Yes,
+          pubness: Pubness::No,
+        });
+        new_spans.push(span);
+
+        for insn in body {
+          match insn {
+            Insn::Return {
+              value: Some(value),
+              ty_id,
+            } => {
+              new_insns.push(Insn::Store {
+                name: slot,
+                value,
+                ty_id,
+              });
+              new_spans.push(span);
+              new_insns.push(Insn::Jump { target: merge });
+              new_spans.push(span);
+            }
+            Insn::Return { value: None, .. } => {
+              new_insns.push(Insn::Jump { target: merge });
+              new_spans.push(span);
+            }
+            other => {
+              new_insns.push(other);
+              new_spans.push(span);
+            }
+          }
+        }
+
+        new_insns.push(Insn::Label { id: merge });
+        new_spans.push(span);
+        new_insns.push(Insn::Load {
+          dst,
+          src: LoadSource::Local(slot),
+          ty_id: ret_ty,
+        });
+        new_spans.push(span);
       }
     }
+  }
+}
 
-    for insn in body.iter_mut() {
-      insn.visit_value_ids_mut(&mut |value| {
-        if let Some(&arg) = param_map.get(&value.0) {
-          *value = arg;
-        }
-      });
-    }
+/// Drops each `Load param[i]` and maps its result to `args[i]`.
+fn bind_params(body: &mut [Insn], args: &[ValueId]) -> HashMap<u32, ValueId> {
+  let mut param_map: HashMap<u32, ValueId> = HashMap::default();
 
-    if let Some(ret) = candidate.ret {
-      let renumbered = ret.0 + value_base;
-      let final_ret = param_map
-        .get(&renumbered)
-        .copied()
-        .unwrap_or(ValueId(renumbered));
-
-      subst.insert(dst.0, final_ret);
-    }
-
-    for insn in body {
-      new_insns.push(insn);
-      new_spans.push(span);
+  for insn in body.iter_mut() {
+    if let Insn::Load {
+      src: LoadSource::Param(i),
+      dst,
+      ..
+    } = insn
+      && let Some(&arg) = args.get(*i as usize)
+    {
+      param_map.insert(dst.0, arg);
+      *insn = Insn::Nop;
     }
   }
+
+  for insn in body.iter_mut() {
+    insn.visit_value_ids_mut(&mut |value| {
+      if let Some(&arg) = param_map.get(&value.0) {
+        *value = arg;
+      }
+    });
+  }
+
+  param_map
 }
 
 /// Whether `insn` ends a function body.
@@ -237,41 +317,56 @@ fn build_candidate(body: &[Insn], param_count: usize) -> Option<Candidate> {
     return None;
   }
 
-  let (last, rest) = body.split_last()?;
+  let mut returns = 0;
+  let mut has_branch = false;
+  let mut ret_ty = None;
 
-  let Insn::Return { value, .. } = last else {
-    return None;
-  };
-
-  if !rest.iter().all(is_pure_value_insn) {
-    return None;
+  for insn in body {
+    match insn {
+      Insn::Return { ty_id, .. } => {
+        returns += 1;
+        ret_ty = Some(*ty_id);
+      }
+      Insn::Label { .. } | Insn::Jump { .. } | Insn::BranchIfNot { .. } => {
+        has_branch = true;
+      }
+      other if is_inlinable_insn(other) => {}
+      _ => return None,
+    }
   }
 
-  let mut value_span = 0u32;
+  let ret_ty = ret_ty?;
+  let (value_span, label_span) = strides(body);
 
-  for insn in rest {
-    let mut probe = insn.clone();
+  let single_return = returns == 1
+    && !has_branch
+    && matches!(body.last(), Some(Insn::Return { .. }));
 
-    probe.visit_value_ids_mut(&mut |value| {
-      value_span = value_span.max(value.0 + 1);
-    });
+  if single_return {
+    let Some(Insn::Return { value, .. }) = body.last() else {
+      return None;
+    };
+
+    Some(Candidate {
+      body: body[..body.len() - 1].to_vec(),
+      param_count,
+      ret: ReturnMode::Direct(*value),
+      value_span,
+      label_span,
+    })
+  } else {
+    Some(Candidate {
+      body: body.to_vec(),
+      param_count,
+      ret: ReturnMode::Slot(ret_ty),
+      value_span,
+      label_span,
+    })
   }
-
-  if let Some(returned) = value {
-    value_span = value_span.max(returned.0 + 1);
-  }
-
-  Some(Candidate {
-    body: rest.to_vec(),
-    param_count,
-    ret: *value,
-    value_span,
-    label_span: 0,
-  })
 }
 
-/// Whether `insn` is side-effect-free value computation.
-fn is_pure_value_insn(insn: &Insn) -> bool {
+/// Whether `insn` is side-effect-free and safe to duplicate.
+fn is_inlinable_insn(insn: &Insn) -> bool {
   matches!(
     insn,
     Insn::ConstInt { .. }
@@ -283,8 +378,36 @@ fn is_pure_value_insn(insn: &Insn) -> bool {
       | Insn::UnOp { .. }
       | Insn::Cast { .. }
       | Insn::TupleIndex { .. }
+      | Insn::Label { .. }
+      | Insn::Jump { .. }
+      | Insn::BranchIfNot { .. }
       | Insn::Nop
   )
+}
+
+/// One past the largest ValueId and label `body` mentions.
+fn strides(body: &[Insn]) -> (u32, u32) {
+  let mut value_span = 0u32;
+  let mut label_span = 0u32;
+
+  for insn in body {
+    let mut probe = insn.clone();
+
+    probe.visit_value_ids_mut(&mut |value| {
+      value_span = value_span.max(value.0 + 1);
+    });
+
+    match insn {
+      Insn::Label { id } => label_span = label_span.max(id + 1),
+      Insn::Jump { target } => label_span = label_span.max(target + 1),
+      Insn::BranchIfNot { target, .. } => {
+        label_span = label_span.max(target + 1)
+      }
+      _ => {}
+    }
+  }
+
+  (value_span, label_span)
 }
 
 /// Resets each `FunDef`'s `body_start` to its new index.
