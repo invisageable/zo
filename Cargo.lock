@@ -8221,6 +8221,7 @@ dependencies = [
  "zo-dce",
  "zo-error",
  "zo-host-paths",
+ "zo-inline",
  "zo-interner",
  "zo-linker",
  "zo-misato",
@@ -8307,6 +8308,7 @@ dependencies = [
  "zo-compiler",
  "zo-error",
  "zo-host-paths",
+ "zo-inline",
  "zo-interner",
  "zo-parser",
  "zo-reporter",
@@ -8380,6 +8382,18 @@ dependencies = [
 [[package]]
 name = "zo-host-paths"
 version = "0.5.0"
+
+[[package]]
+name = "zo-inline"
+version = "0.5.0"
+dependencies = [
+ "rustc-hash 2.1.2",
+ "zo-interner",
+ "zo-sir",
+ "zo-span",
+ "zo-ty",
+ "zo-value",
+]
 
 [[package]]
 name = "zo-interner"

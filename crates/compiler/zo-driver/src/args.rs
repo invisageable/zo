@@ -48,6 +48,16 @@ pub struct Args {
   /// at the 10M LoC/s target.
   #[arg(long)]
   pub explain_decisions: bool,
+  /// Build with optimizations (e.g. function inlining).
+  #[arg(
+    long,
+    value_enum,
+    num_args = 0..=1,
+    require_equals = true,
+    default_value_t = Release::No,
+    default_missing_value = "yes",
+  )]
+  pub release: Release,
   /// The number of worker threads to use. Defaults number of logical CPUs.
   #[arg(short, long, default_value_t = num_cpus::get())]
   pub workers: usize,
@@ -197,6 +207,27 @@ impl From<Format> for DiagnosticFormat {
       Format::Human => Self::Human,
       Format::Json => Self::Json,
       Format::Xml => Self::Xml,
+    }
+  }
+}
+
+/// Whether `--release` optimization passes run.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[clap(rename_all = "lower")]
+pub enum Release {
+  /// Dev build — no optimization passes (default).
+  #[default]
+  No,
+  /// Optimized build.
+  Yes,
+}
+
+/// Maps the CLI toggle to the inliner's `Release`.
+impl From<Release> for zo_inline::Release {
+  fn from(release: Release) -> Self {
+    match release {
+      Release::No => Self::No,
+      Release::Yes => Self::Yes,
     }
   }
 }

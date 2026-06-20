@@ -11,6 +11,7 @@ use zo_codegen::codegen::Codegen;
 use zo_codegen_backend::{Target, Webviewing};
 use zo_dce::Dce;
 use zo_error::{Error, ErrorKind, Severity};
+use zo_inline::{Inline, Release};
 use zo_interner::Symbol;
 use zo_module_resolver::{
   ImportedSymbols, ModuleExports, ModuleResolver, extract_exports,
@@ -257,6 +258,8 @@ pub struct Compiler {
   /// `--target webview` build; native and webview share a host triple,
   /// so this is the one bit that distinguishes them at codegen.
   webviewing: Webviewing,
+  /// Whether optimization passes run.
+  release: Release,
 }
 
 /// Merges `other` into `into`. Used to fold the `exported`
@@ -635,6 +638,7 @@ impl Compiler {
       quiet: false,
       test_mode: false,
       webviewing: Webviewing::No,
+      release: Release::No,
     }
   }
 
@@ -654,6 +658,7 @@ impl Compiler {
       quiet: false,
       test_mode: false,
       webviewing: Webviewing::No,
+      release: Release::No,
     }
   }
 
@@ -666,6 +671,11 @@ impl Compiler {
   /// binary calls `_zo_run_web` (wry) instead of `_zo_run_native`.
   pub fn set_webviewing(&mut self, webviewing: Webviewing) {
     self.webviewing = webviewing;
+  }
+
+  /// Sets whether optimization passes run.
+  pub fn set_release(&mut self, release: Release) {
+    self.release = release;
   }
 
   /// Collected errors from the last compilation.
@@ -1281,7 +1291,9 @@ impl Compiler {
       }
     }
 
+    // TODO: move all these stages in analyzer.
     Dce::new(&mut semantic.sir, dce_roots, &session.interner).eliminate();
+    Inline::new(&mut semantic.sir, self.release).inline();
     Ownership::new(&mut semantic.sir, &session.interner, &session.ty_checker)
       .check();
 

@@ -68,6 +68,8 @@ impl Build {
       quiet: self.args.quiet,
     });
 
+    compiler.set_release(self.args.release.into());
+
     compiler
   }
 

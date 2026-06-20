@@ -18,6 +18,7 @@ zo-codegen-backend = { workspace = true }
 zo-dce = { workspace = true }
 zo-error = { workspace = true }
 zo-host-paths = { workspace = true }
+zo-inline = { workspace = true }
 zo-interner = { workspace = true }
 zo-linker = { workspace = true }
 zo-ownership = { workspace = true }

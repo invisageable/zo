@@ -81,6 +81,7 @@ zo-error = { path = "crates/compiler/zo-error", version = "0.5.0" }
 zo-executor = { path = "crates/compiler/zo-executor", version = "0.5.0" }
 zo-abi = { path = "crates/compiler/zo-abi", version = "0.5.0" }
 zo-host-paths = { path = "crates/compiler/zo-host-paths", version = "0.5.0" }
+zo-inline = { path = "crates/compiler/zo-inline", version = "0.5.0" }
 zo-interner = { path = "crates/compiler/zo-interner", version = "0.5.0" }
 zo-linker = { path = "crates/compiler/zo-linker", version = "0.5.0" }
 zo-lsp = { path = "crates/compiler/zo-lsp", version = "0.5.0" }
