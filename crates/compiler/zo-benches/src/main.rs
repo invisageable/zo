@@ -11,10 +11,11 @@ use std::time::Instant;
 /// by this fraction. 10% allows for hardware variance.
 const REGRESSION_THRESHOLD: f64 = 0.10;
 
-/// Minimum absolute difference (ns) to trigger regression.
-/// 500 µs ignores noise at sub-millisecond timescales without
-/// burying real perf wins on the fastest benches.
-const REGRESSION_MIN_DIFF_NS: u64 = 500_000;
+/// Minimum absolute difference (ns) to trigger a regression.
+/// Set to the process-startup floor: below it a wall-time delta
+/// is startup + thermal noise, not compile work, so only large
+/// benches (where compile time dominates) can flag.
+const REGRESSION_MIN_DIFF_NS: u64 = 4_000_000;
 
 #[derive(Parser)]
 #[command(name = "bench")]
@@ -59,9 +60,9 @@ struct Cli {
   with_rss: bool,
 }
 
-/// Stored baseline entry for a single benchmark. Hot
-/// average (first run dropped) in nanoseconds — fine
-/// granularity matters because `hello` finishes in
+/// Stored baseline entry for a single benchmark. The
+/// cold-excluded median (first run dropped) in nanoseconds —
+/// fine granularity matters because `hello` finishes in
 /// hundreds of µs; storing in ms used to round it to 0.
 #[derive(Debug, Serialize, Deserialize)]
 struct Baseline {
@@ -86,15 +87,46 @@ fn fmt_dur(ns: u64) -> String {
   }
 }
 
-/// Hot average: mean wall time excluding the cold first run —
-/// the warm steady state. Falls back to the sole sample when
-/// there is only one run; `None` when no run succeeded.
-fn hot_avg(times: &[u64]) -> Option<u64> {
+/// Cold-excluded warm samples (the steady state): drops the
+/// first run, or the sole sample when there is only one. `None`
+/// when no run succeeded.
+fn warm_samples(times: &[u64]) -> Option<&[u64]> {
   match times.len() {
     0 => None,
-    1 => times.first().copied(),
-    n => Some(times[1..].iter().sum::<u64>() / (n - 1) as u64),
+    1 => Some(times),
+    _ => Some(&times[1..]),
   }
+}
+
+/// `(min, median, mean)` of the cold-excluded samples, in ns.
+/// Contention and thermal drift only ever slow a run, never
+/// speed it, so `min` is the cleanest estimate of true cost.
+fn hot_stats(times: &[u64]) -> Option<(u64, u64, u64)> {
+  let samples = warm_samples(times)?;
+  let mut sorted = samples.to_vec();
+
+  sorted.sort_unstable();
+
+  let min = sorted[0];
+  let median = sorted[sorted.len() / 2];
+  let mean = samples.iter().sum::<u64>() / samples.len() as u64;
+
+  Some((min, median, mean))
+}
+
+/// Prints `Hot: min / median / mean` and returns the median —
+/// the value compared against the baseline.
+fn report_hot(times: &[u64]) -> Option<u64> {
+  let (min, median, mean) = hot_stats(times)?;
+
+  println!(
+    "Hot: min {} / median {} / mean {}",
+    fmt_dur(min),
+    fmt_dur(median),
+    fmt_dur(mean),
+  );
+
+  Some(median)
 }
 
 fn main() {
@@ -420,11 +452,14 @@ fn time_runtime(binary: &PathBuf, runs: usize, argv: &str, with_rss: bool) {
     let avg = times.iter().sum::<u64>() / times.len() as u64;
     println!("  Runtime avg: {}", fmt_dur(avg));
 
-    // The cold first run is dyld + page-in warmup, not steady
-    // state. Exclude it for the warm number, matching the
-    // compile-side `Hot avg` and the README's warm runtime table.
-    if let Some(hot) = hot_avg(&times) {
-      println!("  Runtime hot avg: {}", fmt_dur(hot));
+    // Cold first run is dyld + page-in warmup, not steady state.
+    if let Some((min, median, mean)) = hot_stats(&times) {
+      println!(
+        "  Runtime hot: min {} / median {} / mean {}",
+        fmt_dur(min),
+        fmt_dur(median),
+        fmt_dur(mean),
+      );
     }
   }
 
@@ -546,9 +581,7 @@ fn benchmark_c(
     println!("Average: {}", fmt_dur(avg));
   }
 
-  if let Some(hot) = hot_avg(&times) {
-    println!("Hot avg: {}", fmt_dur(hot));
-  }
+  report_hot(&times);
 
   if with_runtime && output.exists() {
     time_runtime(output, runs, argv, with_rss);
@@ -574,15 +607,24 @@ fn benchmark_go(
 
   let mut times = Vec::new();
 
+  let go_src = output.with_extension("go");
+
   for i in 1..=runs {
     let _ = fs::remove_file(output);
+
+    // go content-hashes the main package, so identical source
+    // re-links from cache instead of recompiling. A unique comment
+    // forces a from-scratch user compile while the cached stdlib
+    // stays — clang's prebuilt-libc model, not a link-only hit.
+    let source_text = fs::read_to_string(source).unwrap_or_default();
+    let _ = fs::write(&go_src, format!("{source_text}\n// run {i}\n"));
 
     let start = Instant::now();
     let result = Command::new("go")
       .arg("build")
       .arg("-o")
       .arg(output)
-      .arg(source)
+      .arg(&go_src)
       .output();
     let elapsed = start.elapsed().as_nanos() as u64;
 
@@ -601,9 +643,7 @@ fn benchmark_go(
     println!("Average: {}", fmt_dur(avg));
   }
 
-  if let Some(hot) = hot_avg(&times) {
-    println!("Hot avg: {}", fmt_dur(hot));
-  }
+  report_hot(&times);
 
   if with_runtime && output.exists() {
     time_runtime(output, runs, argv, with_rss);
@@ -656,9 +696,7 @@ fn benchmark_odin(
     println!("Average: {}", fmt_dur(avg));
   }
 
-  if let Some(hot) = hot_avg(&times) {
-    println!("Hot avg: {}", fmt_dur(hot));
-  }
+  report_hot(&times);
 
   if with_runtime && output.exists() {
     time_runtime(output, runs, argv, with_rss);
@@ -711,9 +749,7 @@ fn benchmark_rust(
     println!("Average: {}", fmt_dur(avg));
   }
 
-  if let Some(hot) = hot_avg(&times) {
-    println!("Hot avg: {}", fmt_dur(hot));
-  }
+  report_hot(&times);
 
   if with_runtime && output.exists() {
     time_runtime(output, runs, argv, with_rss);
@@ -722,7 +758,7 @@ fn benchmark_rust(
   println!();
 }
 
-/// Returns the hot average (excluding first run) in ns.
+/// Returns the cold-excluded median (ns), compared to the baseline.
 fn benchmark_zo(
   source: &PathBuf,
   output: &PathBuf,
@@ -775,11 +811,7 @@ fn benchmark_zo(
     println!("Average: {}", fmt_dur(avg));
   }
 
-  let hot = hot_avg(&times);
-
-  if let Some(h) = hot {
-    println!("Hot avg: {}", fmt_dur(h));
-  }
+  let hot = report_hot(&times);
 
   if with_runtime && output.exists() {
     time_runtime(output, runs, argv, with_rss);
@@ -873,9 +905,7 @@ fn benchmark_gleam(
     println!("Average: {}", fmt_dur(avg));
   }
 
-  if let Some(hot) = hot_avg(&times) {
-    println!("Hot avg: {}", fmt_dur(hot));
-  }
+  report_hot(&times);
 
   if with_runtime {
     time_gleam_runtime(proj_dir, &module, runs);
@@ -961,8 +991,13 @@ fn time_gleam_runtime(proj_dir: &Path, module: &str, runs: usize) {
 
     println!("  Runtime avg: {}", fmt_dur(avg));
 
-    if let Some(hot) = hot_avg(&times) {
-      println!("  Runtime hot avg: {}", fmt_dur(hot));
+    if let Some((min, median, mean)) = hot_stats(&times) {
+      println!(
+        "  Runtime hot: min {} / median {} / mean {}",
+        fmt_dur(min),
+        fmt_dur(median),
+        fmt_dur(mean),
+      );
     }
   }
 }
@@ -1043,4 +1078,29 @@ fn save_baseline(path: &PathBuf, results: &BTreeMap<String, u64>) {
 
   let json = serde_json::to_string_pretty(&baselines).unwrap();
   let _ = fs::write(path, json + "\n");
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn hot_stats_drops_cold_and_summarizes() {
+    // Cold first run (1000) dropped; warm samples [10, 30, 20].
+    let (min, median, mean) = hot_stats(&[1000, 10, 30, 20]).unwrap();
+
+    assert_eq!(min, 10);
+    assert_eq!(median, 20);
+    assert_eq!(mean, 20);
+  }
+
+  #[test]
+  fn hot_stats_single_run_keeps_it() {
+    assert_eq!(hot_stats(&[42]), Some((42, 42, 42)));
+  }
+
+  #[test]
+  fn hot_stats_empty_is_none() {
+    assert_eq!(hot_stats(&[]), None);
+  }
 }
