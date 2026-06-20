@@ -272,7 +272,9 @@ impl PrettyPrinter {
               format!("%{dst} = load param[{idx}]")
             }
             LoadSource::Local(sym) => {
-              format!("%{dst} = load local[{sym}]")
+              let name = interner.get(*sym);
+
+              format!("%{dst} = load local[{name}]")
             }
           };
 
@@ -431,9 +433,15 @@ impl PrettyPrinter {
           self.sir_instruction(&tup);
         }
         Insn::TupleIndex {
-          dst, tuple, index, ..
+          dst,
+          tuple,
+          index,
+          ty_id,
         } => {
-          let ti = format!("%{dst} = field %{tuple}.{index}");
+          let ti = format!(
+            "%{dst} = field %{tuple}.{index} : {}",
+            type_name(tys, *ty_id)
+          );
 
           self.sir_instruction(&ti);
         }

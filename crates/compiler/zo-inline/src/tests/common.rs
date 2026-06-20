@@ -146,6 +146,98 @@ pub fn max_and_caller(interner: &mut Interner) -> (Sir, Symbol) {
   (make_sir(insns), max)
 }
 
+/// A `make(i) { Point { a = i, b = i } }` candidate and a caller.
+pub fn struct_ctor_and_caller(interner: &mut Interner) -> (Sir, Symbol) {
+  let make = interner.intern("make");
+  let point = interner.intern("Point");
+  let main = interner.intern("main");
+
+  let insns = vec![
+    fundef(make, 1),
+    Insn::Load {
+      dst: ValueId(1),
+      src: LoadSource::Param(0),
+      ty_id: TyId(1),
+    },
+    Insn::StructConstruct {
+      dst: ValueId(2),
+      struct_name: point,
+      fields: vec![ValueId(1), ValueId(1)],
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: Some(ValueId(2)),
+      ty_id: TyId(1),
+    },
+    fundef(main, 0),
+    Insn::Call {
+      dst: ValueId(11),
+      name: make,
+      callee_pack: None,
+      args: vec![ValueId(10)],
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: None,
+      ty_id: TyId(1),
+    },
+  ];
+
+  (make_sir(insns), make)
+}
+
+/// A `make(x) { Point { x } }` shorthand constructor and a caller.
+/// The shorthand field loads its parameter by name
+/// (`LoadSource::Local`), not by index — the case that dangled
+/// before binding rebound named local loads.
+pub fn struct_shorthand_ctor_and_caller(
+  interner: &mut Interner,
+) -> (Sir, Symbol) {
+  let make = interner.intern("make");
+  let x = interner.intern("x");
+  let point = interner.intern("Point");
+  let main = interner.intern("main");
+
+  let mut def = fundef(make, 1);
+
+  if let Insn::FunDef { params, .. } = &mut def {
+    params[0].0 = x;
+  }
+
+  let insns = vec![
+    def,
+    Insn::Load {
+      dst: ValueId(1),
+      src: LoadSource::Local(x),
+      ty_id: TyId(1),
+    },
+    Insn::StructConstruct {
+      dst: ValueId(2),
+      struct_name: point,
+      fields: vec![ValueId(1)],
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: Some(ValueId(2)),
+      ty_id: TyId(1),
+    },
+    fundef(main, 0),
+    Insn::Call {
+      dst: ValueId(11),
+      name: make,
+      callee_pack: None,
+      args: vec![ValueId(10)],
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: None,
+      ty_id: TyId(1),
+    },
+  ];
+
+  (make_sir(insns), make)
+}
+
 /// Count `Call`s to `name`.
 pub fn calls(sir: &Sir, name: Symbol) -> usize {
   sir

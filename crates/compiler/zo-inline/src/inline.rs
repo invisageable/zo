@@ -5,7 +5,7 @@
 use zo_interner::{Interner, Symbol};
 use zo_sir::{Insn, LoadSource, Sir};
 use zo_span::Span;
-use zo_ty::{Mutability, TyId};
+use zo_ty::{Mutability, Ty, TyId};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 use rustc_hash::FxHashMap as HashMap;
@@ -35,8 +35,11 @@ enum ReturnMode {
 struct Candidate {
   /// Body instructions, without the `FunDef`.
   body: Vec<Insn>,
-  /// Declared parameter count.
-  param_count: usize,
+  /// Parameter names, in declaration order. A shorthand
+  /// struct field (`Self { x }`) loads a parameter through
+  /// `LoadSource::Local(name)` rather than `Param(i)`, so
+  /// binding needs the names to rebind those loads too.
+  param_syms: Vec<Symbol>,
   /// How the return value reaches the call site.
   ret: ReturnMode,
   /// ValueId stride to reserve per inlined copy.
@@ -49,19 +52,23 @@ struct Candidate {
 pub struct Inline<'a> {
   sir: &'a mut Sir,
   interner: &'a mut Interner,
+  tys: &'a [Ty],
   release: Release,
 }
 
 impl<'a> Inline<'a> {
-  /// Creates an inliner over `sir`.
+  /// Creates an inliner over `sir`. `tys` resolves a `TyId` so a
+  /// body carrying an unresolved type is left alone.
   pub fn new(
     sir: &'a mut Sir,
     interner: &'a mut Interner,
+    tys: &'a [Ty],
     release: Release,
   ) -> Self {
     Self {
       sir,
       interner,
+      tys,
       release,
     }
   }
@@ -79,6 +86,26 @@ impl<'a> Inline<'a> {
     }
 
     self.rewrite_calls(&candidates);
+  }
+
+  /// Whether every type the body mentions is concrete. An
+  /// unresolved inference variable means a monomorphization left
+  /// a generic type open in the body; inlining would expose it to
+  /// codegen's type-driven dispatch (such as `showln`), which then
+  /// misclassifies the value. Such a body stays a call.
+  fn types_resolved(&self, body: &[Insn]) -> bool {
+    body.iter().all(|insn| {
+      let mut resolved = true;
+      let mut probe = insn.clone();
+
+      probe.visit_ty_ids_mut(&mut |ty_id| {
+        if matches!(self.tys.get(ty_id.0 as usize), Some(Ty::Infer(_))) {
+          resolved = false;
+        }
+      });
+
+      resolved
+    })
   }
 
   /// Collects the functions eligible to inline.
@@ -111,8 +138,9 @@ impl<'a> Inline<'a> {
 
       if *kind == FunctionKind::UserDefined
         && !is_test
-        && let Some(candidate) =
-          build_candidate(&insns[start..end], params.len())
+        && !is_runtime_dispatched(self.interner.get(*name))
+        && let Some(candidate) = build_candidate(&insns[start..end], params)
+        && self.types_resolved(&candidate.body)
       {
         candidates.insert((*name, *owning_pack), candidate);
       }
@@ -146,7 +174,7 @@ impl<'a> Inline<'a> {
         ..
       } = &insn
         && let Some(candidate) = candidates.get(&(*name, *callee_pack))
-        && args.len() == candidate.param_count
+        && args.len() == candidate.param_syms.len()
       {
         self.splice(
           candidate,
@@ -200,7 +228,7 @@ impl<'a> Inline<'a> {
     self.sir.next_value_id += candidate.value_span;
     self.sir.next_label_id += candidate.label_span;
 
-    let param_map = bind_params(&mut body, args);
+    let param_map = bind_params(&mut body, args, &candidate.param_syms);
 
     match candidate.ret {
       ReturnMode::Direct(ret) => {
@@ -275,18 +303,32 @@ impl<'a> Inline<'a> {
   }
 }
 
-/// Drops each `Load param[i]` and maps its result to `args[i]`.
-fn bind_params(body: &mut [Insn], args: &[ValueId]) -> HashMap<u32, ValueId> {
+/// Drops each parameter load and maps its result to the matching
+/// argument. A parameter reaches the body either by index
+/// (`LoadSource::Param`) or, through a shorthand struct field, by
+/// name (`LoadSource::Local`); an inlinable body defines no locals
+/// of its own, so every named local load is a parameter.
+fn bind_params(
+  body: &mut [Insn],
+  args: &[ValueId],
+  param_syms: &[Symbol],
+) -> HashMap<u32, ValueId> {
   let mut param_map: HashMap<u32, ValueId> = HashMap::default();
 
   for insn in body.iter_mut() {
-    if let Insn::Load {
-      src: LoadSource::Param(i),
-      dst,
-      ..
-    } = insn
-      && let Some(&arg) = args.get(*i as usize)
-    {
+    let Insn::Load { src, dst, .. } = insn else {
+      continue;
+    };
+
+    let arg = match src {
+      LoadSource::Param(i) => args.get(*i as usize).copied(),
+      LoadSource::Local(name) => param_syms
+        .iter()
+        .position(|sym| sym == name)
+        .and_then(|i| args.get(i).copied()),
+    };
+
+    if let Some(arg) = arg {
       param_map.insert(dst.0, arg);
       *insn = Insn::Nop;
     }
@@ -303,6 +345,20 @@ fn bind_params(body: &mut [Insn], args: &[ValueId]) -> HashMap<u32, ValueId> {
   param_map
 }
 
+/// Whether codegen lowers a call to `name` as a runtime builtin,
+/// overriding the function's SIR body. The std container methods
+/// carry placeholder bodies (`Vec::push` is `ret void`, `Vec::new`
+/// a stub `struct`) and codegen emits the real operation by name.
+/// Inlining the placeholder would drop or corrupt that operation,
+/// so the call must reach codegen intact. Mirrors the `::`-mangled
+/// dispatch in the AArch64 backend.
+fn is_runtime_dispatched(name: &str) -> bool {
+  name.starts_with("Vec::")
+    || name.starts_with("HashMap::")
+    || name.starts_with("HashSet::")
+    || name.starts_with("arr_int::")
+}
+
 /// Whether `insn` ends a function body.
 fn is_boundary(insn: &Insn) -> bool {
   matches!(
@@ -312,7 +368,10 @@ fn is_boundary(insn: &Insn) -> bool {
 }
 
 /// Returns a `Candidate` when `body` is eligible to inline.
-fn build_candidate(body: &[Insn], param_count: usize) -> Option<Candidate> {
+fn build_candidate(
+  body: &[Insn],
+  params: &[(Symbol, TyId)],
+) -> Option<Candidate> {
   if body.is_empty() || body.len() > INLINE_MAX_INSNS {
     return None;
   }
@@ -337,6 +396,7 @@ fn build_candidate(body: &[Insn], param_count: usize) -> Option<Candidate> {
 
   let ret_ty = ret_ty?;
   let (value_span, label_span) = strides(body);
+  let param_syms = params.iter().map(|(name, _)| *name).collect::<Vec<_>>();
 
   let single_return = returns == 1
     && !has_branch
@@ -349,7 +409,7 @@ fn build_candidate(body: &[Insn], param_count: usize) -> Option<Candidate> {
 
     Some(Candidate {
       body: body[..body.len() - 1].to_vec(),
-      param_count,
+      param_syms,
       ret: ReturnMode::Direct(*value),
       value_span,
       label_span,
@@ -357,7 +417,7 @@ fn build_candidate(body: &[Insn], param_count: usize) -> Option<Candidate> {
   } else {
     Some(Candidate {
       body: body.to_vec(),
-      param_count,
+      param_syms,
       ret: ReturnMode::Slot(ret_ty),
       value_span,
       label_span,
@@ -378,6 +438,7 @@ fn is_inlinable_insn(insn: &Insn) -> bool {
       | Insn::UnOp { .. }
       | Insn::Cast { .. }
       | Insn::TupleIndex { .. }
+      | Insn::StructConstruct { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
       | Insn::BranchIfNot { .. }
