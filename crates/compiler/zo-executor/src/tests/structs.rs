@@ -633,3 +633,17 @@ fun main() {
     },
   );
 }
+
+#[test]
+fn test_struct_construct_colon_separator_rejected() {
+  // Construction binds fields with `=`; `:` belongs to definitions.
+  // A `:` separator used to slip through the shorthand branch and
+  // emit garbage instead of a diagnostic.
+  assert_execution_error(
+    r#"struct Foo { a: int, b: int }
+fun main() {
+  imu x := Foo { a: 1, b: 2 };
+}"#,
+    ErrorKind::ExpectedAssignment,
+  );
+}

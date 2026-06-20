@@ -12114,10 +12114,13 @@ impl<'a> Executor<'a> {
                   field_values[fi] = Some(sir_val);
                 }
               }
-            } else {
-              // Shorthand: field name IS the value.
-              // Emit a Load for the variable with the
-              // same name as the field.
+            } else if idx >= children_end
+              || matches!(
+                self.tree.nodes[idx].token,
+                Token::Comma | Token::RBrace
+              )
+            {
+              // Shorthand: `{ lo, hi }` — field name IS the value.
               if let Some(local) =
                 self.lookup_local(fname).map(|l| (l.ty_id, l.sir_value))
               {
@@ -12140,6 +12143,17 @@ impl<'a> Executor<'a> {
                 if let Some(fi) = field_idx {
                   field_values[fi] = Some(sir_val);
                 }
+              }
+            } else {
+              self.report(ErrorKind::ExpectedAssignment, self.tree.spans[idx]);
+
+              while idx < children_end
+                && !matches!(
+                  self.tree.nodes[idx].token,
+                  Token::Comma | Token::RBrace
+                )
+              {
+                idx += 1;
               }
             }
           } else {
