@@ -195,9 +195,25 @@ impl<'a> Inline<'a> {
 
     for insn in new_insns.iter_mut() {
       insn.visit_value_ids_mut(&mut |value| {
-        if let Some(&to) = subst.get(&value.0) {
-          *value = to;
+        // Nested inlining chains substitutions: an inner call's
+        // result feeds an outer call that also inlines, so
+        // `outer_dst -> inner_dst -> arg`. Follow the chain to its
+        // final value. Substitutions only point at values defined
+        // earlier, so the chain terminates; the map size bounds the
+        // hop count as a backstop.
+        let mut id = value.0;
+        let mut hops = 0;
+
+        while let Some(&to) = subst.get(&id) {
+          id = to.0;
+          hops += 1;
+
+          if hops > subst.len() {
+            break;
+          }
         }
+
+        *value = ValueId(id);
       });
     }
 
@@ -402,27 +418,67 @@ fn build_candidate(
     && !has_branch
     && matches!(body.last(), Some(Insn::Return { .. }));
 
-  if single_return {
-    let Some(Insn::Return { value, .. }) = body.last() else {
-      return None;
-    };
+  let body_without_ret = &body[..body.len() - 1];
 
-    Some(Candidate {
-      body: body[..body.len() - 1].to_vec(),
+  if single_return
+    && let Some(Insn::Return { value, .. }) = body.last()
+    && returned_value_keeps_type(body_without_ret, *value, ret_ty)
+  {
+    return Some(Candidate {
+      body: body_without_ret.to_vec(),
       param_syms,
       ret: ReturnMode::Direct(*value),
       value_span,
       label_span,
-    })
-  } else {
-    Some(Candidate {
-      body: body.to_vec(),
-      param_syms,
-      ret: ReturnMode::Slot(ret_ty),
-      value_span,
-      label_span,
-    })
+    });
   }
+
+  Some(Candidate {
+    body: body.to_vec(),
+    param_syms,
+    ret: ReturnMode::Slot(ret_ty),
+    value_span,
+    label_span,
+  })
+}
+
+/// Whether substituting `value` for the call result preserves the
+/// declared return type. A value's defining insn carries the type
+/// codegen assigns it, and that can differ from the return type: a
+/// comparison `BinOp` carries its operand type, not the `bool` it
+/// yields. Such a return routes through a slot load that restores
+/// `ret_ty`; matching types take the cheaper direct substitution.
+fn returned_value_keeps_type(
+  body: &[Insn],
+  value: Option<ValueId>,
+  ret_ty: TyId,
+) -> bool {
+  match value {
+    None => true,
+    Some(value) => value_def_type(body, value) == Some(ret_ty),
+  }
+}
+
+/// The result type of the insn that defines `target`, if any.
+fn value_def_type(body: &[Insn], target: ValueId) -> Option<TyId> {
+  body.iter().find_map(|insn| match insn {
+    Insn::ConstInt { dst, ty_id, .. }
+    | Insn::ConstFloat { dst, ty_id, .. }
+    | Insn::ConstBool { dst, ty_id, .. }
+    | Insn::ConstString { dst, ty_id, .. }
+    | Insn::Load { dst, ty_id, .. }
+    | Insn::BinOp { dst, ty_id, .. }
+    | Insn::UnOp { dst, ty_id, .. }
+    | Insn::TupleIndex { dst, ty_id, .. }
+    | Insn::StructConstruct { dst, ty_id, .. }
+    | Insn::EnumConstruct { dst, ty_id, .. }
+      if *dst == target =>
+    {
+      Some(*ty_id)
+    }
+    Insn::Cast { dst, to_ty, .. } if *dst == target => Some(*to_ty),
+    _ => None,
+  })
 }
 
 /// Whether `insn` is side-effect-free and safe to duplicate.
@@ -439,6 +495,7 @@ fn is_inlinable_insn(insn: &Insn) -> bool {
       | Insn::Cast { .. }
       | Insn::TupleIndex { .. }
       | Insn::StructConstruct { .. }
+      | Insn::EnumConstruct { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
       | Insn::BranchIfNot { .. }

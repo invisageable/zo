@@ -213,6 +213,21 @@ pub(crate) struct Instantiation {
   pub concretes: Vec<TyId>,
   pub closure_subs: Vec<(Symbol, Symbol)>,
   pub apply_ctx: Option<Symbol>,
+  /// Concrete field types of the receiver for an apply method,
+  /// copied from the receiver's construction-time stash. Replayed
+  /// under `self` so `self.field` on a generic struct resolves to
+  /// the instantiation's type instead of the shared `Ty::Infer`
+  /// declaration var. Empty for plain functions and array methods.
+  pub self_field_tys: Vec<TyId>,
+}
+
+/// Receiver context for monomorphizing an apply method. `apply_ctx`
+/// scopes the method body's `$T`; `field_tys` are the receiver's
+/// concrete field types, replayed under `self`. Both empty for a
+/// plain generic function call.
+pub(crate) struct MethodReceiver {
+  pub apply_ctx: Option<Symbol>,
+  pub field_tys: Vec<TyId>,
 }
 
 /// Inputs for emitting a call through a `Fn`-typed local
@@ -5667,14 +5682,25 @@ impl<'a> Executor<'a> {
               // receiver local and override.
               if matches!(self.ty_checker.kind_of(resolved), Ty::Infer(_))
                 && idx >= 2
-                && self.tree.nodes[idx - 2].token == Token::Ident
-                && let Some(NodeValue::Symbol(recv_sym)) =
-                  self.node_value(idx - 2)
-                && let Some(per_instance) =
-                  self.local_struct_field_tys.get(&recv_sym.as_u32())
-                && let Some(&concrete) = per_instance.get(field_idx as usize)
               {
-                concrete
+                // The receiver is a bound local (`b.field`) or
+                // `self` inside an apply method. Both stash their
+                // per-instance concrete field types under their
+                // name; `self` tokenizes as `SelfLower`, not
+                // `Ident`, so match it explicitly.
+                let recv_sym = match self.tree.nodes[idx - 2].token {
+                  Token::Ident => match self.node_value(idx - 2) {
+                    Some(NodeValue::Symbol(sym)) => Some(sym),
+                    _ => None,
+                  },
+                  Token::SelfLower => Some(self.interner.intern("self")),
+                  _ => None,
+                };
+
+                recv_sym
+                  .and_then(|s| self.local_struct_field_tys.get(&s.as_u32()))
+                  .and_then(|tys| tys.get(field_idx as usize).copied())
+                  .unwrap_or(resolved)
               } else {
                 resolved
               }
@@ -16101,12 +16127,21 @@ impl<'a> Executor<'a> {
       let new_return =
         self.ty_checker.substitute_ty(&func.return_ty, &subs_map);
 
+      // Carry the receiver's concrete field types so the method
+      // body's `self.field` resolves to the instantiation's type.
+      let self_field_tys = recv_sym_opt
+        .and_then(|s| self.local_struct_field_tys.get(&s.as_u32()).cloned())
+        .unwrap_or_default();
+
       let type_mono_sym = self.register_mono_instantiation(
         mangled_name,
         &func,
         &subs,
         Some(new_return),
-        recv_struct_name,
+        MethodReceiver {
+          apply_ctx: recv_struct_name,
+          field_tys: self_field_tys.clone(),
+        },
         self.tree.spans[dot_idx],
       );
 
@@ -16194,6 +16229,7 @@ impl<'a> Executor<'a> {
             concretes,
             closure_subs: closure_subs.clone(),
             apply_ctx: recv_struct_name,
+            self_field_tys: self_field_tys.clone(),
           });
         }
 
@@ -22653,7 +22689,10 @@ impl<'a> Executor<'a> {
           &func,
           &subs,
           None,
-          None,
+          MethodReceiver {
+            apply_ctx: None,
+            field_tys: Vec::new(),
+          },
           self.tree.spans[lparen_idx],
         )
       };
@@ -22731,6 +22770,7 @@ impl<'a> Executor<'a> {
               concretes: Vec::new(),
               closure_subs: closure_subs.clone(),
               apply_ctx: None,
+              self_field_tys: Vec::new(),
             });
           }
 
@@ -24086,7 +24126,7 @@ impl<'a> Executor<'a> {
     func: &FunDef,
     subs: &[(TyId, TyId)],
     override_return: Option<TyId>,
-    apply_ctx: Option<Symbol>,
+    receiver: MethodReceiver,
     call_site: Span,
   ) -> Symbol {
     // Bound enforcement: for each substitution position
@@ -24203,7 +24243,8 @@ impl<'a> Executor<'a> {
         generic: func.name,
         concretes,
         closure_subs: Vec::new(),
-        apply_ctx,
+        apply_ctx: receiver.apply_ctx,
+        self_field_tys: receiver.field_tys,
       });
     }
 
@@ -24236,6 +24277,7 @@ impl<'a> Executor<'a> {
         concretes,
         closure_subs,
         apply_ctx,
+        self_field_tys,
       } = inst;
       // Skip duplicates (can arise from repeated call sites
       // with the same concrete types, or recursive generics).
@@ -24354,6 +24396,21 @@ impl<'a> Executor<'a> {
       // name instead of the tree's literal generic name.
       self.mono_name_override = Some(mangled);
 
+      // Replay the receiver's concrete field types under `self`,
+      // so a `self.field` access in the body resolves to this
+      // instantiation's type instead of the struct's shared
+      // `Ty::Infer` declaration var. A nested method's replay saves
+      // and restores the prior entry.
+      let self_sym = self.interner.intern("self");
+      let stashed_self = !self_field_tys.is_empty();
+      let prev_self_field_tys = if stashed_self {
+        self
+          .local_struct_field_tys
+          .insert(self_sym.as_u32(), self_field_tys)
+      } else {
+        None
+      };
+
       // Snapshot the SIR boundary so we know which range to
       // rewrite-for-concretization after the body runs.
       let sir_boundary = self.sir.instructions.len();
@@ -24455,6 +24512,17 @@ impl<'a> Executor<'a> {
       // --- Tear down substitutions + restore state -----------
       for fresh in installed.iter().rev() {
         self.ty_checker.clear_substitution(*fresh, None);
+      }
+
+      if stashed_self {
+        match prev_self_field_tys {
+          Some(prev) => {
+            self.local_struct_field_tys.insert(self_sym.as_u32(), prev);
+          }
+          None => {
+            self.local_struct_field_tys.remove(&self_sym.as_u32());
+          }
+        }
       }
 
       self.skip_until = saved_skip;

@@ -186,6 +186,47 @@ pub fn struct_ctor_and_caller(interner: &mut Interner) -> (Sir, Symbol) {
   (make_sir(insns), make)
 }
 
+/// A `wrap(i) { Opt::Some(i) }` enum constructor and a caller.
+pub fn enum_ctor_and_caller(interner: &mut Interner) -> (Sir, Symbol) {
+  let wrap = interner.intern("wrap");
+  let opt = interner.intern("Opt");
+  let main = interner.intern("main");
+
+  let insns = vec![
+    fundef(wrap, 1),
+    Insn::Load {
+      dst: ValueId(1),
+      src: LoadSource::Param(0),
+      ty_id: TyId(1),
+    },
+    Insn::EnumConstruct {
+      dst: ValueId(2),
+      enum_name: opt,
+      variant: 0,
+      fields: vec![ValueId(1)],
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: Some(ValueId(2)),
+      ty_id: TyId(1),
+    },
+    fundef(main, 0),
+    Insn::Call {
+      dst: ValueId(11),
+      name: wrap,
+      callee_pack: None,
+      args: vec![ValueId(10)],
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: None,
+      ty_id: TyId(1),
+    },
+  ];
+
+  (make_sir(insns), wrap)
+}
+
 /// A `make(x) { Point { x } }` shorthand constructor and a caller.
 /// The shorthand field loads its parameter by name
 /// (`LoadSource::Local`), not by index — the case that dangled
@@ -236,6 +277,93 @@ pub fn struct_shorthand_ctor_and_caller(
   ];
 
   (make_sir(insns), make)
+}
+
+/// A `is_pos(x) { x > 0 }` predicate whose comparison `BinOp`
+/// carries the operand type (int = `TyId(2)`), not the `bool`
+/// (`TyId(3)`) it returns — the case that must route through a
+/// slot so the bool return type survives.
+pub fn comparison_and_caller(interner: &mut Interner) -> (Sir, Symbol) {
+  let is_pos = interner.intern("is_pos");
+  let main = interner.intern("main");
+  let int_ty = TyId(2);
+  let bool_ty = TyId(3);
+
+  let insns = vec![
+    fundef(is_pos, 1),
+    Insn::Load {
+      dst: ValueId(1),
+      src: LoadSource::Param(0),
+      ty_id: int_ty,
+    },
+    Insn::BinOp {
+      dst: ValueId(2),
+      op: BinOp::Gt,
+      lhs: ValueId(1),
+      rhs: ValueId(1),
+      ty_id: int_ty,
+    },
+    Insn::Return {
+      value: Some(ValueId(2)),
+      ty_id: bool_ty,
+    },
+    fundef(main, 0),
+    Insn::Call {
+      dst: ValueId(11),
+      name: is_pos,
+      callee_pack: None,
+      args: vec![ValueId(10)],
+      ty_id: bool_ty,
+    },
+    Insn::Return {
+      value: None,
+      ty_id: TyId(1),
+    },
+  ];
+
+  (make_sir(insns), is_pos)
+}
+
+/// A forwarder `fwd(x) { x }` called nested as `fwd(fwd(%10))`,
+/// so the inner inline's substitution must chain through the
+/// outer's to reach the original arg.
+pub fn nested_and_caller(interner: &mut Interner) -> (Sir, Symbol) {
+  let fwd = interner.intern("fwd");
+  let main = interner.intern("main");
+
+  let insns = vec![
+    fundef(fwd, 1),
+    Insn::Load {
+      dst: ValueId(1),
+      src: LoadSource::Param(0),
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: Some(ValueId(1)),
+      ty_id: TyId(1),
+    },
+    fundef(main, 0),
+    Insn::Call {
+      dst: ValueId(11),
+      name: fwd,
+      callee_pack: None,
+      args: vec![ValueId(10)],
+      ty_id: TyId(1),
+    },
+    Insn::Call {
+      dst: ValueId(12),
+      name: fwd,
+      callee_pack: None,
+      args: vec![ValueId(11)],
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: Some(ValueId(12)),
+      ty_id: TyId(1),
+    },
+  ];
+
+  (make_sir(insns), fwd)
 }
 
 /// Count `Call`s to `name`.

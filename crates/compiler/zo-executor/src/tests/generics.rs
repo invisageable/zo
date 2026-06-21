@@ -7,6 +7,7 @@ use zo_parser::Parser;
 use zo_reporter::collect_errors;
 use zo_sir::Insn;
 use zo_tokenizer::Tokenizer;
+use zo_ty::Ty;
 use zo_ty_checker::TyChecker;
 
 use rustc_hash::FxHashMap as HashMap;
@@ -742,5 +743,76 @@ fun main() {
     "mono'd body must match hand-written body modulo ValueId \
      renumbering\n\nmono:\n{:#?}\n\nhand:\n{:#?}",
     mono_body, hand_body
+  );
+}
+
+#[test]
+fn test_generic_apply_self_field_resolves_to_concrete() {
+  // A generic apply method reading `self.field` must resolve the
+  // field to the instantiation's concrete type, not the struct's
+  // shared `Ty::Infer` declaration var. The `str` instantiation's
+  // `self.v` used to stay `Infer`, which release inlining then
+  // misprinted. A dev run never catches it — the un-inlined call's
+  // return type masks the field type — so assert on the SIR.
+  let source = r#"struct Box<$T> {
+  v: $T,
+}
+
+apply Box<$T> {
+  fun get(self) -> $T {
+    self.v
+  }
+}
+
+fun main() {
+  imu bi := Box { v = 42 };
+  imu bs := Box { v = "hi" };
+
+  showln(bi.get());
+  showln(bs.get());
+}"#;
+
+  let mut interner = Interner::new();
+  let tokenizer = Tokenizer::new(source, &mut interner);
+  let tokenization = tokenizer.tokenize();
+  let parser = Parser::new(&tokenization, source);
+  let parsing = parser.parse();
+
+  let mut ty_checker = TyChecker::new();
+
+  let executor = Executor::new(
+    &parsing.tree,
+    &mut interner,
+    &tokenization.literals,
+    &mut ty_checker,
+  );
+
+  let sir = executor.execute().sir;
+
+  // Locate the `str` monomorphization's field-access type.
+  let mut in_get_str = false;
+  let mut field_ty = None;
+
+  for insn in &sir.instructions {
+    match insn {
+      Insn::FunDef { name, .. } => {
+        in_get_str = interner.get(*name).contains("get__str");
+      }
+      Insn::TupleIndex { ty_id, .. } if in_get_str => {
+        field_ty = Some(*ty_id);
+
+        break;
+      }
+      _ => {}
+    }
+  }
+
+  let field_ty =
+    field_ty.expect("get__str should contain a `self.v` field access");
+
+  assert!(
+    matches!(ty_checker.kind_of_ro(field_ty), Ty::Str),
+    "self.v in get__str must resolve to str, got {:?}",
+    ty_checker.kind_of_ro(field_ty)
   );
 }

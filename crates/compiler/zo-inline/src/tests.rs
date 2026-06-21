@@ -3,7 +3,8 @@ pub(crate) mod common;
 use crate::{Inline, Release};
 
 use common::{
-  calls, double_and_caller, max_and_caller, struct_ctor_and_caller,
+  calls, comparison_and_caller, double_and_caller, enum_ctor_and_caller,
+  max_and_caller, nested_and_caller, struct_ctor_and_caller,
   struct_shorthand_ctor_and_caller,
 };
 
@@ -71,6 +72,65 @@ fn release_binds_shorthand_struct_field_param() {
     insn,
     Insn::StructConstruct { fields, .. }
       if fields == &vec![ValueId(10)]
+  )));
+}
+
+#[test]
+fn release_inlines_enum_constructor() {
+  let mut interner = Interner::new();
+  let (mut sir, wrap) = enum_ctor_and_caller(&mut interner);
+
+  Inline::new(&mut sir, &mut interner, &[], Release::Yes).inline();
+
+  // The call is gone — the enum is built inline, eliding the
+  // return copy. The payload field binds to the arg %10.
+  assert_eq!(calls(&sir, wrap), 0);
+  assert!(sir.instructions.iter().any(|insn| matches!(
+    insn,
+    Insn::EnumConstruct { fields, variant: 0, .. }
+      if fields == &vec![ValueId(10)]
+  )));
+}
+
+#[test]
+fn release_routes_type_mismatch_return_through_slot() {
+  let mut interner = Interner::new();
+  let (mut sir, is_pos) = comparison_and_caller(&mut interner);
+
+  Inline::new(&mut sir, &mut interner, &[], Release::Yes).inline();
+
+  // The comparison's operand type differs from the bool return, so
+  // the call inlines through a slot (Store + Local load), not a
+  // direct substitution that would drop the bool.
+  assert_eq!(calls(&sir, is_pos), 0);
+  assert!(
+    sir
+      .instructions
+      .iter()
+      .any(|insn| matches!(insn, Insn::Store { .. }))
+  );
+  assert!(sir.instructions.iter().any(|insn| matches!(
+    insn,
+    Insn::Load {
+      src: LoadSource::Local(_),
+      ..
+    }
+  )));
+}
+
+#[test]
+fn release_chains_nested_inline_substitutions() {
+  let mut interner = Interner::new();
+  let (mut sir, fwd) = nested_and_caller(&mut interner);
+
+  Inline::new(&mut sir, &mut interner, &[], Release::Yes).inline();
+
+  // Both calls inlined; the nested result chains all the way to the
+  // original arg %10, not a dangling intermediate %11.
+  assert_eq!(calls(&sir, fwd), 0);
+  assert!(sir.instructions.iter().any(|insn| matches!(
+    insn,
+    Insn::Return { value: Some(v), .. } if *v == ValueId(10)
   )));
 }
 
