@@ -27,6 +27,14 @@ const SUB_REG: u32 = 0xCB000000;
 const ADD_EXT: u32 = 0x8B206000; // UXTX, shift=0
 const SUB_EXT: u32 = 0xCB206000; // UXTX, shift=0
 const MUL: u32 = 0x9B007C00;
+/// SMULH Xd, Xn, Xm — signed high 64 bits of a 64×64 product.
+/// Data-processing 3-source with Ra fixed to xzr (bits 10..14
+/// = 0x1F). Verified `9b407c00` for all-zero regs against the
+/// system assembler.
+const SMULH: u32 = 0x9B407C00;
+/// UMULH Xd, Xn, Xm — unsigned high 64 bits of a 64×64
+/// product. Same family, U bit set (`9bc07c00`).
+const UMULH: u32 = 0x9BC07C00;
 const SDIV: u32 = 0x9AC00C00;
 const UDIV: u32 = 0x9AC00800;
 const AND: u32 = 0x8A000000;
@@ -57,6 +65,20 @@ const FSUB: u32 = 0x1E603800;
 const FMUL: u32 = 0x1E600800;
 const FDIV: u32 = 0x1E601800;
 const FNEG: u32 = 0x1E614000;
+/// FMADD Dd, Dn, Dm, Da — fused multiply-add (double):
+/// `Dd = Da + Dn * Dm`. FP data-processing 3-source, ptype=01
+/// (double), o1=0, o0=0. Verified `1f400000` for all-zero regs
+/// against the system assembler.
+const FMADD: u32 = 0x1F400000;
+/// FMSUB Dd, Dn, Dm, Da — fused multiply-subtract (double):
+/// `Dd = Da - Dn * Dm`. Same family with o0=1 (bit 15).
+const FMSUB: u32 = 0x1F408000;
+/// FNMADD Dd, Dn, Dm, Da — fused negate-multiply-add (double):
+/// `Dd = -Da - Dn * Dm`. Same family with o1=1 (bit 21).
+const FNMADD: u32 = 0x1F600000;
+/// FNMSUB Dd, Dn, Dm, Da — fused negate-multiply-subtract
+/// (double): `Dd = -Da + Dn * Dm`. Same family with o1=1,o0=1.
+const FNMSUB: u32 = 0x1F608000;
 const FCMP: u32 = 0x1E602000;
 const FSQRT: u32 = 0x1E61C000;
 const FRINTM: u32 = 0x1E654000; // floor
@@ -94,6 +116,24 @@ pub const COND_VS: u8 = 0x6; // overflow set (NaN)
 pub const COND_VC: u8 = 0x7; // overflow clear (not NaN)
 pub const COND_HI: u8 = 0x8; // unsigned > (C=1 AND Z=0)
 pub const COND_LS: u8 = 0x9; // unsigned <= (C=0 OR Z=1)
+
+/// Operands for a fused multiply-add family instruction
+/// (`FMADD` / `FMSUB` / `FNMADD` / `FNMSUB`). The fused op
+/// computes `dst = ±addend ± mul_lhs * mul_rhs` in one
+/// rounding step. Grouped into a struct because the
+/// instruction reads four registers — past the codebase's
+/// argument limit for a bare emitter signature.
+#[derive(Clone, Copy)]
+pub struct FmaOperands {
+  /// Destination register `Dd` (Rd, bits 0..4).
+  pub dst: FpRegister,
+  /// Left multiplicand `Dn` (Rn, bits 5..9).
+  pub mul_lhs: FpRegister,
+  /// Right multiplicand `Dm` (Rm, bits 16..20).
+  pub mul_rhs: FpRegister,
+  /// Accumulator `Da` (Ra, bits 10..14).
+  pub addend: FpRegister,
+}
 
 /// A captured forward branch awaiting its target. Returned
 /// by `forward_bne` / `forward_b` / etc. and consumed by
@@ -419,6 +459,31 @@ impl ARM64Emitter {
   // Unsigned divide.
   pub fn emit_udiv(&mut self, dst: Register, src1: Register, src2: Register) {
     let insn = UDIV
+      | ((src2.index() as u32) << 16)
+      | ((src1.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// SMULH Xd, Xn, Xm — high 64 bits of the signed 128-bit
+  /// product `Xn * Xm`. The magic-number divide-by-constant
+  /// sequence multiplies the dividend by a precomputed signed
+  /// reciprocal and keeps this high half.
+  pub fn emit_smulh(&mut self, dst: Register, src1: Register, src2: Register) {
+    let insn = SMULH
+      | ((src2.index() as u32) << 16)
+      | ((src1.index() as u32) << 5)
+      | (dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// UMULH Xd, Xn, Xm — high 64 bits of the unsigned 128-bit
+  /// product `Xn * Xm`. Unsigned counterpart of `emit_smulh`
+  /// for the unsigned divide-by-constant sequence.
+  pub fn emit_umulh(&mut self, dst: Register, src1: Register, src2: Register) {
+    let insn = UMULH
       | ((src2.index() as u32) << 16)
       | ((src1.index() as u32) << 5)
       | (dst.index() as u32);
@@ -912,6 +977,44 @@ impl ARM64Emitter {
       | (dst.index() as u32);
 
     self.emit_u32(insn);
+  }
+
+  /// Encode a 3-source FP op (`FMADD` family) from its base
+  /// word and operands: Rd in 0..4, Rn in 5..9, Ra in 10..14,
+  /// Rm in 16..20. Single source of truth for the four fused
+  /// emitters below.
+  fn emit_fma_family(&mut self, base: u32, ops: FmaOperands) {
+    let insn = base
+      | ((ops.mul_rhs.index() as u32) << 16)
+      | ((ops.addend.index() as u32) << 10)
+      | ((ops.mul_lhs.index() as u32) << 5)
+      | (ops.dst.index() as u32);
+
+    self.emit_u32(insn);
+  }
+
+  /// FMADD Dd, Dn, Dm, Da — fused multiply-add (double):
+  /// `Dd = Da + Dn * Dm`, rounded once.
+  pub fn emit_fmadd(&mut self, ops: FmaOperands) {
+    self.emit_fma_family(FMADD, ops);
+  }
+
+  /// FMSUB Dd, Dn, Dm, Da — fused multiply-subtract (double):
+  /// `Dd = Da - Dn * Dm`, rounded once.
+  pub fn emit_fmsub(&mut self, ops: FmaOperands) {
+    self.emit_fma_family(FMSUB, ops);
+  }
+
+  /// FNMADD Dd, Dn, Dm, Da — fused negate-multiply-add
+  /// (double): `Dd = -Da - Dn * Dm`, rounded once.
+  pub fn emit_fnmadd(&mut self, ops: FmaOperands) {
+    self.emit_fma_family(FNMADD, ops);
+  }
+
+  /// FNMSUB Dd, Dn, Dm, Da — fused negate-multiply-subtract
+  /// (double): `Dd = -Da + Dn * Dm`, rounded once.
+  pub fn emit_fnmsub(&mut self, ops: FmaOperands) {
+    self.emit_fma_family(FNMSUB, ops);
   }
 
   /// FCMP Dn, Dm — FP compare (sets NZCV flags).

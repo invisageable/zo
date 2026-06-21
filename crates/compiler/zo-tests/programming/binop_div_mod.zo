@@ -16,4 +16,29 @@ fun main() {
   check(x % 3 == 0);
   check(x % y == 0);
   check(15 % y == 0);
+
+  imu neg: int = -15;
+  imu odd: int = -17;
+
+  check(neg / 3 == -5);
+  check(neg / 4 == -3);
+  check(neg / 5 == -3);
+  check(odd / 7 == -2);
+  check(odd / 8 == -2);
+
+  check(neg % 3 == 0);
+  check(neg % 4 == -3);
+  check(odd % 7 == -3);
+  check(odd % 8 == -1);
+
+  imu big: int = 1000003;
+
+  check(big / 1000 == 1000);
+  check(big % 1000 == 3);
+  check(big / 7 == 142857);
+  check(big % 7 == 4);
+
+  check(big / 16 == 62500);
+  check(neg / 16 == 0);
+  check(odd % 16 == -1);
 }

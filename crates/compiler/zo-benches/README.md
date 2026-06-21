@@ -326,44 +326,24 @@ WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **BUiLD** AN EXECUTABLE FiLE.
 | rustc    | 653.2 KB  |
 | go       | 2435.0 KB |
 
-### benchmark — comptime (summary).
-
-| Benchmark        | `zo` vs `c`     | `zo` vs `go`     | `zo` vs `rust`   | `zo` vs `odin`   | `zo` vs `gleam`  |
-| :--------------- | :-------------- | :--------------- | :--------------- | :--------------- | :--------------- |
-| `ackermann`      | __6.2x__ faster | __11.4x__ faster | __12.0x__ faster | __12.9x__ faster | —                |
-| `arithmetic`     | __6.9x__ faster | __14.9x__ faster | __12.4x__ faster | __25.1x__ faster | —                |
-| `fannkuch-redux` | __6.5x__ faster | __13.4x__ faster | __13.2x__ faster | __24.1x__ faster | __31.5x__ faster |
-| `fibonacci`      | __6.6x__ faster | __14.5x__ faster | __12.2x__ faster | __25.3x__ faster | —                |
-| `hello`          | __5.7x__ faster | __12.8x__ faster | __9.9x__ faster  | __22.1x__ faster | —                |
-| `mandelbrot`     | __6.7x__ faster | __13.9x__ faster | __11.8x__ faster | __25.5x__ faster | __32.0x__ faster |
-| `munchhausen`    | __6.3x__ faster | __13.8x__ faster | __11.8x__ faster | __24.6x__ faster | __31.5x__ faster |
-| `n-body`         | __5.5x__ faster | __11.4x__ faster | __12.4x__ faster | __20.2x__ faster | __30.3x__ faster |
-| `rule_110`       | __5.4x__ faster | __11.9x__ faster | __11.0x__ faster | __21.2x__ faster | —                |
-| `spectralnorm`   | __6.2x__ faster | __12.0x__ faster | __12.1x__ faster | __22.1x__ faster | __27.5x__ faster |
-| `stress_fun_10k` | __4.2x__ faster | __3.7x__ faster  | __8.6x__ faster  | __7.5x__ faster  | —                |
-| `stress_fun_500k`| __1.7x__ faster | __1.8x__ faster  | crash            | __1.8x__ faster  | —                |
-| `threadring`     | __7.1x__ faster | __13.4x__ faster | __16.5x__ faster | __23.7x__ faster | __30.5x__ faster |
-
 ### benchmark — runtime.
 
 WE ARE MEASURiNG HOW LONG DiD iT TOOK TO **EXECUTE** AN EXECUTABLE FiLE.
 
+> *Optimized builds — zo `--release`, clang `-O2`, rustc `-O`, odin `-o:speed`, go default; gleam on the BEAM VM. Min of warm interleaved runs. Scales: n-body n=500000, fannkuch n=11, spectralnorm N=5500; others use each program's built-in default.*
+
 | Benchmark         | clang     | go        | rustc     | odin      | zo        | gleam     |
 | :---------------- | :-------- | :-------- | :-------- | :-------- | :-------- | :-------- |
-| `ackermann`       | **1.3ms** | 2.0ms     | 1.7ms     | 1.8ms     | 5.2ms     | —         |
-| `arithmetic`      | **1.5ms** | 2.3ms     | 1.5ms     | 1.6ms     | 4.9ms     | —         |
-| `fannkuch-redux`  | 239.9ms   | **146.3ms**| 965.8ms  | 624.1ms   | 306.9ms   | —         |
-| `fibonacci`       | **1.4ms** | 2.5ms     | 1.4ms     | 1.9ms     | 3.2ms     | —         |
-| `hello`           | 1.6ms     | 2.7ms     | 1.8ms     | **1.4ms** | 5.8ms     | —         |
-| `mandelbrot`      | 69.7ms    | **33.1ms**| 72.9ms    | 85.0ms    | 78.6ms    | 363.2ms   |
-| `munchhausen`     | 5.57s     | **2.08s** | 14.66s    | 14.71s    | 6.11s     | 24.39s    |
-| `n-body`          | **1.8ms** | 2.2ms     | 2.0ms     | 2.5ms     | 4.7ms     | 97.3ms    |
-| `rule_110`        | 2.8ms     | 2.8ms     | **1.9ms** | 2.1ms     | 5.0ms     | —         |
-| `spectralnorm`    | 117.8ms   | **96.8ms**| 389.3ms   | 197.3ms   | 186.1ms   | —         |
-| `stress_fun_10k`  | 1.6ms     | 2.9ms     | **1.5ms** | 1.8ms     | 5.1ms     | —         |
-| `stress_fun_500k` | **3.6ms** | 13.0ms    | —         | 5.5ms     | 8.2ms     | —         |
-| `threadring`      | 11.3ms    | **3.5ms** | 10.6ms    | 13.5ms    | 7.8ms     | 97.7ms    |
-
-### benchmark — runtime (summary).
-
-TODO: table.
+| `ackermann`       | 2.2ms     | 4.6ms     | 4.5ms     | **2.1ms** | 4.6ms     | —         |
+| `arithmetic`      | **1.9ms** | 4.5ms     | 2.0ms     | 1.9ms     | 4.5ms     | —         |
+| `fannkuch-redux`  | 1.38s     | **1.21s** | 1.26s     | 1.22s     | 2.62s     | —         |
+| `fibonacci`       | **1.9ms** | 4.4ms     | 2.1ms     | 1.9ms     | 4.4ms     | —         |
+| `hello`           | **2.3ms** | 4.7ms     | 4.6ms     | 4.6ms     | 4.7ms     | —         |
+| `mandelbrot`      | 35.9ms    | **35.8ms**| 36.6ms    | 37.6ms    | 73.2ms    | 363.2ms   |
+| `munchhausen`     | 1.49s     | 2.09s     | **1.44s** | 1.51s     | 6.05s     | 24.39s    |
+| `n-body`          | **19.6ms**| 35.7ms    | 19.7ms    | 37.2ms    | 69.1ms    | 97.3ms    |
+| `rule_110`        | **4.6ms** | 4.8ms     | 4.7ms     | 4.7ms     | 4.7ms     | —         |
+| `spectralnorm`    | 1.28s     | 1.28s     | **0.83s** | 0.84s     | 1.62s     | —         |
+| `stress_fun_10k`  | **2.3ms** | 4.6ms     | 4.8ms     | 4.9ms     | 4.5ms     | —         |
+| `stress_fun_500k` | **2.2ms** | 19.2ms    | —         | 2.2ms     | 9.6ms     | —         |
+| `threadring`      | 18.8ms    | **4.6ms** | 9.6ms     | 19.5ms    | 9.6ms     | —         |

@@ -44,7 +44,6 @@ libc = { workspace = true }
 regex = { workspace = true }
 rustc-hash = { workspace = true }
 sha1 = { workspace = true }
-sysinfo = { workspace = true }
 
 # eframe (native) + wry (web) do not build for iOS/watchOS, so the
 # desktop backends are gated off both; the UIKit backend takes their

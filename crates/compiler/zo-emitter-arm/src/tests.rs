@@ -4,7 +4,10 @@
 //! so a regression in the patch math is caught at this layer,
 //! not downstream in codegen.
 
-use crate::{ARM64Emitter, COND_EQ, COND_NE, Register, X0};
+use crate::{
+  ARM64Emitter, COND_EQ, COND_NE, D0, D1, D2, D3, D4, D5, D6, D7, FmaOperands,
+  FpRegister, Register, X0,
+};
 
 // Expected encodings (re-derived from the ARM64 reference so
 // the tests fail loudly if the emitter constants drift):
@@ -192,4 +195,86 @@ fn emit_blr_encoding_per_register() {
       "BLR x{n}: got {insn:#010x}, expected {expected:#010x}",
     );
   }
+}
+
+/// One fused-multiply-add emitter method, for table-driven
+/// encoding checks.
+type FmaEmit = fn(&mut ARM64Emitter, FmaOperands);
+
+/// Exact words for the four fused multiply-add forms with all
+/// operands `d0`. Reference taken from the system assembler
+/// (`clang -c` + `otool -t`): each is a distinct word in the
+/// FP data-processing 3-source family.
+#[test]
+fn emit_fma_zero_register_encodings() {
+  let ops = FmaOperands {
+    dst: D0,
+    mul_lhs: D0,
+    mul_rhs: D0,
+    addend: D0,
+  };
+
+  let cases: [(FmaEmit, u32, &str); 4] = [
+    (ARM64Emitter::emit_fmadd, 0x1F40_0000, "fmadd"),
+    (ARM64Emitter::emit_fmsub, 0x1F40_8000, "fmsub"),
+    (ARM64Emitter::emit_fnmadd, 0x1F60_0000, "fnmadd"),
+    (ARM64Emitter::emit_fnmsub, 0x1F60_8000, "fnmsub"),
+  ];
+
+  for (emit, expected, name) in cases {
+    let mut emitter = ARM64Emitter::new();
+
+    emit(&mut emitter, ops);
+
+    let insn = read_insn(&emitter.code(), 0);
+
+    assert_eq!(
+      insn, expected,
+      "{name} d0,d0,d0,d0: got {insn:#010x}, expected {expected:#010x}",
+    );
+  }
+}
+
+/// Distinct registers in every field, checked against the
+/// assembler reference `fmadd d3, d1, d2, d4 = 1f421023` and
+/// `fmadd d5, d6, d7, d8 = 1f4720c5`. Confirms the field
+/// placement: Rd[0..4], Rn[5..9], Ra[10..14], Rm[16..20].
+#[test]
+fn emit_fmadd_distinct_registers() {
+  let mut emitter = ARM64Emitter::new();
+
+  emitter.emit_fmadd(FmaOperands {
+    dst: D3,
+    mul_lhs: D1,
+    mul_rhs: D2,
+    addend: D4,
+  });
+  emitter.emit_fmadd(FmaOperands {
+    dst: D5,
+    mul_lhs: D6,
+    mul_rhs: D7,
+    addend: FpRegister::new(8),
+  });
+
+  assert_eq!(read_insn(&emitter.code(), 0), 0x1F42_1023);
+  assert_eq!(read_insn(&emitter.code(), 4), 0x1F47_20C5);
+}
+
+/// Exact words for SMULH / UMULH against the system assembler
+/// (`smulh x0,x0,x0 = 9b407c00`, `umulh x0,x0,x0 = 9bc07c00`,
+/// `smulh x3,x1,x2 = 9b427c23`, `umulh x5,x6,x7 = 9bc77cc5`).
+/// These back the magic-number divide-by-constant sequence.
+#[test]
+fn emit_mulh_encodings() {
+  let mut emitter = ARM64Emitter::new();
+
+  emitter.emit_smulh(X0, X0, X0);
+  emitter.emit_umulh(X0, X0, X0);
+  emitter.emit_smulh(Register::new(3), Register::new(1), Register::new(2));
+  emitter.emit_umulh(Register::new(5), Register::new(6), Register::new(7));
+
+  assert_eq!(read_insn(&emitter.code(), 0), 0x9B40_7C00);
+  assert_eq!(read_insn(&emitter.code(), 4), 0x9BC0_7C00);
+  assert_eq!(read_insn(&emitter.code(), 8), 0x9B42_7C23);
+  assert_eq!(read_insn(&emitter.code(), 12), 0x9BC7_7CC5);
 }

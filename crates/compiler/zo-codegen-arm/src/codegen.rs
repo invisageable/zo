@@ -1,14 +1,15 @@
 pub(crate) mod template;
 
+use crate::magic::{signed_magic, unsigned_magic};
 use crate::promotion::{LocalKind, Promotion};
 
 use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, MachoLinkObject, Webviewing};
 use zo_emitter_arm::{
   ARM64Emitter, COND_CC, COND_CS, COND_EQ, COND_GE, COND_GT, COND_HI, COND_LE,
-  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D16, FpRegister,
-  PatchSite, Register, SP, X0, X1, X2, X3, X4, X5, X6, X7, X9, X10, X11, X16,
-  X17, X29, X30, XZR,
+  COND_LS, COND_LT, COND_NE, COND_VC, COND_VS, D0, D1, D16, FmaOperands,
+  FpRegister, PatchSite, Register, SP, X0, X1, X2, X3, X4, X5, X6, X7, X9, X10,
+  X11, X16, X17, X29, X30, XZR,
 };
 use zo_interner::{DenseMap, Interner, Sentinel, Symbol};
 use zo_module_resolver::{AbstractDef, AbstractImpl};
@@ -169,6 +170,50 @@ struct FrameAreas {
   /// Save area for promoted callee-saved FP registers (d8..d15).
   /// Same shape as `promo_save_size`, laid directly above it.
   promo_save_fp_size: u32,
+}
+
+/// A float multiply whose `FMUL` was deferred because the
+/// next instruction fuses it into an `FMADD`-family op. The
+/// multiply's product is single-use and consumed by the
+/// immediately-following float add/sub, so emitting the bare
+/// `FMUL` would be redundant work the fused instruction folds
+/// into one rounding step. Carried from the multiply to the
+/// next instruction in a single linear pass.
+#[derive(Clone, Copy)]
+struct PendingFma {
+  /// Instruction index of the deferred multiply. The fuse only
+  /// fires at `mul_idx + 1`; any other index drops the pending
+  /// state and emits the multiply as a fallback.
+  mul_idx: usize,
+  /// The product value id — must match an operand of the next
+  /// add/sub for the fuse to apply.
+  product: u32,
+  /// The multiply's destination value id. Registers are
+  /// re-resolved through `alloc_fp_reg` at emit time (not
+  /// cached) so an intervening spill / reload that remaps a
+  /// value to a different physical register is honored.
+  dst: ValueId,
+  /// Left multiplicand value id `Dn`.
+  mul_lhs: ValueId,
+  /// Right multiplicand value id `Dm`.
+  mul_rhs: ValueId,
+}
+
+/// A divide / remainder by a compile-time-constant divisor,
+/// lowered to a shift or magic-number multiply instead of a
+/// hardware divide. Groups the four inputs the lowering needs
+/// (past the bare-argument limit).
+#[derive(Clone, Copy)]
+struct ConstDivide {
+  /// Register that receives the quotient.
+  quo: Register,
+  /// Register holding the dividend — must sit outside the
+  /// X16/X17 scratch pair the sequence clobbers.
+  dividend: Register,
+  /// The non-zero constant divisor.
+  divisor: u64,
+  /// Whether the operands are an unsigned integer type.
+  is_unsigned: bool,
 }
 
 /// One enum variant's layout snapshot for the
@@ -529,6 +574,16 @@ pub struct ARM64Gen<'a> {
   /// Current instruction index during emission — drives
   /// per-instruction register lookups.
   current_emit_idx: usize,
+  /// Operand use-count per value id for the current function:
+  /// how many instructions read a value as an operand (the
+  /// definition itself is not counted). Drives the FMA fuse's
+  /// single-use test — a float product folded into an
+  /// `FMADD`-family op must be dead after the consuming add /
+  /// sub. Rebuilt per function in `enter_function`.
+  fma_operand_uses: HashMap<u32, u32>,
+  /// A deferred float multiply awaiting its fusing add / sub.
+  /// `Some` only between the multiply and the next instruction.
+  pending_fma: Option<PendingFma>,
   /// Mutable variable stack slots: name → offset from SP.
   mutable_slots: HashMap<u32, u32>,
   /// Register-promotion plan for the current function:
@@ -979,6 +1034,8 @@ impl<'a> ARM64Gen<'a> {
       fp_reload_overrides: HashMap::default(),
       current_fn_start: None,
       current_emit_idx: 0,
+      fma_operand_uses: HashMap::default(),
+      pending_fma: None,
       mutable_slots: HashMap::default(),
       promotion: Promotion::default(),
       promo_value_reg: HashMap::default(),
@@ -1394,12 +1451,29 @@ impl<'a> ARM64Gen<'a> {
     self.local_enum_field_tys.clear();
     self.local_tuple_elem_tys.clear();
     self.composite_value_slots.clear();
+    self.fma_operand_uses.clear();
+    self.pending_fma = None;
 
     let fn_end = all_insns[idx + 1..]
       .iter()
       .position(|ins| matches!(ins, Insn::FunDef { .. }))
       .map(|p| idx + 1 + p)
       .unwrap_or(all_insns.len());
+
+    // Operand use-count for the FMA fuse: SIR is SSA, so each
+    // value is defined once. Counting every value-id occurrence
+    // and subtracting that single definition yields the number
+    // of operand reads. A float product with exactly one read is
+    // safe to fold into an `FMADD`-family op (dead afterward).
+    for insn in &all_insns[idx..fn_end] {
+      insn.visit_value_ids(&mut |vid| {
+        *self.fma_operand_uses.entry(vid.0).or_insert(0) += 1;
+      });
+    }
+
+    for count in self.fma_operand_uses.values_mut() {
+      *count = count.saturating_sub(1);
+    }
 
     self.caller_save_reserve =
       self.compute_caller_save_reserve(&all_insns[idx..fn_end]);
@@ -1528,6 +1602,32 @@ impl<'a> ARM64Gen<'a> {
       // builtin, so it has no aggregate-print hazard.
       | Insn::CallIndirect { .. }
       | Insn::Drop { .. } => true,
+      // Array literal / element access / length / store / grow
+      // lower through scratch (x16/x17) and the allocatable pool
+      // (x1..x15) only — never the x19..x28 promotion bank.
+      // `ArrayLiteral`/`ArrayPush`/`ArrayPop` may call `_malloc`
+      // / `_realloc` / `_zo_box_alloc`, but those are ABI-
+      // conforming `bl`s that preserve x19..x28, so a promoted
+      // local survives them for free.
+      Insn::ArrayLiteral { .. }
+      | Insn::ArrayIndex { .. }
+      | Insn::ArrayStore { .. }
+      | Insn::ArrayLen { .. }
+      | Insn::ArrayPush { .. }
+      | Insn::ArrayPop { .. } => true,
+      // Aggregate field read / write and struct / tuple / enum
+      // construction lower to SP-relative loads and stores
+      // through x16 scratch (or an FP register for float
+      // fields) and the allocatable pool — never the x19..x28
+      // promotion bank. A struct-of-arrays numeric kernel
+      // (n-body's `advance`) is built almost entirely from
+      // these plus array indexing, so excluding them is what
+      // kept its induction variables in memory.
+      Insn::TupleIndex { .. }
+      | Insn::FieldStore { .. }
+      | Insn::StructConstruct { .. }
+      | Insn::TupleLiteral { .. }
+      | Insn::EnumConstruct { .. } => true,
       // A plain call is safe; a `show*` of an aggregate routes
       // into the x19..x28 pretty-printer and is not.
       Insn::Call { name, args, .. } => {
@@ -1592,6 +1692,19 @@ impl<'a> ARM64Gen<'a> {
   /// O(1) type lookup for a ValueId.
   fn type_of(&self, vid: ValueId) -> Option<TyId> {
     self.value_types.get(&vid.0).copied()
+  }
+
+  /// The compile-time integer value of `vid` when it is defined
+  /// by an `Insn::ConstInt`, else `None`. Drives the magic-
+  /// number strength reduction of divide / remainder by a
+  /// constant.
+  fn const_int_of(&self, vid: ValueId, all_insns: &[Insn]) -> Option<u64> {
+    let InsnIdx(def_pos) = self.value_def_idx.get(vid)?;
+
+    match all_insns.get(def_pos as usize)? {
+      Insn::ConstInt { value, .. } => Some(*value),
+      _ => None,
+    }
   }
 
   fn is_string_value(&self, vid: ValueId) -> bool {
@@ -2975,8 +3088,249 @@ impl<'a> ARM64Gen<'a> {
     }
   }
 
+  /// Whether `ty_id` is one of the float types.
+  fn is_float_ty_id(ty_id: TyId) -> bool {
+    ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX
+  }
+
+  /// Decide whether a float multiply at `idx` should defer its
+  /// `FMUL` for fusion into the next instruction's `FMADD`
+  /// family op. The fuse is sound only when the multiply's
+  /// product is consumed by the immediately-following float
+  /// add / sub AND has no other use — then the product is dead
+  /// after the add / sub and the bare `FMUL` is pure redundant
+  /// work. Records the deferral in `pending_fma` and returns
+  /// `true` when the caller must skip emitting the `FMUL`.
+  fn try_defer_fma_mul(
+    &mut self,
+    dst: ValueId,
+    lhs: ValueId,
+    rhs: ValueId,
+    ty_id: TyId,
+    idx: usize,
+    all_insns: &[Insn],
+  ) -> bool {
+    if !Self::is_float_ty_id(ty_id) {
+      return false;
+    }
+
+    // The product must die at its single consumer.
+    if self.fma_operand_uses.get(&dst.0).copied().unwrap_or(0) != 1 {
+      return false;
+    }
+
+    // The next instruction must be a float add / sub that reads
+    // this product as an operand.
+    let Some(Insn::BinOp {
+      op,
+      lhs: next_lhs,
+      rhs: next_rhs,
+      ty_id: next_ty,
+      ..
+    }) = all_insns.get(idx + 1)
+    else {
+      return false;
+    };
+
+    if !matches!(op, BinOp::Add | BinOp::Sub)
+      || !Self::is_float_ty_id(*next_ty)
+      || (next_lhs.0 != dst.0 && next_rhs.0 != dst.0)
+    {
+      return false;
+    }
+
+    self.pending_fma = Some(PendingFma {
+      mul_idx: idx,
+      product: dst.0,
+      dst,
+      mul_lhs: lhs,
+      mul_rhs: rhs,
+    });
+
+    true
+  }
+
+  /// Emit a previously deferred `FMUL` and clear the pending
+  /// state. Used as the fallback when the fuse did not fire —
+  /// the multiply still has to produce its product. Registers
+  /// are resolved here so any spill / reload since the multiply
+  /// is reflected.
+  fn flush_pending_fma(&mut self) {
+    if let Some(p) = self.pending_fma.take() {
+      let dst = self.alloc_fp_reg(p.dst).unwrap_or(D0);
+      let lhs = self.alloc_fp_reg(p.mul_lhs).unwrap_or(D0);
+      let rhs = self.alloc_fp_reg(p.mul_rhs).unwrap_or(D1);
+
+      self.emitter.emit_fmul(dst, lhs, rhs);
+    }
+  }
+
+  /// Emit the fused multiply-add for a float add / sub that
+  /// consumes a deferred product. The non-product operand is
+  /// the accumulator; the multiplicands come from the deferred
+  /// multiply. The chosen form depends on which side holds the
+  /// product and whether the op is add or sub:
+  ///
+  /// - `add`, product on either side: `dst = add + m1*m2` →
+  ///   `FMADD` (commutative).
+  /// - `sub`, product is the subtrahend (`rhs`): `dst = add -
+  ///   m1*m2` → `FMSUB` (`Da - Dn*Dm`).
+  /// - `sub`, product is the minuend (`lhs`): `dst = m1*m2 -
+  ///   sub` → `FNMSUB` (`Dn*Dm - Da`).
+  fn emit_fused_fma(
+    &mut self,
+    dst: ValueId,
+    op: BinOp,
+    lhs: ValueId,
+    rhs: ValueId,
+    pending: PendingFma,
+  ) {
+    let product_is_rhs = rhs.0 == pending.product;
+    let addend_vid = if product_is_rhs { lhs } else { rhs };
+    let addend = self.alloc_fp_reg(addend_vid).unwrap_or(D0);
+    let fd = self.alloc_fp_reg(dst).unwrap_or(D0);
+    let mul_lhs = self.alloc_fp_reg(pending.mul_lhs).unwrap_or(D0);
+    let mul_rhs = self.alloc_fp_reg(pending.mul_rhs).unwrap_or(D1);
+    let ops = FmaOperands {
+      dst: fd,
+      mul_lhs,
+      mul_rhs,
+      addend,
+    };
+
+    match (op, product_is_rhs) {
+      (BinOp::Add, _) => self.emitter.emit_fmadd(ops),
+      (BinOp::Sub, true) => self.emitter.emit_fmsub(ops),
+      (BinOp::Sub, false) => self.emitter.emit_fnmsub(ops),
+      _ => unreachable!("emit_fused_fma only handles add / sub"),
+    }
+  }
+
+  /// Emit the quotient of `dividend / divisor` into `quo` using
+  /// a constant-divisor sequence — power-of-two shift or
+  /// magic-number multiply — instead of a hardware divide.
+  /// `divisor` is non-zero; the caller guarantees it. Clobbers
+  /// X16 and X17. `dividend` must live in a register outside
+  /// that scratch pair (the allocatable pool always does).
+  fn emit_const_quotient(&mut self, plan: ConstDivide) {
+    let ConstDivide {
+      quo,
+      dividend,
+      divisor,
+      is_unsigned,
+    } = plan;
+
+    if is_unsigned {
+      self.emit_unsigned_const_quotient(quo, dividend, divisor);
+    } else {
+      self.emit_signed_const_quotient(quo, dividend, divisor as i64);
+    }
+  }
+
+  /// Unsigned `dividend / divisor` into `quo`. A power-of-two
+  /// divisor is a single `LSR`; otherwise the Hacker's Delight
+  /// `umulh`-plus-shift sequence (with the incremented-
+  /// multiplier correction when the reciprocal overflows 64
+  /// bits).
+  fn emit_unsigned_const_quotient(
+    &mut self,
+    quo: Register,
+    dividend: Register,
+    divisor: u64,
+  ) {
+    if divisor.is_power_of_two() {
+      let k = divisor.trailing_zeros() as u8;
+
+      self.emitter.emit_lsr(quo, dividend, k);
+
+      return;
+    }
+
+    let m = unsigned_magic(divisor);
+
+    self.emit_mov_imm_64(X16, m.multiplier);
+    self.emitter.emit_umulh(X16, dividend, X16);
+
+    if m.add {
+      // q = (((n - hi) >> 1) + hi) >> (shift - 1).
+      self.emitter.emit_sub(X17, dividend, X16);
+      self.emitter.emit_lsr(X17, X17, 1);
+      self.emitter.emit_add(X16, X17, X16);
+      self.emitter.emit_lsr(quo, X16, (m.shift - 1) as u8);
+    } else {
+      self.emitter.emit_lsr(quo, X16, m.shift as u8);
+    }
+  }
+
+  /// Signed `dividend / divisor` into `quo`. A power-of-two
+  /// magnitude rounds toward zero via a bias add before the
+  /// arithmetic shift; otherwise the `smulh` magic sequence
+  /// with the sign-of-multiplier correction and a final
+  /// add-the-sign-bit step.
+  fn emit_signed_const_quotient(
+    &mut self,
+    quo: Register,
+    dividend: Register,
+    divisor: i64,
+  ) {
+    let magnitude = divisor.unsigned_abs();
+
+    if magnitude.is_power_of_two() {
+      let k = magnitude.trailing_zeros() as u8;
+
+      // bias = (dividend >> 63) >> (64 - k) = (2^k - 1) when
+      // negative, else 0. Add it so the arithmetic shift
+      // truncates toward zero.
+      self.emitter.emit_asr(X16, dividend, 63);
+      self.emitter.emit_lsr(X16, X16, 64 - k);
+      self.emitter.emit_add(X16, dividend, X16);
+      self.emitter.emit_asr(quo, X16, k);
+
+      // Negative divisor flips the quotient's sign.
+      if divisor < 0 {
+        self.emitter.emit_sub(quo, XZR, quo);
+      }
+
+      return;
+    }
+
+    let m = signed_magic(divisor);
+
+    self.emit_mov_imm_64(X16, m.multiplier as u64);
+    self.emitter.emit_smulh(X16, dividend, X16);
+
+    if divisor > 0 && m.multiplier < 0 {
+      self.emitter.emit_add(X16, X16, dividend);
+    } else if divisor < 0 && m.multiplier > 0 {
+      self.emitter.emit_sub(X16, X16, dividend);
+    }
+
+    self.emitter.emit_asr(X16, X16, m.shift as u8);
+    // q += (q >>(logical) 63) — add 1 when q is negative.
+    self.emitter.emit_lsr(X17, X16, 63);
+    self.emitter.emit_add(quo, X16, X17);
+  }
+
   /// Translate a single SIR instruction to ARM64.
   fn translate_insn(&mut self, insn: &Insn, idx: usize, all_insns: &[Insn]) {
+    // A deferred float multiply fuses only into the very next
+    // instruction. If this instruction is not that consumer,
+    // materialize the multiply now so its product exists.
+    if let Some(p) = self.pending_fma {
+      let fuses = matches!(
+        insn,
+        Insn::BinOp { op, lhs, rhs, ty_id, .. }
+          if idx == p.mul_idx + 1
+            && matches!(op, BinOp::Add | BinOp::Sub)
+            && Self::is_float_ty_id(*ty_id)
+            && (lhs.0 == p.product || rhs.0 == p.product)
+      );
+
+      if !fuses {
+        self.flush_pending_fma();
+      }
+    }
+
     // Register value types for O(1) type detection.
     match insn {
       Insn::ConstInt { dst, ty_id, .. }
@@ -3444,6 +3798,27 @@ impl<'a> ARM64Gen<'a> {
           ty_id.0 >= FLOAT_TYPE_ID_MIN && ty_id.0 <= FLOAT_TYPE_ID_MAX;
 
         if is_float {
+          // A multiply whose product feeds the next float
+          // add / sub defers its `FMUL` — the consumer folds it
+          // into one fused, single-rounding `FMADD`-family op.
+          if matches!(op, BinOp::Mul)
+            && self.try_defer_fma_mul(*dst, *lhs, *rhs, *ty_id, idx, all_insns)
+          {
+            return;
+          }
+
+          // The add / sub consuming a deferred product emits the
+          // fused form in place of a separate `FMUL` + add / sub.
+          if matches!(op, BinOp::Add | BinOp::Sub)
+            && let Some(pending) = self.pending_fma
+            && (lhs.0 == pending.product || rhs.0 == pending.product)
+          {
+            self.emit_fused_fma(*dst, *op, *lhs, *rhs, pending);
+            self.pending_fma = None;
+
+            return;
+          }
+
           let fl = self.alloc_fp_reg(*lhs).unwrap_or(D0);
           let fr = self.alloc_fp_reg(*rhs).unwrap_or(D1);
           match op {
@@ -3621,24 +3996,61 @@ impl<'a> ARM64Gen<'a> {
             BinOp::Sub => self.emitter.emit_sub(d, l, r),
             BinOp::Mul => self.emitter.emit_mul(d, l, r),
             BinOp::Div => {
-              if is_unsigned {
+              // A non-zero constant divisor strength-reduces to
+              // a shift or magic-number multiply — no hardware
+              // divide. `c == 0` keeps the hardware path so the
+              // divide-by-zero trap is unchanged.
+              let by_const = self
+                .const_int_of(*rhs, all_insns)
+                .filter(|&c| c != 0)
+                .map(|c| ConstDivide {
+                  quo: d,
+                  dividend: l,
+                  divisor: c,
+                  is_unsigned,
+                });
+
+              if let Some(plan) = by_const {
+                self.emit_const_quotient(plan);
+              } else if is_unsigned {
                 self.emitter.emit_udiv(d, l, r);
               } else {
                 self.emitter.emit_sdiv(d, l, r);
               }
             }
             BinOp::Rem => {
-              // dst = lhs - (lhs / rhs) * rhs. Use X16 as
-              // scratch. Route through the correct DIV
-              // flavour to keep unsigned remainders
-              // correct for `u*` types.
-              if is_unsigned {
-                self.emitter.emit_udiv(X16, l, r);
+              // rem = lhs - (lhs / rhs) * rhs. A non-zero
+              // constant divisor computes the quotient by the
+              // magic-number sequence, then `MSUB` recovers the
+              // remainder. `c == 0` keeps the hardware divide so
+              // the divide-by-zero trap is unchanged.
+              let by_const = self
+                .const_int_of(*rhs, all_insns)
+                .filter(|&c| c != 0)
+                .map(|c| ConstDivide {
+                  quo: X17,
+                  dividend: l,
+                  divisor: c,
+                  is_unsigned,
+                });
+
+              if let Some(plan) = by_const {
+                let divisor = plan.divisor;
+
+                self.emit_const_quotient(plan);
+                // X17 = quotient; X16 = divisor constant.
+                // d = lhs - quotient * divisor.
+                self.emit_mov_imm_64(X16, divisor);
+                self.emitter.emit_msub(d, X17, X16, l);
               } else {
-                self.emitter.emit_sdiv(X16, l, r);
+                if is_unsigned {
+                  self.emitter.emit_udiv(X16, l, r);
+                } else {
+                  self.emitter.emit_sdiv(X16, l, r);
+                }
+                self.emitter.emit_mul(X16, X16, r);
+                self.emitter.emit_sub(d, l, X16);
               }
-              self.emitter.emit_mul(X16, X16, r);
-              self.emitter.emit_sub(d, l, X16);
             }
             BinOp::And | BinOp::BitAnd => self.emitter.emit_and(d, l, r),
             BinOp::Or | BinOp::BitOr => self.emitter.emit_orr(d, l, r),
@@ -4754,40 +5166,43 @@ impl<'a> ARM64Gen<'a> {
         let alloc_size =
           (ARRAY_HEADER_SIZE as u32 + initial_cap * STACK_SLOT_SIZE) as u64;
 
-        // The most recent call result lives in X0 (not
-        // covered by the X1..X15 caller-save). If any
-        // element was assigned X0 by the allocator, save
-        // it before malloc clobbers X0 with the heap
-        // pointer, then reload into X20 after.
-        let x0_elem = elements
-          .iter()
-          .find(|e| self.alloc_reg(**e) == Some(X0))
-          .copied();
+        // The buffer pointer lives in x17 (IP1 scratch): it is
+        // the `_malloc` result, produced AFTER the call, so it
+        // never needs to survive the call, and no further calls
+        // run before the buffer is spilled. Holding it in
+        // scratch — not the x19..x28 promotion bank — keeps a
+        // promoted local intact, so this literal is sound inside
+        // a promoting function. Element materialization writes
+        // x16, leaving x17 untouched.
+        let r_buf = X17;
 
-        if x0_elem.is_some() {
-          let save_off =
-            self.caller_save_base + CALLER_SAVE_COUNT as u32 * STACK_SLOT_SIZE;
+        // An array literal element resident in X0 (a call result
+        // the allocator parked there) would be lost when malloc
+        // overwrites X0 with the heap pointer. Save it before the
+        // call and write it into the buffer right after — before
+        // the header writes touch x16 — so the main loop can skip
+        // it. This guard is effectively dead under the current
+        // allocator (X0 is reserved for call results and never
+        // enters the GP pool), but kept for correctness.
+        let x0_elem_index =
+          elements.iter().position(|e| self.alloc_reg(*e) == Some(X0));
+        let x0_save_off =
+          self.caller_save_base + CALLER_SAVE_COUNT as u32 * STACK_SLOT_SIZE;
 
-          self.emit_str_sp(X0, save_off);
+        if x0_elem_index.is_some() {
+          self.emit_str_sp(X0, x0_save_off);
         }
 
         self.emit_mov_imm_64(X0, alloc_size);
         self.emit_extern_call("_malloc");
-
-        let r_buf = Register::new(19);
-
-        if let Some(vid) = x0_elem {
-          let save_off =
-            self.caller_save_base + CALLER_SAVE_COUNT as u32 * STACK_SLOT_SIZE;
-          let r_reload = Register::new(20);
-
-          self.emit_ldr_sp(r_reload, save_off);
-          self
-            .reload_overrides
-            .insert((self.current_fn_start.unwrap_or(0) as u32, vid.0), 20);
-        }
-
         self.emitter.emit_mov_reg(r_buf, X0);
+
+        if let Some(i) = x0_elem_index {
+          let off = ARRAY_HEADER_SIZE + (i as u16) * (STACK_SLOT_SIZE as u16);
+
+          self.emit_ldr_sp(X16, x0_save_off);
+          self.emitter.emit_str(X16, r_buf, off as i16);
+        }
 
         // Header: len = n, cap = initial_cap.
         self.emit_mov_imm_64(X16, n as u64);
@@ -4796,6 +5211,10 @@ impl<'a> ARM64Gen<'a> {
         self.emitter.emit_str(X16, r_buf, 8);
 
         for (i, elem) in elements.iter().enumerate() {
+          if Some(i) == x0_elem_index {
+            continue;
+          }
+
           let off_u16 =
             ARRAY_HEADER_SIZE + (i as u16) * (STACK_SLOT_SIZE as u16);
 

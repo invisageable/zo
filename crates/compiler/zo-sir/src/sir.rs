@@ -573,6 +573,194 @@ impl Insn {
     }
   }
 
+  /// Walks every `ValueId` in this instruction by reference,
+  /// applying `f`. Read-only counterpart of
+  /// `visit_value_ids_mut` for passes that count or inspect
+  /// value references without rewriting them — codegen's FMA
+  /// fuse counts operand uses this way without cloning the
+  /// instruction.
+  pub fn visit_value_ids(&self, f: &mut impl FnMut(ValueId)) {
+    match self {
+      Insn::ConstInt { dst, .. }
+      | Insn::ConstFloat { dst, .. }
+      | Insn::ConstBool { dst, .. }
+      | Insn::ConstString { dst, .. }
+      | Insn::Load { dst, .. } => f(*dst),
+      Insn::ModuleLoad { .. }
+      | Insn::PackDecl { .. }
+      | Insn::PackLink { .. }
+      | Insn::EnumDef { .. }
+      | Insn::StructDef { .. }
+      | Insn::ArrayTyDef { .. }
+      | Insn::MapTyDef { .. }
+      | Insn::VecTyDef { .. }
+      | Insn::SetTyDef { .. }
+      | Insn::Label { .. }
+      | Insn::Jump { .. }
+      | Insn::FunDef { .. }
+      | Insn::ConstDef { .. }
+      | Insn::StyleSheet { .. }
+      | Insn::TestBegin { .. }
+      | Insn::TestRun { .. }
+      | Insn::TestSummary
+      | Insn::Nop => {}
+      Insn::VarDef { init, .. } => {
+        if let Some(v) = init {
+          f(*v);
+        }
+      }
+      Insn::Store { value, .. } => f(*value),
+      Insn::Drop { .. } => {}
+      Insn::Return { value, .. } => {
+        if let Some(v) = value {
+          f(*v);
+        }
+      }
+      Insn::Call { dst, args, .. } => {
+        f(*dst);
+        args.iter().for_each(|v| f(*v));
+      }
+      Insn::CallIndirect {
+        dst, callee, args, ..
+      } => {
+        f(*dst);
+        f(*callee);
+        args.iter().for_each(|v| f(*v));
+      }
+      Insn::BinOp { dst, lhs, rhs, .. } => {
+        f(*dst);
+        f(*lhs);
+        f(*rhs);
+      }
+      Insn::UnOp { dst, rhs, .. } => {
+        f(*dst);
+        f(*rhs);
+      }
+      Insn::BranchIfNot { cond, .. } => f(*cond),
+      Insn::Directive { value, .. } => f(*value),
+      Insn::Template { id, .. } => f(*id),
+      Insn::ArrayLiteral { dst, elements, .. } => {
+        f(*dst);
+        elements.iter().for_each(|v| f(*v));
+      }
+      Insn::ArrayIndex {
+        dst, array, index, ..
+      } => {
+        f(*dst);
+        f(*array);
+        f(*index);
+      }
+      Insn::ArrayStore {
+        array,
+        index,
+        value,
+        ..
+      } => {
+        f(*array);
+        f(*index);
+        f(*value);
+      }
+      Insn::ArrayLen { dst, array, .. } => {
+        f(*dst);
+        f(*array);
+      }
+      Insn::ArrayPush { array, value, .. } => {
+        f(*array);
+        f(*value);
+      }
+      Insn::ArrayPop { dst, array, .. } => {
+        f(*dst);
+        f(*array);
+      }
+      Insn::TupleLiteral { dst, elements, .. } => {
+        f(*dst);
+        elements.iter().for_each(|v| f(*v));
+      }
+      Insn::TupleIndex { dst, tuple, .. } => {
+        f(*dst);
+        f(*tuple);
+      }
+      Insn::EnumConstruct { dst, fields, .. } => {
+        f(*dst);
+        fields.iter().for_each(|v| f(*v));
+      }
+      Insn::StructConstruct { dst, fields, .. } => {
+        f(*dst);
+        fields.iter().for_each(|v| f(*v));
+      }
+      Insn::FieldStore { base, value, .. } => {
+        f(*base);
+        f(*value);
+      }
+      Insn::Cast { dst, src, .. } => {
+        f(*dst);
+        f(*src);
+      }
+      Insn::ChannelCreate { dst, .. } => f(*dst),
+      Insn::ChannelSend { channel, value, .. } => {
+        f(*channel);
+        f(*value);
+      }
+      Insn::ChannelRecv { dst, channel, .. } => {
+        f(*dst);
+        f(*channel);
+      }
+      Insn::ChannelClose { channel } => f(*channel),
+      Insn::FnAddr { dst, .. } => f(*dst),
+      Insn::TaskSpawn { dst, args, .. } => {
+        f(*dst);
+        args.iter().for_each(|v| f(*v));
+      }
+      Insn::TaskAwait { dst, task, .. } => {
+        f(*dst);
+        f(*task);
+      }
+      Insn::SelectWait {
+        out_which, chans, ..
+      } => {
+        f(*out_which);
+        chans.iter().for_each(|v| f(*v));
+      }
+      Insn::SelectRecv { dst, which, .. } => {
+        f(*dst);
+        f(*which);
+      }
+      Insn::TaskCancelled { dst, task, .. } => {
+        f(*dst);
+        f(*task);
+      }
+      Insn::TaskCancel { task } => f(*task),
+      Insn::StrSlice {
+        dst, src, lo, hi, ..
+      } => {
+        f(*dst);
+        f(*src);
+        f(*lo);
+        f(*hi);
+      }
+      Insn::ToStr { dst, src, .. } => {
+        f(*dst);
+        f(*src);
+      }
+      Insn::StringFormat { dst, segments, .. } => {
+        f(*dst);
+        segments.iter().for_each(|v| f(*v));
+      }
+      Insn::NurseryBegin { .. } | Insn::NurseryEnd { .. } => {}
+      Insn::CoerceToDyn { dst, src, .. } => {
+        f(*dst);
+        f(*src);
+      }
+      Insn::DynDispatch {
+        dst, recv, args, ..
+      } => {
+        f(*dst);
+        f(*recv);
+        args.iter().for_each(|v| f(*v));
+      }
+    }
+  }
+
   /// Walks every `ValueId` in this instruction, applying `f`.
   /// Used by SIR passes that need to rewrite value IDs
   /// (e.g., module merging, monomorphization).
