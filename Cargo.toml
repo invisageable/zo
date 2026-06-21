@@ -274,7 +274,6 @@ sha2 = { version = "0.10.9" }
 smallvec = { version = "1.15.1", features = ["const_new", "serde"] }
 smol_str = { version = "0.3.6", features = ["serde"] }
 syn = { version = "2.0", features = ["full"] }
-sysinfo = "0.39.2"
 taffy = { version = "0.8", default-features = false, features = [
   "std",
   "taffy_tree",

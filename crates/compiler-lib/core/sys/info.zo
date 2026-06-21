@@ -1,17 +1,15 @@
 -! sys::info — system-information primitives, backed by
--! `libzo_runtime`. The runtime side rides the `sysinfo`
--! crate so every Cranelift target (x86, arm64, Linux,
--! macOS, Windows) gets correct semantics without per-
--! target FFI shims.
+-! `libzo_runtime`'s direct platform syscalls (sysctl + mach
+-! on macOS, `sysinfo(2)` on Linux). The runtime links no
+-! extra system frameworks for these.
 -!
 -! `load core::sys::info::*;` is opt-in — programs that
--! never reference these symbols pay nothing at runtime
--! (sysinfo's `System::new_all` doesn't initialize).
+-! never reference these symbols pay nothing at runtime.
 -! Memory values are bytes; durations are seconds; CPU
--! usage is a percentage in `0.0..=100.0`. First
+-! usage is a percentage in `0.0..=100.0`. The first
 -! `cpu_usage()` call after process start returns `0.0`
--! because the sysinfo sampler needs two refreshes spaced
--! by its minimum-update interval to compute a delta.
+-! because usage is an interval delta with no prior sample
+-! to diff against.
 
 #link {
   macos: "@executable_path/libzo_runtime.dylib",
