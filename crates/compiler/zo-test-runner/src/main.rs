@@ -4,6 +4,14 @@
 //! codes and expected output. Catches codegen regressions
 //! that unit tests miss.
 //!
+//! A `Pass` program with a fixed `EXPECTED OUTPUT` is built and
+//! run twice — once dev, once `--release` — and both must match.
+//! Release is an optimized codegen path (function inlining); the
+//! parity check makes it a first-class tested target so a
+//! release-only inliner or codegen bug can't slip past a dev-only
+//! run. Programs with no fixed expectation (non-deterministic
+//! output) are checked once.
+//!
 //! Usage:
 //!   cargo run --bin zo-test-runner
 //!   cargo run --bin zo-test-runner -- --quick
@@ -873,6 +881,114 @@ fn run_project_fail(
   }
 }
 
+/// Build the program (dev or release) and run it, returning its
+/// stdout or a located failure. Shared by the dev pass and the
+/// release-parity check so both exercise the identical build, run,
+/// and stdin path. Failure reasons are prefixed `release:` in
+/// release mode so a mismatch points at the right build.
+fn build_run_capture(
+  file: &Path,
+  name: &str,
+  out: &Path,
+  zo: &Path,
+  target: Option<&str>,
+  release: bool,
+) -> Result<String, TestResult> {
+  let label = if release { "release: " } else { "" };
+
+  let mut build = build_cmd(zo, target);
+
+  build.arg(&*file.to_string_lossy()).arg("-o").arg(out);
+
+  if release {
+    build.arg("--release");
+  }
+
+  let status = build.stdout(Stdio::null()).stderr(Stdio::null()).status();
+
+  match status {
+    Ok(s) if !s.success() => {
+      return Err(fail(name, &format!("{label}compilation failed")));
+    }
+    Err(e) => {
+      return Err(fail(name, &format!("{label}build exec error: {e}")));
+    }
+    _ => {}
+  }
+
+  let mut run_cmd = Command::new(out);
+
+  run_cmd
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null())
+    .current_dir(file.parent().unwrap_or(file));
+
+  let run = match extract_stdin(file) {
+    Some(bytes) => {
+      run_with_timeout_stdin(run_cmd, RUN_TIMEOUT, bytes.into_bytes())
+    }
+    None => run_with_timeout(run_cmd, RUN_TIMEOUT),
+  };
+
+  match run {
+    Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+      Err(fail(name, &format!("{label}runtime timeout (10s)")))
+    }
+    Ok(output) if !output.status.success() => Err(fail(
+      name,
+      &format!(
+        "{label}runtime crash (exit {})",
+        output.status.code().unwrap_or(-1)
+      ),
+    )),
+    Ok(output) => Ok(String::from_utf8_lossy(&output.stdout).to_string()),
+    Err(e) => Err(fail(name, &format!("{label}run exec error: {e}"))),
+  }
+}
+
+/// Compare trimmed program output to its expected text. Returns
+/// `Some(fail)` with a located reason on mismatch, `None` when they
+/// match. `prefix` tags the reason with the build mode.
+fn compare_output(
+  name: &str,
+  actual: &str,
+  expected: &str,
+  prefix: &str,
+) -> Option<TestResult> {
+  let actual_trimmed = actual.trim_end();
+  let expected_trimmed = expected.trim_end();
+
+  if actual_trimmed == expected_trimmed {
+    return None;
+  }
+
+  let actual_lines = actual_trimmed.lines().collect::<Vec<_>>();
+  let expected_lines = expected_trimmed.lines().collect::<Vec<_>>();
+
+  for (i, (a, e)) in actual_lines.iter().zip(expected_lines.iter()).enumerate()
+  {
+    if a != e {
+      return Some(fail(
+        name,
+        &format!("{prefix}line {}: expected '{}', got '{}'", i + 1, e, a),
+      ));
+    }
+  }
+
+  if actual_lines.len() != expected_lines.len() {
+    Some(fail(
+      name,
+      &format!(
+        "{prefix}expected {} lines, got {}",
+        expected_lines.len(),
+        actual_lines.len()
+      ),
+    ))
+  } else {
+    Some(fail(name, &format!("{prefix}output mismatch")))
+  }
+}
+
 fn run_test(
   file: &Path,
   name: &str,
@@ -941,92 +1057,33 @@ fn run_test(
     }
 
     Category::Pass => {
-      let build = build_cmd(zo, target)
-        .arg(&*file.to_string_lossy())
-        .arg("-o")
-        .arg(&out)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-      match build {
-        Ok(s) if !s.success() => {
-          return fail(name, "compilation failed");
-        }
-        Err(e) => {
-          return fail(name, &format!("build exec error: {e}"));
-        }
-        _ => {}
-      }
-
-      let mut run_cmd = Command::new(&out);
-
-      run_cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .current_dir(file.parent().unwrap_or(file));
-
-      let run = match extract_stdin(file) {
-        Some(bytes) => {
-          run_with_timeout_stdin(run_cmd, RUN_TIMEOUT, bytes.into_bytes())
-        }
-        None => run_with_timeout(run_cmd, RUN_TIMEOUT),
+      let actual = match build_run_capture(file, name, &out, zo, target, false)
+      {
+        Ok(actual) => actual,
+        Err(result) => return result,
       };
 
-      match run {
-        Err(e) if e.kind() == io::ErrorKind::TimedOut => {
-          fail(name, "runtime timeout (10s)")
-        }
-        Ok(output) if !output.status.success() => fail(
-          name,
-          &format!(
-            "runtime crash (exit {})",
-            output.status.code().unwrap_or(-1)
-          ),
-        ),
-        Ok(output) => {
-          let actual = String::from_utf8_lossy(&output.stdout);
-          let expected = extract_expected(file);
+      let expected = extract_expected(file);
 
-          if expected.is_empty() {
-            return ok(name);
-          }
+      // No fixed expectation (non-deterministic output, e.g. live
+      // system metrics) — nothing to compare in either mode.
+      if expected.is_empty() {
+        return ok(name);
+      }
 
-          let actual_trimmed = actual.trim_end();
-          let expected_trimmed = expected.trim_end();
+      if let Some(result) = compare_output(name, &actual, &expected, "") {
+        return result;
+      }
 
-          if actual_trimmed == expected_trimmed {
-            ok(name)
-          } else {
-            let actual_lines = actual_trimmed.lines().collect::<Vec<_>>();
-            let expected_lines = expected_trimmed.lines().collect::<Vec<_>>();
+      // Release parity: the same source, optimized, must produce
+      // the same output. Catches release-only inliner / codegen
+      // bugs the dev run never exercises.
+      let rel_out = tmp.join(format!("{name}__release"));
 
-            for (i, (a, e)) in
-              actual_lines.iter().zip(expected_lines.iter()).enumerate()
-            {
-              if a != e {
-                return fail(
-                  name,
-                  &format!("line {}: expected '{}', got '{}'", i + 1, e, a),
-                );
-              }
-            }
-
-            if actual_lines.len() != expected_lines.len() {
-              fail(
-                name,
-                &format!(
-                  "expected {} lines, got {}",
-                  expected_lines.len(),
-                  actual_lines.len()
-                ),
-              )
-            } else {
-              fail(name, "output mismatch")
-            }
-          }
-        }
-        Err(e) => fail(name, &format!("run exec error: {e}")),
+      match build_run_capture(file, name, &rel_out, zo, target, true) {
+        Ok(rel) => compare_output(name, &rel, &expected, "release: ")
+          .unwrap_or_else(|| ok(name)),
+        Err(result) => result,
       }
     }
 
