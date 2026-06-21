@@ -363,14 +363,15 @@ mod imp {
 
   pub fn mem_total() -> i64 {
     let info = snapshot();
-    (info.totalram as u64 * unit(&info)).min(i64::MAX as u64) as i64
+    (info.totalram * unit(&info)).min(i64::MAX as u64) as i64
   }
 
   pub fn mem_used() -> i64 {
     let info = snapshot();
-    let used = (info.totalram as u64)
-      .saturating_sub(info.freeram as u64)
-      .saturating_sub(info.bufferram as u64)
+    let used = info
+      .totalram
+      .saturating_sub(info.freeram)
+      .saturating_sub(info.bufferram)
       * unit(&info);
 
     used.min(i64::MAX as u64) as i64
@@ -378,23 +379,22 @@ mod imp {
 
   pub fn mem_available() -> i64 {
     let info = snapshot();
-    ((info.freeram as u64 + info.bufferram as u64) * unit(&info))
-      .min(i64::MAX as u64) as i64
+    ((info.freeram + info.bufferram) * unit(&info)).min(i64::MAX as u64) as i64
   }
 
   pub fn swap_total() -> i64 {
     let info = snapshot();
-    (info.totalswap as u64 * unit(&info)).min(i64::MAX as u64) as i64
+    (info.totalswap * unit(&info)).min(i64::MAX as u64) as i64
   }
 
   pub fn swap_used() -> i64 {
     let info = snapshot();
-    ((info.totalswap as u64).saturating_sub(info.freeswap as u64) * unit(&info))
+    (info.totalswap.saturating_sub(info.freeswap) * unit(&info))
       .min(i64::MAX as u64) as i64
   }
 
   pub fn uptime_secs() -> i64 {
-    snapshot().uptime.max(0) as i64
+    snapshot().uptime.max(0)
   }
 
   pub fn proc_count() -> i64 {
