@@ -94,7 +94,17 @@ pub const D4: FpRegister = FpRegister::new(4);
 pub const D5: FpRegister = FpRegister::new(5);
 pub const D6: FpRegister = FpRegister::new(6);
 pub const D7: FpRegister = FpRegister::new(7);
-// D8-D15: callee-saved (skip for now)
+// D8-D15: callee-saved. Only the low 64 bits of v8..v15 are
+// preserved across a call, which is exactly the `f64` home a
+// promoted float local needs.
+pub const D8: FpRegister = FpRegister::new(8);
+pub const D9: FpRegister = FpRegister::new(9);
+pub const D10: FpRegister = FpRegister::new(10);
+pub const D11: FpRegister = FpRegister::new(11);
+pub const D12: FpRegister = FpRegister::new(12);
+pub const D13: FpRegister = FpRegister::new(13);
+pub const D14: FpRegister = FpRegister::new(14);
+pub const D15: FpRegister = FpRegister::new(15);
 // D16-D31: caller-saved temps
 pub const D16: FpRegister = FpRegister::new(16);
 pub const D17: FpRegister = FpRegister::new(17);

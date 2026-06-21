@@ -17,11 +17,13 @@
 //! a promoted value survives a `bl` for free — the ABI
 //! preserves x19..x28 — so there is no per-call spill.
 //!
-//! Scope: general-purpose scalars only (`int`, `s8..s64`,
-//! `u8..u64`, `bool`, `char`, pointers). Floats (which would
-//! use d8..d15) are a follow-up.
+//! Scope: general-purpose scalars (`int`, `s8..s64`,
+//! `u8..u64`, `bool`, `char`, pointers) lift into x19..x28;
+//! `float` locals lift into the callee-saved FP bank d8..d15.
+//! The two banks and their register numbers are disjoint, so a
+//! function can promote both at once.
 
-use zo_emitter_arm::Register;
+use zo_emitter_arm::{FpRegister, Register};
 use zo_interner::Symbol;
 use zo_sir::{Insn, LoadSource};
 
@@ -45,6 +47,36 @@ pub const PROMOTION_REGS: [Register; 10] = [
   Register::new(28),
 ];
 
+/// Callee-saved FP registers we may claim for a promoted
+/// `float` local, in assignment order. d8..d15 sit outside the
+/// allocator's FP pool (`ALLOCATABLE_FP`), are AAPCS-preserved
+/// across calls, and are never used as ad-hoc scratch — so the
+/// FP plan needs no clobber gate.
+pub const PROMOTION_FREGS: [FpRegister; 8] = [
+  FpRegister::new(8),
+  FpRegister::new(9),
+  FpRegister::new(10),
+  FpRegister::new(11),
+  FpRegister::new(12),
+  FpRegister::new(13),
+  FpRegister::new(14),
+  FpRegister::new(15),
+];
+
+/// Which register bank a local belongs to, by the type of its
+/// stores. A local stored under more than one bank — or under a
+/// non-register-sized type — is `Other` and promotes nowhere.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum LocalKind {
+  /// A general-purpose scalar: `int`, `s*`/`u*`, `bool`, `char`,
+  /// a pointer. Promotes into x19..x28.
+  GpScalar,
+  /// A `float`. Promotes into d8..d15.
+  Float,
+  /// An aggregate, or a conflicting/mixed type. Stays in memory.
+  Other,
+}
+
 /// Extra weight an access inside a loop body contributes to
 /// a local's promotion score, on top of the base count of 1
 /// per static access. Nested loops multiply, so a body two
@@ -59,18 +91,17 @@ const LOOP_WEIGHT: u32 = 16;
 /// restore).
 #[derive(Default)]
 pub struct Promotion {
-  /// `Symbol -> physical register` for every promoted local.
+  /// `Symbol -> physical register` for every promoted GP local.
   map: HashMap<u32, Register>,
-  /// Registers claimed by this function, in assignment order
+  /// GP registers claimed by this function, in assignment order
   /// (x19 first). Drives the prologue/epilogue save set.
   used: Vec<Register>,
-}
-
-/// One promotable scalar local: its symbol id and the
-/// loop-weighted count of static accesses (loads + stores).
-struct Candidate {
-  symbol: u32,
-  score: u32,
+  /// `Symbol -> physical FP register` for every promoted `float`
+  /// local.
+  fmap: HashMap<u32, FpRegister>,
+  /// FP registers claimed by this function, in assignment order
+  /// (d8 first). Drives the prologue/epilogue FP save set.
+  fp_used: Vec<FpRegister>,
 }
 
 impl Promotion {
@@ -96,43 +127,54 @@ impl Promotion {
     self.used[i]
   }
 
+  /// The promotion FP register for `symbol`, if promoted.
+  #[inline]
+  pub fn freg_of(&self, symbol: Symbol) -> Option<FpRegister> {
+    self.fmap.get(&symbol.as_u32()).copied()
+  }
+
+  /// Number of callee-saved FP registers this function claimed.
+  #[inline]
+  pub fn fp_used_count(&self) -> usize {
+    self.fp_used.len()
+  }
+
+  /// The `i`-th claimed FP register in assignment order.
+  #[inline]
+  pub fn fp_used_reg_at(&self, i: usize) -> FpRegister {
+    self.fp_used[i]
+  }
+
   /// Build the promotion plan for one function body.
   ///
-  /// `is_scalar` classifies a `Store`'s `ty_id.0` as a
-  /// register-sized GP scalar (callers wire this to the type
-  /// table). A local is a candidate only when every store to
-  /// it carries a scalar type — a symbol seen once as an
-  /// aggregate store is disqualified outright so we never
-  /// promote a struct/array/string local.
+  /// `classify` maps a `Store`'s `ty_id.0` to its register bank
+  /// (callers wire this to the type table). A local is a
+  /// candidate only when every store to it agrees on one bank —
+  /// a symbol stored once under a conflicting or aggregate type
+  /// collapses to `Other` and promotes nowhere.
   ///
-  /// Loads are also scanned so a local that is read but never
-  /// stored a non-scalar still ranks by total access count.
+  /// Loads are also scored so a local read more than it is
+  /// written still ranks by total access count.
   ///
-  /// `regs_safe` must be `false` when the function body
-  /// contains an instruction whose lowering uses x19..x28 as
-  /// ad-hoc scratch (aggregate pretty-printing, array
-  /// literal/push/pop). Promotion claims those same
-  /// registers, so a clobbering helper would corrupt a
-  /// promoted local; the only correct response is to promote
-  /// nothing in such a function. See
-  /// `ARM64Gen::body_clobbers_promotion_regs`.
+  /// `regs_safe` gates only the GP bank: it must be `false` when
+  /// the body's lowering uses x19..x28 as ad-hoc scratch
+  /// (aggregate pretty-printing, array literal/push/pop), since
+  /// promotion claims those same registers. The FP bank d8..d15
+  /// is never scratch, so the float plan is built regardless.
+  /// See `ARM64Gen::body_clobbers_promotion_regs`.
   pub fn analyze(
     body: &[Insn],
-    is_scalar: impl Fn(u32) -> bool,
+    classify: impl Fn(u32) -> LocalKind,
     regs_safe: bool,
   ) -> Self {
-    if !regs_safe {
-      return Self::default();
-    }
-
     let loop_depth = compute_loop_depth(body);
 
-    // `score[sym]` accumulates loop-weighted accesses;
-    // `disqualified[sym]` marks any local seen with a
-    // non-scalar store, which bars promotion regardless of
-    // score.
+    // `score` accumulates loop-weighted accesses per local;
+    // `kind` records which bank a store target belongs to,
+    // collapsing to `Other` on a conflicting or non-register
+    // type so such a local promotes nowhere.
     let mut score: HashMap<u32, u32> = HashMap::default();
-    let mut disqualified: HashMap<u32, ()> = HashMap::default();
+    let mut kind: HashMap<u32, LocalKind> = HashMap::default();
 
     for (i, insn) in body.iter().enumerate() {
       let weight = 1 + LOOP_WEIGHT * loop_depth[i];
@@ -141,11 +183,18 @@ impl Promotion {
         Insn::Store { name, ty_id, .. } => {
           let sym = name.as_u32();
 
-          if is_scalar(ty_id.0) {
-            *score.entry(sym).or_insert(0) += weight;
-          } else {
-            disqualified.insert(sym, ());
-          }
+          *score.entry(sym).or_insert(0) += weight;
+
+          let observed = classify(ty_id.0);
+          let merged = match kind.get(&sym) {
+            None => observed,
+            Some(prev) if *prev == observed && observed != LocalKind::Other => {
+              observed
+            }
+            _ => LocalKind::Other,
+          };
+
+          kind.insert(sym, merged);
         }
         Insn::Load {
           src: LoadSource::Local(sym),
@@ -157,45 +206,59 @@ impl Promotion {
       }
     }
 
-    // Only symbols that were a scalar store target are
-    // promotable — a pure-load symbol with no store in this
-    // function is a parameter alias (handled by the param
-    // path) or an outer binding, neither of which this pass
-    // owns.
-    let mut candidates: Vec<Candidate> = body
-      .iter()
-      .filter_map(|insn| match insn {
-        Insn::Store { name, ty_id, .. }
-          if is_scalar(ty_id.0)
-            && !disqualified.contains_key(&name.as_u32()) =>
-        {
-          Some(name.as_u32())
-        }
-        _ => None,
-      })
-      .collect::<std::collections::BTreeSet<_>>()
-      .into_iter()
-      .map(|symbol| Candidate {
-        symbol,
-        score: score.get(&symbol).copied().unwrap_or(0),
-      })
-      .collect();
-
-    // Highest score first; ties break on symbol id so the
-    // assignment is deterministic across builds.
-    candidates
-      .sort_by(|a, b| b.score.cmp(&a.score).then(a.symbol.cmp(&b.symbol)));
-
     let mut map = HashMap::default();
     let mut used = Vec::new();
 
-    for (candidate, &reg) in candidates.iter().zip(PROMOTION_REGS.iter()) {
-      map.insert(candidate.symbol, reg);
-      used.push(reg);
+    // GP plan: gated by `regs_safe`, since x19..x28 double as
+    // the aggregate-print / array-op scratch bank.
+    if regs_safe {
+      for (sym, &reg) in ranked(&kind, &score, LocalKind::GpScalar)
+        .iter()
+        .zip(&PROMOTION_REGS)
+      {
+        map.insert(*sym, reg);
+        used.push(reg);
+      }
     }
 
-    Self { map, used }
+    let mut fmap = HashMap::default();
+    let mut fp_used = Vec::new();
+
+    // FP plan: always built — d8..d15 are never scratch.
+    for (sym, &reg) in ranked(&kind, &score, LocalKind::Float)
+      .iter()
+      .zip(&PROMOTION_FREGS)
+    {
+      fmap.insert(*sym, reg);
+      fp_used.push(reg);
+    }
+
+    Self {
+      map,
+      used,
+      fmap,
+      fp_used,
+    }
   }
+}
+
+/// Store-target symbols of `want` kind, highest loop-weighted
+/// score first; ties break on symbol id for a deterministic
+/// assignment across builds. A pure-load symbol has no kind
+/// entry and is never a candidate.
+fn ranked(
+  kind: &HashMap<u32, LocalKind>,
+  score: &HashMap<u32, u32>,
+  want: LocalKind,
+) -> Vec<u32> {
+  let mut candidates = kind
+    .iter()
+    .filter(|(_, k)| **k == want)
+    .map(|(sym, _)| (*sym, score.get(sym).copied().unwrap_or(0)))
+    .collect::<Vec<_>>();
+
+  candidates.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+  candidates.into_iter().map(|(sym, _)| sym).collect()
 }
 
 /// Loop-nesting depth at each instruction index.
@@ -254,10 +317,15 @@ mod tests {
   /// trivial so the tests exercise the ranking, not the
   /// type table.
   const SCALAR_TY: u32 = 1;
+  const FLOAT_TY: u32 = 2;
   const AGGREGATE_TY: u32 = 99;
 
-  fn scalar(ty: u32) -> bool {
-    ty == SCALAR_TY
+  fn classify(ty: u32) -> LocalKind {
+    match ty {
+      SCALAR_TY => LocalKind::GpScalar,
+      FLOAT_TY => LocalKind::Float,
+      _ => LocalKind::Other,
+    }
   }
 
   fn store(name: u32, ty: u32) -> Insn {
@@ -279,7 +347,7 @@ mod tests {
   #[test]
   fn promotes_scalar_local() {
     let body = vec![store(10, SCALAR_TY), load_local(10)];
-    let plan = Promotion::analyze(&body, scalar, true);
+    let plan = Promotion::analyze(&body, classify, true);
 
     assert_eq!(plan.reg_of(Symbol::new(10)), Some(PROMOTION_REGS[0]));
     assert_eq!(plan.used_count(), 1);
@@ -290,7 +358,7 @@ mod tests {
     // A struct/array local stored once must never promote —
     // its bytes live in memory, not a register.
     let body = vec![store(10, AGGREGATE_TY), load_local(10)];
-    let plan = Promotion::analyze(&body, scalar, true);
+    let plan = Promotion::analyze(&body, classify, true);
 
     assert_eq!(plan.reg_of(Symbol::new(10)), None);
     assert!(plan.used_count() == 0);
@@ -302,7 +370,7 @@ mod tests {
     // if other stores look scalar — never promote a value
     // whose backing shape is sometimes memory.
     let body = vec![store(10, SCALAR_TY), store(10, AGGREGATE_TY)];
-    let plan = Promotion::analyze(&body, scalar, true);
+    let plan = Promotion::analyze(&body, classify, true);
 
     assert_eq!(plan.reg_of(Symbol::new(10)), None);
   }
@@ -313,7 +381,7 @@ mod tests {
     // array op), promotion must be disabled entirely — a
     // clobbering helper would corrupt any promoted local.
     let body = vec![store(10, SCALAR_TY), load_local(10)];
-    let plan = Promotion::analyze(&body, scalar, false);
+    let plan = Promotion::analyze(&body, classify, false);
 
     assert_eq!(plan.reg_of(Symbol::new(10)), None);
     assert_eq!(plan.used_count(), 0);
@@ -338,7 +406,7 @@ mod tests {
     body.push(load_local(20));
     body.push(Insn::Jump { target: 0 });
 
-    let plan = Promotion::analyze(&body, scalar, true);
+    let plan = Promotion::analyze(&body, classify, true);
 
     // hot's loop access: weight 1 + 16 = 17, plus its store
     // (weight 1) = 18. cold: 1 store + 11 loads = 12. hot
@@ -357,7 +425,7 @@ mod tests {
     let body: Vec<Insn> =
       (0..count).map(|s| store(100 + s, SCALAR_TY)).collect();
 
-    let plan = Promotion::analyze(&body, scalar, true);
+    let plan = Promotion::analyze(&body, classify, true);
 
     assert_eq!(plan.used_count(), PROMOTION_REGS.len());
 
@@ -394,5 +462,59 @@ mod tests {
     ]);
 
     assert_eq!(depth, vec![0, 0, 0]);
+  }
+
+  #[test]
+  fn promotes_float_local() {
+    let body = vec![store(10, FLOAT_TY), load_local(10)];
+    let plan = Promotion::analyze(&body, classify, true);
+
+    assert_eq!(plan.freg_of(Symbol::new(10)), Some(PROMOTION_FREGS[0]));
+    assert_eq!(plan.fp_used_count(), 1);
+    // It claims an FP register, not a GP one.
+    assert_eq!(plan.reg_of(Symbol::new(10)), None);
+    assert_eq!(plan.used_count(), 0);
+  }
+
+  #[test]
+  fn caps_at_available_fregs() {
+    // More float locals than callee-saved FP registers: only the
+    // top `PROMOTION_FREGS.len()` promote; the rest stay in memory.
+    let count = PROMOTION_FREGS.len() as u32 + 3;
+    let body: Vec<Insn> =
+      (0..count).map(|s| store(100 + s, FLOAT_TY)).collect();
+
+    let plan = Promotion::analyze(&body, classify, true);
+
+    assert_eq!(plan.fp_used_count(), PROMOTION_FREGS.len());
+
+    let promoted = (0..count)
+      .filter(|s| plan.freg_of(Symbol::new(100 + s)).is_some())
+      .count();
+
+    assert_eq!(promoted, PROMOTION_FREGS.len());
+  }
+
+  #[test]
+  fn int_and_float_coexist() {
+    // An int local and a float local in the same body claim
+    // disjoint banks (x19 and d8), no collision.
+    let body = vec![store(10, SCALAR_TY), store(20, FLOAT_TY)];
+    let plan = Promotion::analyze(&body, classify, true);
+
+    assert_eq!(plan.reg_of(Symbol::new(10)), Some(PROMOTION_REGS[0]));
+    assert_eq!(plan.freg_of(Symbol::new(20)), Some(PROMOTION_FREGS[0]));
+  }
+
+  #[test]
+  fn float_promotes_when_regs_unsafe() {
+    // `regs_safe = false` gates only the GP bank (x19..x28 double
+    // as scratch). d8..d15 are never scratch, so a float local
+    // still promotes.
+    let body = vec![store(10, SCALAR_TY), store(20, FLOAT_TY)];
+    let plan = Promotion::analyze(&body, classify, false);
+
+    assert_eq!(plan.reg_of(Symbol::new(10)), None);
+    assert_eq!(plan.freg_of(Symbol::new(20)), Some(PROMOTION_FREGS[0]));
   }
 }

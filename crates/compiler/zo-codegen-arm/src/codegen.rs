@@ -1,6 +1,6 @@
 pub(crate) mod template;
 
-use crate::promotion::Promotion;
+use crate::promotion::{LocalKind, Promotion};
 
 use zo_buffer::Buffer;
 use zo_codegen_backend::{Artifact, MachoLinkObject, Webviewing};
@@ -166,6 +166,9 @@ struct FrameAreas {
   /// the top of the frame so no other area's base offset
   /// shifts when promotion is active.
   promo_save_size: u32,
+  /// Save area for promoted callee-saved FP registers (d8..d15).
+  /// Same shape as `promo_save_size`, laid directly above it.
+  promo_save_fp_size: u32,
 }
 
 /// One enum variant's layout snapshot for the
@@ -553,6 +556,14 @@ pub struct ARM64Gen<'a> {
   /// loop would never see the update and spin forever.
   /// Cleared per FunDef.
   param_promo_reg: HashMap<u32, Register>,
+  /// FP analogue of `promo_value_reg`: SSA values bound to a
+  /// promoted `float` local's callee-saved d-register, read by
+  /// `alloc_fp_reg`. Cleared per FunDef. Keyed by `ValueId.0`.
+  promo_value_fp_reg: HashMap<u32, FpRegister>,
+  /// FP analogue of `param_promo_reg`: parameter index → the
+  /// d-register a promoted `mut` float parameter lives in.
+  /// Cleared per FunDef.
+  param_promo_fp_reg: HashMap<u32, FpRegister>,
   /// Inline-storage `[N]T` variables: name → SP-relative
   /// offset of the array block's first byte. The block
   /// holds `[len:8][cap:8][e0:8]...[eN:8]`. `Insn::Store`
@@ -607,6 +618,12 @@ pub struct ARM64Gen<'a> {
   /// prologue stores each claimed register here; every
   /// return path restores from here before the `add sp`.
   promo_save_base: u32,
+  /// Offset from SP of the promoted-FP-register save area,
+  /// holding the caller's d8..d15 while this function uses them
+  /// for promoted `float` locals. Laid directly above
+  /// `promo_save_base`; the prologue stores each claimed
+  /// d-register here and every return path restores it.
+  promo_save_fp_base: u32,
   /// Offset from SP of the select-wait scratch area.
   /// Layout: `nchans * 8` bytes of `*mut ZoChan`
   /// pointers immediately followed by an `elem_sz`
@@ -966,6 +983,8 @@ impl<'a> ARM64Gen<'a> {
       promotion: Promotion::default(),
       promo_value_reg: HashMap::default(),
       param_promo_reg: HashMap::default(),
+      promo_value_fp_reg: HashMap::default(),
+      param_promo_fp_reg: HashMap::default(),
       array_var_blocks: HashMap::default(),
       param_slots: HashMap::default(),
       param_sym_slots: HashMap::default(),
@@ -978,6 +997,7 @@ impl<'a> ARM64Gen<'a> {
       array_push_scratch_base: 0,
       string_format_scratch_base: 0,
       promo_save_base: 0,
+      promo_save_fp_base: 0,
       next_struct_slot: 0,
       io_shared_buf_offset: None,
       struct_return_fns: HashMap::default(),
@@ -1096,6 +1116,13 @@ impl<'a> ARM64Gen<'a> {
 
   /// Look up the allocated FP register for a ValueId.
   fn alloc_fp_reg(&self, vid: ValueId) -> Option<FpRegister> {
+    // A value loaded from a promoted `float` local lives in its
+    // callee-saved d-register — return it directly so consumers
+    // read the register with no intervening memory load.
+    if let Some(&reg) = self.promo_value_fp_reg.get(&vid.0) {
+      return Some(reg);
+    }
+
     self
       .reg_alloc
       .as_ref()
@@ -1256,6 +1283,7 @@ impl<'a> ARM64Gen<'a> {
       + ARRAY_PUSH_SCRATCH_SIZE
       + areas.string_format_scratch_size
       + areas.promo_save_size
+      + areas.promo_save_fp_size
       + FRAME_ALIGN_MASK)
       & !FRAME_ALIGN_MASK
   }
@@ -1267,6 +1295,14 @@ impl<'a> ARM64Gen<'a> {
   /// the epilogue's restore loop.
   fn promo_save_size(&self) -> u32 {
     let n = self.promotion.used_count() as u32;
+
+    (n * STACK_SLOT_SIZE + FRAME_ALIGN_MASK) & !FRAME_ALIGN_MASK
+  }
+
+  /// Bytes the promoted-FP-register save area occupies: one
+  /// 8-byte slot per claimed d8..d15, rounded up to 16.
+  fn promo_save_fp_size(&self) -> u32 {
+    let n = self.promotion.fp_used_count() as u32;
 
     (n * STACK_SLOT_SIZE + FRAME_ALIGN_MASK) & !FRAME_ALIGN_MASK
   }
@@ -1347,6 +1383,8 @@ impl<'a> ARM64Gen<'a> {
     self.mutable_slots.clear();
     self.promo_value_reg.clear();
     self.param_promo_reg.clear();
+    self.promo_value_fp_reg.clear();
+    self.param_promo_fp_reg.clear();
     self.array_var_blocks.clear();
     self.next_mut_slot = 0;
     self.next_struct_slot = 0;
@@ -1402,13 +1440,14 @@ impl<'a> ARM64Gen<'a> {
     Promotion::analyze(
       body,
       |ty_id| match view {
-        Some(view) => {
-          matches!(
-            resolve_ty(view.tys, TyId(ty_id)),
-            Ty::Int { .. } | Ty::Bool | Ty::Char | Ty::Ref(_)
-          )
-        }
-        None => false,
+        Some(view) => match resolve_ty(view.tys, TyId(ty_id)) {
+          Ty::Int { .. } | Ty::Bool | Ty::Char | Ty::Ref(_) => {
+            LocalKind::GpScalar
+          }
+          Ty::Float(_) => LocalKind::Float,
+          _ => LocalKind::Other,
+        },
+        None => LocalKind::Other,
       },
       regs_safe,
     )
@@ -3023,6 +3062,7 @@ impl<'a> ARM64Gen<'a> {
           let param_reserve = params.len() as u32 * STACK_SLOT_SIZE;
           let caller_save = self.caller_save_reserve;
           let promo_save_size = self.promo_save_size();
+          let promo_save_fp_size = self.promo_save_fp_size();
           let frame = Self::aligned_frame_size(FrameAreas {
             spill_size,
             mut_size,
@@ -3033,6 +3073,7 @@ impl<'a> ARM64Gen<'a> {
             select_scratch_size,
             string_format_scratch_size,
             promo_save_size,
+            promo_save_fp_size,
           });
 
           if frame > 0 {
@@ -3090,6 +3131,16 @@ impl<'a> ARM64Gen<'a> {
             self.emit_str_sp(reg, off);
           }
 
+          // Promoted-FP save area, directly above the GP one.
+          self.promo_save_fp_base = self.promo_save_base + promo_save_size;
+
+          for i in 0..self.promotion.fp_used_count() {
+            let reg = self.promotion.fp_used_reg_at(i);
+            let off = self.promo_save_fp_base + i as u32 * STACK_SLOT_SIZE;
+
+            self.emit_str_fp_sp(reg, off);
+          }
+
           let param_base = spill_size + mut_size;
 
           for (i, (sym, ty_id)) in params.iter().enumerate() {
@@ -3101,13 +3152,18 @@ impl<'a> ARM64Gen<'a> {
             // receive its incoming arg value: copy the arg
             // register into the promotion register before any
             // body code reads it. Without this the promotion
-            // register holds the caller's saved x19.. value,
-            // not the argument. Only GP scalars are promoted,
-            // so `is_fp` params never hit this path.
+            // register holds the caller's saved value, not the
+            // argument. GP scalars use x19..x28; floats d8..d15.
             let promo = (!is_fp).then(|| self.promotion.reg_of(*sym)).flatten();
+            let fp_promo =
+              is_fp.then(|| self.promotion.freg_of(*sym)).flatten();
 
             if let Some(reg) = promo {
               self.param_promo_reg.insert(i as u32, reg);
+            }
+
+            if let Some(reg) = fp_promo {
+              self.param_promo_fp_reg.insert(i as u32, reg);
             }
 
             if i < MAX_REG_ARGS {
@@ -3115,6 +3171,10 @@ impl<'a> ARM64Gen<'a> {
                 let src = FpRegister::new(i as u8);
 
                 self.emit_str_fp_sp(src, off);
+
+                if let Some(dst) = fp_promo {
+                  self.emitter.emit_fmov_fp(dst, src);
+                }
               } else {
                 let src = Register::new(i as u8);
 
@@ -3142,6 +3202,12 @@ impl<'a> ARM64Gen<'a> {
 
               if let Some(dst) = promo {
                 self.emitter.emit_mov_reg(dst, X16);
+              }
+
+              // A promoted float overflow param: its bits now sit
+              // in the home slot — load them into the d-register.
+              if let Some(dst) = fp_promo {
+                self.emit_ldr_fp_sp(dst, off);
               }
             }
 
@@ -3256,6 +3322,15 @@ impl<'a> ARM64Gen<'a> {
             return;
           }
 
+          // Float promotion: the `float` local lives in a callee-
+          // saved FP register. Bind this load's `dst` to it so
+          // consumers read the register directly — no memory load.
+          if let Some(freg) = self.promotion.freg_of(*sym) {
+            self.promo_value_fp_reg.insert(dst.0, freg);
+
+            return;
+          }
+
           // Recover the construction-site enum payload types
           // (if any) so a later `showln(local)` can dispatch
           // on the concrete payload type. Without this, only
@@ -3317,6 +3392,14 @@ impl<'a> ARM64Gen<'a> {
           // loop observes every update.
           if let Some(&reg) = self.param_promo_reg.get(idx) {
             self.promo_value_reg.insert(dst.0, reg);
+
+            return;
+          }
+
+          // Same for a promoted `mut` float parameter: its live
+          // value is in the callee-saved d-register.
+          if let Some(&reg) = self.param_promo_fp_reg.get(idx) {
+            self.promo_value_fp_reg.insert(dst.0, reg);
 
             return;
           }
@@ -4340,6 +4423,7 @@ impl<'a> ARM64Gen<'a> {
           let param_reserve = self.param_slots.len() as u32 * STACK_SLOT_SIZE;
           let caller_save = self.caller_save_reserve;
           let promo_save_size = self.promo_save_size();
+          let promo_save_fp_size = self.promo_save_fp_size();
           let frame = Self::aligned_frame_size(FrameAreas {
             spill_size,
             mut_size,
@@ -4350,6 +4434,7 @@ impl<'a> ARM64Gen<'a> {
             select_scratch_size,
             string_format_scratch_size,
             promo_save_size,
+            promo_save_fp_size,
           });
 
           // Restore the caller's callee-saved registers from
@@ -4361,6 +4446,13 @@ impl<'a> ARM64Gen<'a> {
             let off = self.promo_save_base + index as u32 * STACK_SLOT_SIZE;
 
             self.emit_ldr_sp(reg, off);
+          }
+
+          for index in 0..self.promotion.fp_used_count() {
+            let reg = self.promotion.fp_used_reg_at(index);
+            let off = self.promo_save_fp_base + index as u32 * STACK_SLOT_SIZE;
+
+            self.emit_ldr_fp_sp(reg, off);
           }
 
           if frame > 0 {
@@ -4435,6 +4527,22 @@ impl<'a> ARM64Gen<'a> {
             }
           } else if self.materialize_value_into_x16(*value, all_insns, 0) {
             self.emitter.emit_mov_reg(dst, X16);
+          }
+
+          return;
+        }
+
+        // Float promotion: the `float` local lives in a callee-
+        // saved FP register, so the write is an `fmov` with no
+        // memory store. The value is already in an FP register
+        // from its producer; an `fmov d, d` no-op is skipped.
+        if let Some(dst) = self.promotion.freg_of(*name) {
+          if let Some(src) = self
+            .alloc_fp_reg(*value)
+            .or_else(|| self.scan_fp_reg_back(idx))
+            && src != dst
+          {
+            self.emitter.emit_fmov_fp(dst, src);
           }
 
           return;
