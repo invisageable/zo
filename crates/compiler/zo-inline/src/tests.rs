@@ -3,9 +3,9 @@ pub(crate) mod common;
 use crate::{Inline, Release};
 
 use common::{
-  calls, comparison_and_caller, double_and_caller, enum_ctor_and_caller,
-  max_and_caller, nested_and_caller, struct_ctor_and_caller,
-  struct_shorthand_ctor_and_caller,
+  body_local_and_caller, calls, comparison_and_caller, double_and_caller,
+  enum_ctor_and_caller, max_and_caller, nested_and_caller,
+  struct_ctor_and_caller, struct_shorthand_ctor_and_caller,
 };
 
 use zo_interner::Interner;
@@ -131,6 +131,23 @@ fn release_chains_nested_inline_substitutions() {
   assert!(sir.instructions.iter().any(|insn| matches!(
     insn,
     Insn::Return { value: Some(v), .. } if *v == ValueId(10)
+  )));
+}
+
+#[test]
+fn release_inlines_and_renames_body_local() {
+  let mut interner = Interner::new();
+  let (mut sir, f) = body_local_and_caller(&mut interner);
+
+  Inline::new(&mut sir, &mut interner, &[], Release::Yes).inline();
+
+  // The call is gone and the spliced body local `d` was renamed to
+  // a call-site-unique name, so it can't clash with a caller local.
+  // (The un-inlined `f` definition keeps its own `d`.)
+  assert_eq!(calls(&sir, f), 0);
+  assert!(sir.instructions.iter().any(|insn| matches!(
+    insn,
+    Insn::VarDef { name, .. } if interner.get(*name).starts_with("__inl")
   )));
 }
 

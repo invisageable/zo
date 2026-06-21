@@ -1,7 +1,7 @@
 use zo_interner::{Interner, Symbol};
 use zo_sir::{BinOp, Insn, LoadSource, Sir};
 use zo_span::Span;
-use zo_ty::{SelfKind, TyId};
+use zo_ty::{Mutability, SelfKind, TyId};
 use zo_value::{FunctionKind, Pubness, ValueId};
 
 /// A `FunDef` introducer with `param_count` parameters.
@@ -364,6 +364,60 @@ pub fn nested_and_caller(interner: &mut Interner) -> (Sir, Symbol) {
   ];
 
   (make_sir(insns), fwd)
+}
+
+/// A `f(x) { imu d = x; d }` forwarder that routes through a body
+/// local `d`, plus a caller. The local must be renamed to a
+/// call-site-unique name on splice so it can't clash with a caller
+/// local of the same name.
+pub fn body_local_and_caller(interner: &mut Interner) -> (Sir, Symbol) {
+  let f = interner.intern("f");
+  let d = interner.intern("d");
+  let main = interner.intern("main");
+
+  let insns = vec![
+    fundef(f, 1),
+    Insn::Load {
+      dst: ValueId(1),
+      src: LoadSource::Param(0),
+      ty_id: TyId(1),
+    },
+    Insn::VarDef {
+      name: d,
+      ty_id: TyId(1),
+      init: Some(ValueId(1)),
+      mutability: Mutability::No,
+      pubness: Pubness::No,
+    },
+    Insn::Store {
+      name: d,
+      value: ValueId(1),
+      ty_id: TyId(1),
+    },
+    Insn::Load {
+      dst: ValueId(2),
+      src: LoadSource::Local(d),
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: Some(ValueId(2)),
+      ty_id: TyId(1),
+    },
+    fundef(main, 0),
+    Insn::Call {
+      dst: ValueId(11),
+      name: f,
+      callee_pack: None,
+      args: vec![ValueId(10)],
+      ty_id: TyId(1),
+    },
+    Insn::Return {
+      value: None,
+      ty_id: TyId(1),
+    },
+  ];
+
+  (make_sir(insns), f)
 }
 
 /// Count `Call`s to `name`.

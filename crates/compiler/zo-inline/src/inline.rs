@@ -21,7 +21,10 @@ pub enum Release {
 }
 
 /// Largest callee body, in SIR instructions, eligible to inline.
-const INLINE_MAX_INSNS: usize = 16;
+/// Raised once the inliner learned to splice body-local variables —
+/// real numeric kernels (a `1.0 / ((i+j)*(i+j+1)/2 + i + 1)` helper)
+/// run past the straight-line-no-locals limit.
+const INLINE_MAX_INSNS: usize = 32;
 
 /// How a callee's return value reaches the call's `dst`.
 enum ReturnMode {
@@ -246,6 +249,8 @@ impl<'a> Inline<'a> {
 
     let param_map = bind_params(&mut body, args, &candidate.param_syms);
 
+    rename_body_locals(&mut body, self.interner, dst);
+
     match candidate.ret {
       ReturnMode::Direct(ret) => {
         if let Some(ret) = ret {
@@ -322,8 +327,9 @@ impl<'a> Inline<'a> {
 /// Drops each parameter load and maps its result to the matching
 /// argument. A parameter reaches the body either by index
 /// (`LoadSource::Param`) or, through a shorthand struct field, by
-/// name (`LoadSource::Local`); an inlinable body defines no locals
-/// of its own, so every named local load is a parameter.
+/// name (`LoadSource::Local`). A named local load whose name is not
+/// a parameter is one of the body's own locals — left for
+/// `rename_body_locals` — so only parameter names rebind here.
 fn bind_params(
   body: &mut [Insn],
   args: &[ValueId],
@@ -359,6 +365,115 @@ fn bind_params(
   }
 
   param_map
+}
+
+/// Whether the body contains a loop — a branch or jump back to an
+/// earlier label. A loop carries mutable state through a body local
+/// across iterations, which needs a loop-header phi when the slot is
+/// promoted; that promotion isn't sound here, so a looping body
+/// stays a call. Loops are also low value to inline — the call
+/// overhead amortizes over the iterations.
+fn has_loop(body: &[Insn]) -> bool {
+  let mut label_pos: HashMap<u32, usize> = HashMap::default();
+
+  for (idx, insn) in body.iter().enumerate() {
+    if let Insn::Label { id } = insn {
+      label_pos.insert(*id, idx);
+    }
+  }
+
+  body.iter().enumerate().any(|(idx, insn)| {
+    let target = match insn {
+      Insn::Jump { target } => Some(*target),
+      Insn::BranchIfNot { target, .. } => Some(*target),
+      _ => None,
+    };
+
+    target
+      .and_then(|t| label_pos.get(&t))
+      .is_some_and(|&pos| pos < idx)
+  })
+}
+
+/// Whether the body's local variables are safe to splice: every
+/// store, drop, and named local load reaches either a parameter or a
+/// local the body itself declares with a `VarDef`, and no local
+/// shadows a parameter. A store to a parameter (a mutated `mut`
+/// param) or to an undeclared name can't be renamed soundly, so such
+/// a body is rejected.
+fn body_locals_sound(body: &[Insn], param_syms: &[Symbol]) -> bool {
+  let locals = body
+    .iter()
+    .filter_map(|insn| match insn {
+      Insn::VarDef { name, .. } => Some(*name),
+      _ => None,
+    })
+    .collect::<Vec<_>>();
+
+  if locals.iter().any(|local| param_syms.contains(local)) {
+    return false;
+  }
+
+  body.iter().all(|insn| match insn {
+    Insn::Store { name, .. } => locals.contains(name),
+    Insn::Drop { local, .. } => locals.contains(local),
+    Insn::Load {
+      src: LoadSource::Local(name),
+      ..
+    } => param_syms.contains(name) || locals.contains(name),
+    _ => true,
+  })
+}
+
+/// Renames the body's own locals to call-site-unique names so a
+/// caller local of the same name — or a second inline of the same
+/// callee — never clashes. Only `VarDef`-declared names are renamed;
+/// parameter loads were already bound to arguments.
+fn rename_body_locals(
+  body: &mut [Insn],
+  interner: &mut Interner,
+  dst: ValueId,
+) {
+  let mut rename: HashMap<u32, Symbol> = HashMap::default();
+
+  for insn in body.iter() {
+    if let Insn::VarDef { name, .. } = insn
+      && !rename.contains_key(&name.as_u32())
+    {
+      let original = interner.get(*name).to_owned();
+      let fresh = interner.intern(&format!("__inl{}_{original}__", dst.0));
+
+      rename.insert(name.as_u32(), fresh);
+    }
+  }
+
+  if rename.is_empty() {
+    return;
+  }
+
+  for insn in body.iter_mut() {
+    match insn {
+      Insn::VarDef { name, .. } | Insn::Store { name, .. } => {
+        if let Some(&fresh) = rename.get(&name.as_u32()) {
+          *name = fresh;
+        }
+      }
+      Insn::Drop { local, .. } => {
+        if let Some(&fresh) = rename.get(&local.as_u32()) {
+          *local = fresh;
+        }
+      }
+      Insn::Load {
+        src: LoadSource::Local(name),
+        ..
+      } => {
+        if let Some(&fresh) = rename.get(&name.as_u32()) {
+          *name = fresh;
+        }
+      }
+      _ => {}
+    }
+  }
 }
 
 /// Whether codegen lowers a call to `name` as a runtime builtin,
@@ -413,6 +528,10 @@ fn build_candidate(
   let ret_ty = ret_ty?;
   let (value_span, label_span) = strides(body);
   let param_syms = params.iter().map(|(name, _)| *name).collect::<Vec<_>>();
+
+  if !body_locals_sound(body, &param_syms) || has_loop(body) {
+    return None;
+  }
 
   let single_return = returns == 1
     && !has_branch
@@ -496,6 +615,9 @@ fn is_inlinable_insn(insn: &Insn) -> bool {
       | Insn::TupleIndex { .. }
       | Insn::StructConstruct { .. }
       | Insn::EnumConstruct { .. }
+      | Insn::VarDef { .. }
+      | Insn::Store { .. }
+      | Insn::Drop { .. }
       | Insn::Label { .. }
       | Insn::Jump { .. }
       | Insn::BranchIfNot { .. }
